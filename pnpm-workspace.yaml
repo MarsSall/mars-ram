@@ -1,0 +1,35 @@
+packages:
+  - packages/*
+  - host/*
+  - apps/*
+
+# Dependency install scripts are blocked unless listed as true here.
+allowBuilds:
+  "@google/genai": false
+  protobufjs: false
+
+# Record exact versions when adding dependencies.
+saveExact: true
+
+# Supply-chain checks, kept in the repository so they apply on every machine:
+# wait 3 days before installing a new release, refuse trust downgrades,
+# fail on unapproved install scripts, and block exotic transitive sources.
+minimumReleaseAge: 4320
+trustPolicy: no-downgrade
+strictDepBuilds: true
+blockExoticSubdeps: true
+
+# Versions allowed despite the trust-downgrade check, each verified by hand.
+# semver@6.3.1: first patched 6.x release for CVE-2022-25883 (GHSA-c2qf-rxjj-qqgw),
+# published 2023-07-10 by npm/node-semver maintainer lukekarrys with a registry
+# signature. It has no provenance attestation while later 7.x releases do; the
+# reason for that is not known.
+trustPolicyExclude:
+  - semver@6.3.1
+
+# Patched versions forced for transitive build and dev tooling (Dependabot):
+# node-forge via @expo/cli, undici via @earendil-works/pi-coding-agent (pi-bridge
+# devDependency). Neither ships in the Android app nor in host code users install.
+overrides:
+  node-forge: 1.4.1
+  undici: 8.12.2

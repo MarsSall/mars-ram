@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "Mars-RAM",
+    "slug": "mars-ram",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#010101",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "predictiveBackGestureEnabled": false,
+      "package": "com.marssall.marsram"
+    },
+    "scheme": "mars-ram",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#010101",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ],
+      "./plugins/with-loopback-network-security",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "packagingOptions": {
+              "pickFirst": [
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE.md"
+              ],
+              "exclude": [
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+              ]
+            }
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "La cámara se usa para tomar una foto para adjuntar.",
+          "photosPermission": "Selecciona las fotos que quieras adjuntar.",
+          "microphonePermission": "El micrófono se usa para dictar."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La cámara se usa para escanear el código de vinculación o tomar una foto para adjuntar.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Local Pi runtime state and research tooling
+.atl/
+.pi/
+ghidra-go-diagnostic-projects/
+
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo

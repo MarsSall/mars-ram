@@ -1,0 +1,13 @@
+{
+	"name": "@workspace/host-cli",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc -p ."
+	},
+	"dependencies": {
+		"@workspace/protocol": "workspace:*",
+		"typebox": "1.3.37",
+		"uqr": "0.1.3"
+	}
+}

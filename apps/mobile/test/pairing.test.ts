@@ -1,0 +1,207 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { encodePairingUri, PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
+import { pairWithComputer, type PairingDeps } from "../src/core/pairing";
+import type { HostConnection, HostTarget } from "../src/core/ports";
+import type { SavedHost } from "../src/core/host-catalog";
+
+const offer: PairingOffer = {
+	v: PAIRING_VERSION,
+	name: "devbox",
+	address: "100.64.0.10",
+	dnsName: "devbox.example-tailnet.ts.net",
+	sshPort: 22,
+	user: "mars",
+	hostKey: `SHA256:${"B".repeat(43)}`,
+	pairPort: 47123,
+	code: "q7Hn2vJk9sLp4xWc8bZr5t",
+	expiresAt: 10_000,
+};
+const PUBLIC_KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY app";
+
+let probes: { address: string; port: number }[];
+let probeAnswer: boolean;
+let posts: { url: string; body: unknown; timeoutMs: number }[];
+let postReply: { status: number; json: unknown } | Error;
+let connects: HostTarget[];
+let connectReply: Awaited<ReturnType<HostConnection["connect"]>>;
+let disconnects: string[];
+let saved: SavedHost[];
+let unlocks: number;
+let unlockAnswer: boolean;
+let deps: PairingDeps;
+
+beforeEach(() => {
+	probes = [];
+	probeAnswer = true;
+	posts = [];
+	postReply = { status: 200, json: { ok: true, user: "mars", hostKey: offer.hostKey } };
+	connects = [];
+	connectReply = { ok: true, connectionId: "c1", fingerprint: offer.hostKey, address: offer.dnsName! };
+	disconnects = [];
+	saved = [];
+	unlocks = 0;
+	unlockAnswer = true;
+	deps = {
+		clock: () => 1_000,
+		deviceName: "Galaxy S24 Ultra",
+		keyAlias: "app-key",
+		appKey: { ensure: async () => ({ publicKey: PUBLIC_KEY }) },
+		probe: async (address, port) => {
+			probes.push({ address, port });
+			return probeAnswer;
+		},
+		http: {
+			postJson: async (url, body, timeoutMs) => {
+				posts.push({ url, body, timeoutMs });
+				if (postReply instanceof Error) throw postReply;
+				return postReply;
+			},
+		},
+		host: {
+			connect: async (target: HostTarget) => {
+				connects.push(target);
+				return connectReply;
+			},
+			disconnect: async (id: string) => void disconnects.push(id),
+		} as unknown as HostConnection,
+		catalog: {
+			list: async () => saved,
+			save: async (host) => void saved.push(host),
+			remove: async () => {},
+		},
+		newId: () => "host-1",
+		unlock: async () => {
+			unlocks++;
+			return unlockAnswer;
+		},
+	};
+});
+
+describe("pairWithComputer", () => {
+	it("sends only the public key and code, connects expecting the QR's identity, and saves the computer", async () => {
+		const result = await pairWithComputer(deps, encodePairingUri(offer));
+		expect(posts).toEqual([
+			// The computer answers only after its user confirms, so the phone waits until the code expires.
+			{ url: "http://100.64.0.10:47123/pair", body: { code: offer.code, publicKey: PUBLIC_KEY, deviceName: "Galaxy S24 Ultra" }, timeoutMs: 9_000 },
+		]);
+		expect(connects).toEqual([
+			{ host: "devbox.example-tailnet.ts.net", fallbackHost: "100.64.0.10", port: 22, username: "mars", keyAlias: "app-key", expectedFingerprint: offer.hostKey },
+		]);
+		expect(disconnects).toEqual(["c1"]);
+		const host: SavedHost = {
+			keyAlias: "app-key",
+			rotation: { phase: "done" },
+			id: "host-1",
+			name: "devbox",
+			address: "100.64.0.10",
+			dnsName: "devbox.example-tailnet.ts.net",
+			sshPort: 22,
+			user: "mars",
+			hostKey: offer.hostKey,
+			addedAt: 1_000,
+		};
+		expect(saved).toEqual([host]);
+		expect(result).toEqual({ ok: true, host });
+	});
+
+	it("asks to unlock the key after the computer accepts it, so the unlock is fresh when connecting", async () => {
+		await pairWithComputer(deps, encodePairingUri(offer));
+		expect(unlocks).toBe(1);
+	});
+
+	it("does not ask to unlock when the computer refused", async () => {
+		postReply = { status: 403, json: { ok: false, error: "rejected", message: "The computer did not authorize this phone." } };
+		await pairWithComputer(deps, encodePairingUri(offer));
+		expect(unlocks).toBe(0);
+	});
+
+	it("saves nothing when the user cancels the unlock", async () => {
+		unlockAnswer = false;
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "connect",
+			code: "UNLOCK_REQUIRED",
+			message: "The phone was not unlocked, so the computer was not saved. Show a new code on the computer and try again.",
+		});
+		expect(connects).toEqual([]);
+		expect(saved).toEqual([]);
+	});
+
+	it.each([
+		["a QR from another app", "otherapp://pair?p=x", "This QR is not a pairing code for this app."],
+	])("refuses %s before contacting anything", async (_name, uri, message) => {
+		expect(await pairWithComputer(deps, uri)).toEqual({ ok: false, step: "scan", message });
+		expect(posts).toEqual([]);
+	});
+
+	it("refuses an expired code before contacting the computer", async () => {
+		deps.clock = () => 20_000;
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "scan",
+			message: "This pairing code expired. Show a new one on the computer.",
+		});
+		expect(posts).toEqual([]);
+	});
+
+	it("checks that the computer answers before sending the key", async () => {
+		await pairWithComputer(deps, encodePairingUri(offer));
+		expect(probes).toEqual([{ address: "100.64.0.10", port: 22 }]);
+	});
+
+	it("stops right away when the computer does not answer, instead of waiting for the code to expire", async () => {
+		probeAnswer = false;
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "send-key",
+			code: "UNREACHABLE",
+			message: "Cannot reach the computer. Check that Tailscale is on in this phone and the computer is on, then scan again.",
+		});
+		expect(posts).toEqual([]);
+		expect(unlocks).toBe(0);
+		expect(saved).toEqual([]);
+	});
+
+	it("explains when the computer cannot be reached over the tailnet", async () => {
+		postReply = new Error("Network request failed");
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "send-key",
+			message: "Cannot reach the computer. Check that the phone is on the tailnet and the pairing code is still on screen.",
+		});
+		expect(saved).toEqual([]);
+	});
+
+	it("passes on the computer's reason when it refuses, and saves nothing", async () => {
+		postReply = { status: 403, json: { ok: false, error: "rejected", message: "The computer did not authorize this phone." } };
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "send-key",
+			message: "The computer did not authorize this phone.",
+		});
+		expect(connects).toEqual([]);
+		expect(saved).toEqual([]);
+	});
+
+	it("refuses to save when the identity seen differs from the QR's", async () => {
+		connectReply = { ok: false, code: "HOST_KEY_CHANGED", message: "The host identity is SHA256:x.", fingerprint: "SHA256:x", expected: offer.hostKey };
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "connect",
+			code: "HOST_KEY_CHANGED",
+			message: "The computer that answered is not the one in the QR. It was not saved.",
+		});
+		expect(saved).toEqual([]);
+	});
+
+	it("reports a connection failure after pairing with its own code, and saves nothing", async () => {
+		connectReply = { ok: false, code: "UNLOCK_REQUIRED", message: "Unlock the phone to use the SSH key." };
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "connect",
+			code: "UNLOCK_REQUIRED",
+			message: "Unlock the phone to use the SSH key.",
+		});
+		expect(saved).toEqual([]);
+	});
+});

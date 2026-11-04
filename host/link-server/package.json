@@ -1,0 +1,7 @@
+{
+	"name": "@workspace/link-server",
+	"private": true,
+	"type": "module",
+	"engines": { "node": ">=24" },
+	"scripts": { "typecheck": "tsc -p ." }
+}
