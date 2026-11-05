@@ -1,5 +1,5 @@
 // Use case: add a computer by scanning the QR it shows (PRD R1).
-import { decodePairingUri, decodeResponse, PairingResponse } from "@workspace/protocol";
+import { decodePairingUri, decodeResponse, PairingResponse, type PairingErrorCode } from "@workspace/protocol";
 import { connectTarget, type HostCatalog, type SavedHost } from "./host-catalog";
 import type { FailureCode, HostConnection } from "./ports";
 
@@ -23,16 +23,60 @@ export type PairingDeps = {
 /** Where pairing stopped: reading the QR, giving the key to the computer, or the first connection. */
 export type PairingStep = "scan" | "send-key" | "connect";
 
+/** Pairing's own failures, so the screen can explain them in the user's language; message stays an English fallback. */
+export type PairingFailureCode =
+	| FailureCode
+	| "INVALID_QR"
+	| "CODE_EXPIRED"
+	| "MAGICDNS_REQUIRED"
+	| "SEND_FAILED"
+	| "UNEXPECTED_ANSWER"
+	| "REFUSED"
+	| "PAIRING_CLOSED";
+
 export type PairingResult =
 	| { ok: true; host: SavedHost }
-	| { ok: false; step: PairingStep; message: string; code?: FailureCode };
+	| { ok: false; step: PairingStep; message: string; code?: PairingFailureCode };
+
+const REFUSAL_CODES: Record<PairingErrorCode, PairingFailureCode> = {
+	rejected: "REFUSED",
+	expired: "CODE_EXPIRED",
+	closed: "PAIRING_CLOSED",
+	bad_code: "PAIRING_CLOSED",
+	bad_request: "PAIRING_CLOSED",
+	internal: "PAIRING_CLOSED",
+};
+
+const MAGICDNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * The computer's MagicDNS name, lowercase and without one trailing dot, or null unless it is a host under ts.net.
+ * Android permits cleartext only to ts.net names; a MagicDNS name normally resolves to a tailnet address.
+ */
+export function magicDnsName(dnsName: string | undefined): string | null {
+	if (!dnsName) return null;
+	const name = dnsName.toLowerCase().replace(/\.$/, "");
+	const labels = name.split(".");
+	if (name.length > 253 || labels.length < 3 || labels.at(-2) !== "ts" || labels.at(-1) !== "net") return null;
+	return labels.every((label) => MAGICDNS_LABEL.test(label)) ? name : null;
+}
 
 export async function pairWithComputer(deps: PairingDeps, uri: string): Promise<PairingResult> {
 	const decoded = decodePairingUri(uri);
-	if (!decoded.ok) return { ok: false, step: "scan", message: decoded.message };
+	if (!decoded.ok) return { ok: false, step: "scan", code: "INVALID_QR", message: decoded.message };
 	const offer = decoded.value;
 	if (deps.clock() > offer.expiresAt) {
-		return { ok: false, step: "scan", message: "This pairing code expired. Show a new one on the computer." };
+		return { ok: false, step: "scan", code: "CODE_EXPIRED", message: "This pairing code expired. Show a new one on the computer." };
+	}
+	// The key request is plain HTTP, which Android allows only to MagicDNS names: never fall back to the IP address.
+	const pairHost = magicDnsName(offer.dnsName);
+	if (!pairHost) {
+		return {
+			ok: false,
+			step: "scan",
+			code: "MAGICDNS_REQUIRED",
+			message: "Turn on MagicDNS in Tailscale (admin console › DNS) and run mars-ram pair again.",
+		};
 	}
 
 	// The key request waits minutes for the user's answer, so first make sure the computer is reachable at all,
@@ -52,7 +96,7 @@ export async function pairWithComputer(deps: PairingDeps, uri: string): Promise<
 	try {
 		// The computer answers only after its user confirms, so wait until the code expires.
 		reply = await deps.http.postJson(
-			`http://${offer.address}:${offer.pairPort}/pair`,
+			`http://${pairHost}:${offer.pairPort}/pair`,
 			{ code: offer.code, publicKey: key.publicKey, deviceName: deps.deviceName },
 			offer.expiresAt - deps.clock(),
 		);
@@ -60,12 +104,13 @@ export async function pairWithComputer(deps: PairingDeps, uri: string): Promise<
 		return {
 			ok: false,
 			step: "send-key",
+			code: "SEND_FAILED",
 			message: "Cannot reach the computer. Check that the phone is on the tailnet and the pairing code is still on screen.",
 		};
 	}
 	const answer = decodeResponse(PairingResponse, reply.json);
-	if (!answer.ok) return { ok: false, step: "send-key", message: "The computer answered something unexpected." };
-	if (!answer.value.ok) return { ok: false, step: "send-key", message: answer.value.message };
+	if (!answer.ok) return { ok: false, step: "send-key", code: "UNEXPECTED_ANSWER", message: "The computer answered something unexpected." };
+	if (!answer.value.ok) return { ok: false, step: "send-key", code: REFUSAL_CODES[answer.value.error], message: answer.value.message };
 
 	const host: SavedHost = {
 		id: deps.newId(),

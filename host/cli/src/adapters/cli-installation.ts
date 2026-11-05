@@ -138,8 +138,18 @@ function sources(): [string, string][] {
  [join(protocolSource, 'src'), 'protocol/src'], [join(protocolSource, 'package.json'), 'protocol/package.json'], [packageRoot('typebox'), 'node_modules/typebox'], [packageRoot('uqr'), 'node_modules/uqr']];
 }
 const protocolKey = 'node_modules/@workspace/protocol/';
+// Node warns once per process that stripTypeScriptTypes is experimental; keep mars-ram output clean
+// by dropping only that warning, during this call only.
+function stripTypes(source: string): string {
+ const emit = process.emitWarning;
+ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+  if ((typeof warning === 'string' ? warning : warning.message).includes('stripTypeScriptTypes')) return;
+  return (emit as (...args: unknown[]) => void).call(process, warning, ...rest);
+ }) as typeof process.emitWarning;
+ try { return stripTypeScriptTypes(source); } finally { process.emitWarning = emit; }
+}
 function protocolJavaScript(source: string): string {
- return stripTypeScriptTypes(source).replace(/(["'][^"'\r\n]+)\.ts(["'])/g, '$1.js$2');
+ return stripTypes(source).replace(/(["'][^"'\r\n]+)\.ts(["'])/g, '$1.js$2');
 }
 function protocolManifest(source: string): string {
  const value = JSON.parse(source);

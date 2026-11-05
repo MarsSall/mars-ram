@@ -36,6 +36,7 @@
         "expo-build-properties",
         {
           "android": {
+            "enableMinifyInReleaseBuilds": false,
             "packagingOptions": {
               "pickFirst": [
                 "META-INF/LICENSE.md",

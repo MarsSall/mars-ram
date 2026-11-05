@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, renameSync, statSync, symlinkSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
@@ -255,3 +255,18 @@ describe('installed CLI (isolated home; no real PATH changes)', () => {
   } finally { rmSync(home, { recursive: true, force: true }); }
  });
 });
+
+it('builds the CLI copy without printing Node\'s type-stripping ExperimentalWarning, and keeps other warnings', () => {
+ const root = mkdtempSync(join(tmpdir(), 'mr-quiet-copy-'));
+ try {
+  const module = pathToFileURL(join(import.meta.dirname, '../../src/adapters/cli-installation.ts')).href;
+  const script = `const m = await import(${JSON.stringify(module)}); m.buildCliCopy(${JSON.stringify(root)}); process.emitWarning('other warning'); console.log(m.cliCopyIsCurrent(${JSON.stringify(join(root, "cli"))}));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  expect(result.status).toBe(0);
+  expect(result.stdout.trim()).toBe('true');
+  expect(result.stderr).not.toContain('ExperimentalWarning');
+  expect(result.stderr).not.toContain('stripTypeScriptTypes');
+  expect(result.stderr).toContain('Warning: other warning');
+  expect(existsSync(join(root, 'cli/node_modules/@workspace/protocol/src/index.js'))).toBe(true);
+ } finally { rmSync(root, { recursive: true, force: true }); }
+}, 60_000);

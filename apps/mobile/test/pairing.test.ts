@@ -82,7 +82,7 @@ describe("pairWithComputer", () => {
 		const result = await pairWithComputer(deps, encodePairingUri(offer));
 		expect(posts).toEqual([
 			// The computer answers only after its user confirms, so the phone waits until the code expires.
-			{ url: "http://100.64.0.10:47123/pair", body: { code: offer.code, publicKey: PUBLIC_KEY, deviceName: "Galaxy S24 Ultra" }, timeoutMs: 9_000 },
+			{ url: "http://devbox.example-tailnet.ts.net:47123/pair", body: { code: offer.code, publicKey: PUBLIC_KEY, deviceName: "Galaxy S24 Ultra" }, timeoutMs: 9_000 },
 		]);
 		expect(connects).toEqual([
 			{ host: "devbox.example-tailnet.ts.net", fallbackHost: "100.64.0.10", port: 22, username: "mars", keyAlias: "app-key", expectedFingerprint: offer.hostKey },
@@ -130,7 +130,7 @@ describe("pairWithComputer", () => {
 	it.each([
 		["a QR from another app", "otherapp://pair?p=x", "This QR is not a pairing code for this app."],
 	])("refuses %s before contacting anything", async (_name, uri, message) => {
-		expect(await pairWithComputer(deps, uri)).toEqual({ ok: false, step: "scan", message });
+		expect(await pairWithComputer(deps, uri)).toEqual({ ok: false, step: "scan", code: "INVALID_QR", message });
 		expect(posts).toEqual([]);
 	});
 
@@ -139,9 +139,66 @@ describe("pairWithComputer", () => {
 		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
 			ok: false,
 			step: "scan",
+			code: "CODE_EXPIRED",
 			message: "This pairing code expired. Show a new one on the computer.",
 		});
 		expect(posts).toEqual([]);
+	});
+
+	it("sends the key to the computer's MagicDNS name, lowercase and without the trailing dot", async () => {
+		await pairWithComputer(deps, encodePairingUri({ ...offer, dnsName: "Mars.Tail1234.ts.net." }));
+		expect(posts.map((post) => post.url)).toEqual(["http://mars.tail1234.ts.net:47123/pair"]);
+	});
+
+	it.each([
+		["no MagicDNS name", undefined],
+		["an empty name", ""],
+		["a name outside ts.net", "evil.example.com"],
+		["an IP address", "100.64.1.2"],
+		["an empty label", "a..ts.net"],
+		["ts.net itself", "ts.net"],
+		["a name that only ends like ts.net", "evilts.net"],
+		["a label with other characters", "mars_1.tail1234.ts.net"],
+		["a port", "mars.tail1234.ts.net:80"],
+		["a path", "mars.tail1234.ts.net/x"],
+		["two trailing dots", "mars.tail1234.ts.net.."],
+		["a label starting with a hyphen", "-mars.tail1234.ts.net"],
+		["a label ending with a hyphen", "mars-.tail1234.ts.net"],
+		["an all-hyphen label", "mars.---.ts.net"],
+	])("asks to turn on MagicDNS, before any network request, for %s", async (_name, dnsName) => {
+		const { dnsName: _drop, ...withoutName } = offer;
+		const scanned: PairingOffer = dnsName === undefined ? withoutName : { ...offer, dnsName };
+		expect(await pairWithComputer(deps, encodePairingUri(scanned))).toEqual({
+			ok: false,
+			step: "scan",
+			code: "MAGICDNS_REQUIRED",
+			message: "Turn on MagicDNS in Tailscale (admin console › DNS) and run mars-ram pair again.",
+		});
+		expect(probes).toEqual([]);
+		expect(posts).toEqual([]);
+		expect(unlocks).toBe(0);
+		expect(saved).toEqual([]);
+	});
+
+	it("names what went wrong when the computer answers something unexpected", async () => {
+		postReply = { status: 200, json: { hello: "world" } };
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "send-key",
+			code: "UNEXPECTED_ANSWER",
+			message: "The computer answered something unexpected.",
+		});
+	});
+
+	it.each([
+		["expired", "CODE_EXPIRED"],
+		["closed", "PAIRING_CLOSED"],
+		["bad_code", "PAIRING_CLOSED"],
+		["bad_request", "PAIRING_CLOSED"],
+		["internal", "PAIRING_CLOSED"],
+	] as const)("names the computer's %s refusal so the screen can explain it", async (error, code) => {
+		postReply = { status: 409, json: { ok: false, error, message: "From the computer." } };
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({ ok: false, step: "send-key", code, message: "From the computer." });
 	});
 
 	it("checks that the computer answers before sending the key", async () => {
@@ -167,6 +224,7 @@ describe("pairWithComputer", () => {
 		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
 			ok: false,
 			step: "send-key",
+			code: "SEND_FAILED",
 			message: "Cannot reach the computer. Check that the phone is on the tailnet and the pairing code is still on screen.",
 		});
 		expect(saved).toEqual([]);
@@ -177,6 +235,7 @@ describe("pairWithComputer", () => {
 		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
 			ok: false,
 			step: "send-key",
+			code: "REFUSED",
 			message: "The computer did not authorize this phone.",
 		});
 		expect(connects).toEqual([]);

@@ -3,7 +3,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { PairingResult } from "../../core/pairing";
+import type { PairingFailureCode, PairingResult } from "../../core/pairing";
 import { pair } from "../../services";
 import { PrimaryButton, Screen } from "../../ui/components";
 import { usePreferences } from "../../ui/preferences";
@@ -29,7 +29,9 @@ export default function AddComputerScreen() {
 			router.replace({ pathname: "/computer/[id]", params: { id: result.host.id } });
 			return;
 		}
-		setPhase({ kind: "failed", message: result.code === "UNREACHABLE" ? t.add.unreachable : result.message });
+		// Core messages are English; show the screen's language when the failure has a known code.
+		const failures: Partial<Record<PairingFailureCode, string>> = { ...t.add.failures, UNREACHABLE: t.add.unreachable };
+		setPhase({ kind: "failed", message: (result.code && failures[result.code]) || result.message });
 	};
 
 	const header = (
