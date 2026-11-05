@@ -9,7 +9,8 @@
 	"scripts": {
 		"test": "vitest run --project unit",
 		"test:contract": "vitest run --project contract",
-		"typecheck": "pnpm -r typecheck"
+		"typecheck": "pnpm -r typecheck",
+		"release:host": "node host/cli/scripts/build-release.ts"
 	},
 	"devDependencies": {
 		"@types/node": "26.6.5",

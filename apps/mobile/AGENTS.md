@@ -31,7 +31,15 @@ Run lint and typecheck before declaring any task done.
 
 ## Building with EAS
 
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Run EAS CLI as `bunx eas-cli <command>` in Bun projects, or `npx eas-cli@latest <command>` otherwise; substitute that for bare `eas` in docs examples.
+Builds run on this machine with `eas build --local`; Expo keeps the signing credentials. Use the pinned CLI from `apps/mobile` as `pnpm exec eas <command>`, never `eas-cli@latest`. Local builds need `JAVA_HOME` (JDK 17) and `ANDROID_HOME`.
+
+| Profile | Output | Identity |
+| --- | --- | --- |
+| `development` | Dev client APK | `com.marssall.marsram` |
+| `preview` | Release APK for phone checks | `com.marssall.marsram.preview` («Mars-RAM Prueba»), installs next to the other builds |
+| `production` | Play AAB; `versionCode` incremented on EAS | `com.marssall.marsram` |
+
+Example: `pnpm exec eas build --local --platform android --profile preview --output /tmp/mars-ram-preview.apk`. `APP_VARIANT` (set by the profile) selects the identity in `app.config.ts`. Submitting to Play (`eas submit`) is the owner's decision.
 Docs: https://docs.expo.dev/eas/index.md
 
 ## Rules

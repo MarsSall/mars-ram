@@ -77,7 +77,8 @@ export const en = {
 	},
 	home: {
 		title: "Home", brand: "Mars-RAM", tagline: "Your computer and your sessions, from your phone.",
-		install: "Install mars-ram on your computer", run: "Run", scanStep: "Scan the code",
+		install: "On your computer, open a terminal and run:", run: "Run", scanStep: "Scan the code",
+		systemUnix: "Linux / Mac", systemWindows: "Windows", copy: "Copy", copied: "Copied", copyCommand: "Copy the command", copyFailed: "Could not copy. Try again.",
 		scan: "Scan code", manual: "Add manually", needsYou: "Needs you", activeSessions: "Active sessions",
 		empty: "No sessions open yet.", emptyHint: "Open Pi on your computer to see it here.",
 		computerStatus: { responding: "Responding", unreachable: "Not responding", locked: "Unlock required", "identity-changed": "Identity changed" },

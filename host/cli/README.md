@@ -2,7 +2,57 @@
 
 The command the user runs on their computer: install the Pi session bridge and private-link server, remove them, or pair a phone with a QR code and no cloud.
 
-**First time from a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram install` updates, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. Nothing is published; the installed copy works without the clone.
+**First time:** the one-line installer below (Linux, macOS or Windows). **From a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram install` updates, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. Nothing is published; the installed copy works without the clone.
+
+## One-line install (Linux, macOS)
+
+```bash
+curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
+```
+
+To read it before running it:
+
+```bash
+curl -fsSL https://marssall.github.io/mars-ram/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+`install.sh` is POSIX sh, per-user, no sudo. Each script names one version and the SHA-256 of that version's archive; that embedded value is its only trust anchor (it never trusts a downloaded `SHA256SUMS`).
+
+1. Checks Node.js 24+, `tar`, `curl` or `wget`, and `sha256sum` or `shasum`; if any is missing it says which and stops before downloading. Warns and continues when `pi`, `tailscale` or an SSH server (`sshd`; on macOS, a Remote Login hint) is not found; `mars-ram doctor` checks everything after install.
+2. Downloads `https://github.com/MarsSall/mars-ram/releases/download/v<version>/mars-ram-<version>.tar.gz` into a temporary folder.
+3. Verifies its SHA-256. On a mismatch it prints the expected and actual values, deletes the download and installs nothing (exit 1).
+4. Unpacks it and runs `mars-ram install` with questions read from `/dev/tty`, so they work through the pipe. Without a terminal it explains how to download the script and run it. Its exit code is passed through; on success it prints the next step, `mars-ram pair`.
+5. Removes the temporary folder on every exit.
+
+`MARS_RAM_DOWNLOAD_URL` replaces the archive URL (a mirror or a local `file://` copy); the embedded checksum is still enforced, so it cannot install different bytes. Messages are in Spanish when `LC_ALL`, `LC_MESSAGES` or `LANG` starts with `es`, otherwise English. The script's whole body is one function called on its last line, so a cut-off download runs nothing.
+
+## One-line install (Windows)
+
+In a **normal** (not administrator) PowerShell window:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://marssall.github.io/mars-ram/install.ps1 | iex"
+```
+
+To read it before running it:
+
+```powershell
+irm https://marssall.github.io/mars-ram/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+`install.ps1` runs in Windows PowerShell 5.1 and PowerShell 7, per-user, no administrator rights. Like `install.sh`, it names one version and that archive's SHA-256, its only trust anchor.
+
+1. Refuses an elevated session before anything else and asks for a normal PowerShell window (the same rule as `mars-ram install`).
+2. Checks Node.js 24+ and `tar.exe` (Windows 10 1803 or newer); if either is missing it says which and stops before downloading. Warns and continues when `pi` or `tailscale` is not found, or the OpenSSH Server service `sshd` is not installed or not running; `mars-ram doctor` checks everything after install.
+3. Downloads the same archive with `Invoke-WebRequest` (TLS 1.2 enabled for 5.1) into a new folder under `%TEMP%`, removed on every exit.
+4. Verifies it with `Get-FileHash`. On a mismatch it prints the expected and actual values, deletes the download and installs nothing.
+5. Unpacks it with `tar.exe` and runs `mars-ram install` in the same console, so its questions work through `irm | iex`. On success it prints the next step: open a **new** terminal (the user `Path` changed) and run `mars-ram pair`.
+
+It never closes your console: the body is one function called on the last line, and a failure prints why, returns and sets `$LASTEXITCODE` (1, or the exit code of `mars-ram install`), so `powershell -File install.ps1` itself exits 0 even on a refusal. `MARS_RAM_DOWNLOAD_URL` replaces the archive URL (a mirror, a `file://` URL or a local path); the embedded checksum is still enforced. Messages are in Spanish when the regional format (`Get-Culture`) is Spanish, otherwise English. The file is plain ASCII so 5.1 reads it the same from disk or from `irm`; Spanish accents are written as `{a}`, `{e}`… and expanded at run time.
 
 ## pair
 
@@ -188,6 +238,24 @@ pnpm vitest run --project unit host/cli   # includes the Ctrl+C test in a pseudo
 pnpm --filter @workspace/host-cli typecheck
 ```
 
+## Release archive
+
+```bash
+pnpm release:host <MAJOR.MINOR.PATCH> <outDir>   # node host/cli/scripts/build-release.ts
+```
+
+Writes `<outDir>/mars-ram-<version>.tar.gz`, `<outDir>/SHA256SUMS` (`sha256sum` format; check with `sha256sum -c SHA256SUMS`), `<outDir>/install.sh` and `<outDir>/install.ps1`, rendered from `scripts/install.sh` and `scripts/install.ps1` with the version and the archive's SHA-256. It needs GNU tar and refuses an invalid version or an existing archive, `SHA256SUMS`, `install.sh` or `install.ps1`; if a write fails, it removes the files it already wrote. The same version from the same sources gives the same bytes: sorted names, time 0, owner 0, normalized modes, gzip without timestamp.
+
+```text
+mars-ram-<version>/
+  VERSION
+  cli/          the same copy `mars-ram install` makes (src, protocol, typebox, uqr)
+  link-server/  src, package.json
+  pi-bridge/    src, package.json
+```
+
+It needs only Node 24+ on the computer: extract it anywhere and run `node mars-ram-<version>/cli/src/main.ts install`. The builder only writes local files; publishing a release is a separate decision of the owner.
+
 ## Layout
 
 | Path | Layer |
@@ -195,3 +263,4 @@ pnpm --filter @workspace/host-cli typecheck
 | `src/core/` | Pairing session, install/uninstall and read-only doctor policy, with ports for platform operations |
 | `src/adapters/` | Tailscale, identity, authorized keys, HTTP endpoint, terminal, filesystem copy and shell-free Pi execution |
 | `src/arguments.ts`, `src/main.ts`, `src/install-command.ts`, `src/doctor-command.ts` | Strict argument parsing, interactive selection, diagnostic output and wiring |
+| `scripts/build-release.ts`, `scripts/install.sh`, `scripts/install.ps1` | Release archive builder and the one-line installer templates it renders (not part of the installed copy) |

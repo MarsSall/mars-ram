@@ -79,7 +79,8 @@ export const es: Strings = {
 	},
 	home: {
 		title: "Inicio", brand: "Mars-RAM", tagline: "Tu computadora y tus sesiones, desde el teléfono.",
-		install: "Instalá mars-ram en tu computadora", run: "Ejecutá", scanStep: "Escaneá el código",
+		install: "En tu computadora, abrí una terminal y ejecutá:", run: "Ejecutá", scanStep: "Escaneá el código",
+		systemUnix: "Linux / Mac", systemWindows: "Windows", copy: "Copiar", copied: "Copiado", copyCommand: "Copiar el comando", copyFailed: "No se pudo copiar. Probá de nuevo.",
 		scan: "Escanear código", manual: "Agregar a mano", needsYou: "Te necesitan", activeSessions: "Sesiones activas",
 		empty: "Todavía no hay sesiones abiertas.", emptyHint: "Abrí Pi en tu computadora para verla acá.",
 		computerStatus: { responding: "Responde", unreachable: "no responde", locked: "Requiere desbloqueo", "identity-changed": "Identidad cambiada" },

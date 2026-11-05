@@ -6,6 +6,7 @@ packages:
 # Dependency install scripts are blocked unless listed as true here.
 allowBuilds:
   "@google/genai": false
+  dtrace-provider: false
   protobufjs: false
 
 # Record exact versions when adding dependencies.

@@ -11,6 +11,22 @@ Mars-RAM connects to your own computers over SSH on your Tailscale network. It s
 - `packages/protocol`: the app–bridge protocol.
 - `docs/`: architecture, threat model, host CLI and the [privacy policy](docs/privacy.md) ([español](docs/privacy.es.md)).
 
+## Install on your computer
+
+Linux or macOS:
+
+```sh
+curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
+```
+
+Windows (a normal PowerShell window):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://marssall.github.io/mars-ram/install.ps1 | iex"
+```
+
+Then run `mars-ram pair` and scan the code with the app. Requirements, what the installer does and how to read it first: [install guide](docs/install.md) ([español](docs/install.es.md)).
+
 ## License
 
 Copyright © 2026 MarsSall. All rights reserved. The source is published for transparency and review; no license is granted to copy, modify or redistribute it.

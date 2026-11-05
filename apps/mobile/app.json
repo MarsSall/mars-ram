@@ -67,6 +67,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "3bdbab06-3987-40dd-8765-2475ec6e875c"
+      }
+    },
+    "owner": "marsj"
   }
 }
