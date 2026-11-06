@@ -8,10 +8,35 @@ function page() {
  const handlers: Record<string, (value?: any) => void> = {};
  const writes: Uint8Array[] = [];
  let terminal: any;
+ const textareaListeners = new Map<string, { fn: (event: any) => void; capture: boolean }[]>();
+ const textarea = {
+  value: "",
+  addEventListener(name: string, fn: (event: any) => void, capture = false) {
+   const entries = textareaListeners.get(name) ?? [];
+   entries.push({ fn, capture }); textareaListeners.set(name, entries);
+  },
+ };
+ const dispatchTextarea = (name: string, event: any = {}) => {
+  for (const capture of [true, false]) {
+   for (const listener of textareaListeners.get(name) ?? []) {
+    if (listener.capture === capture) listener.fn(event);
+   }
+  }
+ };
  class Terminal {
   options: Record<string, any>; cols = 80; rows = 24; modes = { applicationCursorKeysMode: false };
   constructor(options: Record<string, any>) { this.options = options; terminal = this; }
-  loadAddon() {} open() {} focus() {} blur() {}
+  textarea = textarea;
+  bracketedPaste = false;
+  paste(text: string) { handlers.data(this.bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text); }
+  loadAddon() {}
+  open() {
+   // xterm 6 handles the clipboard but does not cancel the browser default.
+   textarea.addEventListener("paste", (event) => {
+    event.stopPropagation(); this.paste(event.clipboardData.getData("text/plain")); textarea.value = "";
+   });
+  }
+  focus() {} blur() {}
   onData(fn: () => void) { handlers.data = fn; } onBinary(fn: () => void) { handlers.binary = fn; }
   onResize(fn: () => void) { handlers.resize = fn; } onWriteParsed(fn: () => void) { handlers.parsed = fn; }
   onSelectionChange(fn: () => void) { handlers.selection = fn; } getSelection() { return "selected"; }
@@ -34,10 +59,49 @@ function page() {
   const event = { touches: ys.map((y) => ({ clientX: 100, clientY: y })), prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } };
   touch.get(name)!(event); return event;
  };
- return { messages, terminal, handlers, writes, wheels, finger, receive: (message: unknown) => listeners.get("message")!({ data: JSON.stringify(message) }) };
+ const paste = (text: string) => {
+  const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, clipboardData: { getData: () => text } };
+  dispatchTextarea("paste", event);
+  // A WebView's uncancelled native paste runs after xterm's handler.
+  if (!event.defaultPrevented) textarea.value += text;
+  return event;
+ };
+ const type = (text: string) => { textarea.value += text; handlers.data(textarea.value); };
+ const input = () => messages.filter((m) => m.type === "input").map((m) => Buffer.from(m.data as string, "base64").toString("utf8"));
+ return { messages, terminal, handlers, writes, wheels, finger, paste, type, input, textarea, dispatchTextarea, receive: (message: unknown) => listeners.get("message")!({ data: JSON.stringify(message) }) };
 }
 
 describe("bundled terminal page bridge", () => {
+ it("cancels native paste insertion so subsequent Android input cannot replay the clipboard", () => {
+  const p = page();
+  p.paste("clipboard ñ");
+  expect(p.input()).toEqual(["clipboard ñ"]);
+  p.type("a");
+  expect(p.input()).toEqual(["clipboard ñ", "a"]);
+ });
+ it("keeps xterm's bracketed paste encoding and handles repeated pastes once each", () => {
+  const p = page(); p.terminal.bracketedPaste = true;
+  expect(p.paste("one\ntwo").defaultPrevented).toBe(true);
+  p.paste("three"); p.type("z");
+  expect(p.input()).toEqual(["\x1b[200~one\ntwo\x1b[201~", "\x1b[200~three\x1b[201~", "z"]);
+ });
+ it("defers paste cleanup until composition ends without clearing normal IME input", () => {
+  const p = page();
+  p.dispatchTextarea("compositionstart"); p.textarea.value = "draft";
+  p.paste("clipboard");
+  // Simulate an IME update after xterm's paste handler has emptied the textarea.
+  p.textarea.value = "に"; p.handlers.data("に");
+  expect(p.textarea.value).toBe("に");
+  p.dispatchTextarea("compositionend");
+  // xterm reads the final composition asynchronously; do not erase it first.
+  expect(p.textarea.value).toBe("に");
+  p.handlers.data("本");
+  expect(p.textarea.value).toBe("");
+  p.type("x"); expect(p.input()).toEqual(["clipboard", "に", "本", "x"]);
+  p.dispatchTextarea("compositionstart"); p.textarea.value = "日本";
+  p.handlers.data("日本"); p.dispatchTextarea("compositionend");
+  expect(p.textarea.value).toBe("日本");
+ });
  it("turns a one-finger vertical drag into wheel scrolling at the finger, older content when dragging down", () => {
   const p = page();
   p.finger("touchstart", [500]);

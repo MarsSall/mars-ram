@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">MARS-RAM — Remote Agent Manager</title>
+  <desc id="desc">A gold wordmark between a computer and a phone, connected by a green line on a softly glowing black background.</desc>
+  <defs>
+    <radialGradient id="green">
+      <stop stop-color="#0A4F31" stop-opacity=".65"/>
+      <stop offset="1" stop-color="#010101" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gold">
+      <stop stop-color="#B38A33" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#010101" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lettering" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F2D88E"/>
+      <stop offset=".55" stop-color="#D9B45F"/>
+      <stop offset="1" stop-color="#B38A33"/>
+    </linearGradient>
+    <linearGradient id="link">
+      <stop stop-color="#B38A33" stop-opacity="0"/>
+      <stop offset=".25" stop-color="#D9B45F"/>
+      <stop offset=".75" stop-color="#5CCB94"/>
+      <stop offset="1" stop-color="#0A4F31" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" rx="20" fill="#010101"/>
+  <ellipse cx="880" cy="240" rx="380" ry="230" fill="url(#green)"/>
+  <ellipse cx="340" cy="125" rx="400" ry="240" fill="url(#gold)"/>
+  <rect x="16" y="16" width="1168" height="328" rx="14" fill="none" stroke="#D9B45F" stroke-opacity=".18"/>
+  <g fill="none" stroke="#D9B45F" stroke-width="2" opacity=".7">
+    <rect x="98" y="126" width="132" height="88" rx="8"/>
+    <path d="M164 214v20m-32 0h64M120 153l14 12-14 12m26 0h24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g fill="none" stroke="#5CCB94" stroke-width="2" opacity=".7">
+    <rect x="995" y="112" width="65" height="126" rx="12"/>
+    <path d="M1018 125h20m-25 29h29m-29 15h22m-22 15h27m-18 40h11" stroke-linecap="round"/>
+  </g>
+  <path d="M230 257h765" stroke="url(#link)" stroke-width="1.5"/>
+  <circle cx="484" cy="257" r="3" fill="#D9B45F"/>
+  <circle cx="716" cy="257" r="3" fill="#5CCB94"/>
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="600" y="110" font-size="13" letter-spacing="5" fill="#5CCB94">REMOTE AGENT MANAGER</text>
+    <text x="600" y="187" font-size="66" font-weight="700" letter-spacing="7" fill="url(#lettering)">MARS-RAM</text>
+    <text x="600" y="224" font-size="20" fill="#E4E8E5">Your computer. Your agents. Your phone.</text>
+    <text x="600" y="299" font-size="12" letter-spacing="3" fill="#D9B45F">AGENTS · SSH · TAILSCALE</text>
+  </g>
+</svg>

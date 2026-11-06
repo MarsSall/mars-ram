@@ -1,11 +1,11 @@
-# Checks every pull request and every push to master: install, typecheck, unit tests.
+# Checks every pull request and every push to master (main in the public repository): install, typecheck, unit tests.
 # Contract tests need a real Pi session and the Android build needs the SDK, so they run on the developer's machine.
 name: CI
 
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, main]
 
 permissions:
   contents: read

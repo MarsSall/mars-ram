@@ -11,8 +11,19 @@ export const terminalHtml = `<!doctype html><html><head><meta charset="utf-8">
  const post = value => window.ReactNativeWebView.postMessage(JSON.stringify(value));
  const term = new Terminal({fontSize:14,fontFamily:'monospace',scrollback:5000,cursorBlink:true,allowProposedApi:false,convertEol:false});
  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(document.getElementById('terminal'));
+ const textarea = term.textarea;
+ let composing=false, pastePending=false;
+ // xterm sends paste itself (including bracketed-paste escapes), but does not
+ // cancel Android's native insertion into the hidden IME textarea afterwards.
+ textarea.addEventListener('paste',event=>{event.preventDefault();pastePending=true;},true);
+ textarea.addEventListener('compositionstart',()=>{composing=true;},true);
+ // Do not clear here: xterm reads the final composition in a delayed callback.
+ textarea.addEventListener('compositionend',()=>{composing=false;});
  const sendBytes = bytes => { for(let i=0;i<bytes.length;i+=32768) { let binary=''; for(const b of bytes.subarray(i,i+32768)) binary+=String.fromCharCode(b); post({type:'input',data:btoa(binary)}); } };
- term.onData(data => sendBytes(new TextEncoder().encode(data)));
+ term.onData(data => {
+  sendBytes(new TextEncoder().encode(data));
+  if(pastePending&&!composing){textarea.value='';pastePending=false;}
+ });
  term.onBinary(data => sendBytes(Uint8Array.from(data,c=>c.charCodeAt(0))));
  term.onResize(size => post({type:'size',cols:size.cols,rows:size.rows}));
  let cursorMode=false;
