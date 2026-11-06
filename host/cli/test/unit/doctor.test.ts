@@ -7,7 +7,7 @@ import { doctorCommand } from "../../src/doctor-command.ts";
 function fake(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
 	return {
 		platform: "linux", spanish: false, herdr: async () => true,
-  cli: async () => ({ resolved: true, current: true, localBin: true }),
+  cli: async () => ({ resolved: true, command: "/home/alex/.local/bin/mars-ram", current: true, localBin: true }),
   linkServer: async () => ({ present: true, current: true, configured: true, validLinks: 0, listener: false }),
 		piVersion: async () => "pi 1.2.0", installation: async () => ({ present: true, current: true, homes: [{ path: "/pi", registered: true }] }),
 		registry: async () => ({ exists: true, entries: [{ name: "live.json", pid: 10 }], directoryMode: 0o700, modes: [0o600] }),
@@ -47,6 +47,22 @@ describe("read-only doctor policy with fake ports", () => {
 		expect(await doctorCommand(ports, (line) => lines.push(line))).toBe(0);
 		expect(lines.some((line) => line.startsWith("warning:"))).toBe(true);
 		expect(lines.every((line) => !/[\r\n\u001b]/.test(line))).toBe(true);
+	});
+	it("in package mode prints the mars-ram on PATH as information and warns only for a missing command or the old launcher", async () => {
+		const printed = async (spanish: boolean, cli: Awaited<ReturnType<DoctorPorts["cli"]>>) => {
+			const lines: string[] = [];
+			expect(await doctorCommand(fake({ spanish, cli: async () => cli }), (line) => lines.push(line))).toBe(0);
+			return lines;
+		};
+		const pnpm = "C:\\Users\\alex\\AppData\\Local\\pnpm\\mars-ram.CMD";
+		for (const spanish of [false, true]) {
+			expect(await printed(spanish, { resolved: false, command: pnpm, current: true, localBin: false, packageMode: true })).toContain(`ok: ${spanish ? "mars-ram en PATH" : "mars-ram on PATH"}: ${pnpm}`);
+			const missing = (await printed(spanish, { resolved: false, current: true, localBin: false, packageMode: true })).join("\n");
+			expect(missing).toContain(spanish ? ": mars-ram no está en PATH. Abrí una terminal nueva o revisá la instalación de pnpm/npm (pnpm setup)." : ": mars-ram is not on PATH. Open a new terminal or check the pnpm/npm install (pnpm setup).");
+			const old = (await printed(spanish, { resolved: true, command: "/home/alex/.local/bin/mars-ram", current: true, localBin: false, packageMode: true })).join("\n");
+			expect(old).toContain(spanish ? ": mars-ram en PATH es el lanzador anterior de mars-ram install; ejecutá mars-ram install de nuevo para retirarlo." : ": mars-ram on PATH is the old launcher from mars-ram install; run mars-ram install again to retire it.");
+			for (const output of [missing, old]) expect(output).not.toMatch(/npm package|paquete de npm/);
+		}
 	});
 	it("reports missing Pi and a failing exit code with actionable fixes", async () => {
 		const report = await diagnose(fake({ piVersion: async () => { throw Error("missing"); } }));

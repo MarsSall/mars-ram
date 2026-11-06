@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createInstallAdapter as realCreateInstallAdapter, resolveWindowsPiEntry, findHerdr, stableNodePath } from "../../src/adapters/installation.ts";
 import { Installation } from "../../src/core/installation.ts";
 import { copyIsCurrent } from "../../src/adapters/doctor.ts";
+import { installLauncher, launcherPath } from "../../src/adapters/cli-installation.ts";
 
 // Windows tests must never reach the real HKCU user Path, even with a temporary HOME.
 function createInstallAdapter(options: Parameters<typeof realCreateInstallAdapter>[0] = {}) {
@@ -212,6 +213,84 @@ describe("installation adapter (isolated; never invokes Pi)", () => {
 		expect(resolveWindowsPiEntry(shim, "C:\\tools\\pi.cmd")).toBe("C:\\tools\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js");
 		expect(() => resolveWindowsPiEntry("echo unexpected", "C:\\tools\\pi.cmd")).toThrow();
 	});
+});
+
+// The npm launcher names its own bin in MARS_RAM_PACKAGE_BIN; here it is passed as an option.
+describe.runIf(process.platform !== "win32")("install from the npm package", () => {
+ const fixture = (prefix: string) => {
+  const home = mkdtempSync(join(tmpdir(), prefix));
+  const pkg = join(home, "prefix/lib/node_modules/mars-ram");
+  mkdirSync(join(pkg, "bin"), { recursive: true });
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "mars-ram" }));
+  writeFileSync(join(pkg, "bin/mars-ram.mjs"), "#!/usr/bin/env node\n", { mode: 0o755 });
+  return { home, packageBin: join(pkg, "bin/mars-ram.mjs"), launcher: launcherPath(home, process.platform) };
+ };
+ const install = async (adapter: ReturnType<typeof createInstallAdapter>, extra: Record<string, unknown> = {}) => {
+  const record = { ...await adapter.buildCopy(), homes: [], date: "today", ...extra };
+  await adapter.writeRecord(record); await adapter.installCli(record);
+  return adapter.readRecord();
+ };
+ it("writes no launcher of its own, removes the owned one and records that the command is the package", async () => {
+  const { home, packageBin, launcher } = fixture("pkg-owned-");
+  try {
+   installLauncher(home, process.execPath, process.platform);
+   const adapter = createInstallAdapter({ home, packageBin });
+   expect(adapter.packageBin).toBe(packageBin);
+   const saved = await install(adapter, { launcher });
+   expect(existsSync(launcher)).toBe(false);
+   expect(saved).toMatchObject({ cli: join(home, ".mars-ram/cli"), packageBin });
+   expect(saved?.launcher).toBeUndefined();
+   expect(adapter.keptLauncher()).toBeUndefined();
+   expect(existsSync(join(home, ".mars-ram/cli/src/main.ts"))).toBe(true);
+   // Again from the package: nothing to remove, still package mode.
+   expect(await install(adapter)).toMatchObject({ packageBin });
+   expect(existsSync(launcher)).toBe(false);
+   // Uninstall from the package removes the copies; the package itself is the package manager's.
+   await adapter.deleteInstallation();
+   expect(existsSync(join(home, ".mars-ram/cli"))).toBe(false);
+   expect(existsSync(packageBin)).toBe(true);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+ });
+ it("keeps and reports a file at the launcher path that install did not create", async () => {
+  const { home, packageBin, launcher } = fixture("pkg-foreign-");
+  try {
+   mkdirSync(join(launcher, ".."), { recursive: true });
+   writeFileSync(launcher, "user command");
+   const adapter = createInstallAdapter({ home, packageBin });
+   const saved = await install(adapter);
+   expect(readFileSync(launcher, "utf8")).toBe("user command");
+   expect(adapter.keptLauncher()).toBe(launcher);
+   expect(saved).toMatchObject({ packageBin });
+   expect(saved?.launcher).toBeUndefined();
+   await adapter.deleteInstallation();
+   expect(readFileSync(launcher, "utf8")).toBe("user command");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+ });
+ it("without the variable, or when it does not name the package, installs its own launcher as before", async () => {
+  const { home, packageBin, launcher } = fixture("pkg-classic-");
+  try {
+   await install(createInstallAdapter({ home, packageBin }));
+   for (const other of [undefined, join(home, "elsewhere.mjs"), "relative/bin/mars-ram.mjs"]) {
+    const adapter = createInstallAdapter({ home, packageBin: other });
+    expect(adapter.packageBin).toBeUndefined();
+    const saved = await install(adapter);
+    expect(readFileSync(launcher, "utf8")).toContain(join(home, ".mars-ram/cli/src/main.ts"));
+    expect(saved).toMatchObject({ launcher });
+    expect(saved).not.toHaveProperty("packageBin");
+   }
+   // A foreign launcher is still refused outside package mode.
+   writeFileSync(launcher, "user command");
+   await expect(createInstallAdapter({ home }).buildCopy()).rejects.toThrow(/owned/i);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+ });
+ it("rejects a recorded package bin that is not an absolute path", async () => {
+  const { home } = fixture("pkg-record-");
+  try {
+   const adapter = createInstallAdapter({ home });
+   await adapter.writeRecord({ copy: join(home, ".mars-ram/pi-bridge"), homes: [], version: "1", date: "today", packageBin: "relative.mjs" } as never);
+   await expect(adapter.readRecord()).rejects.toThrow();
+  } finally { rmSync(home, { recursive: true, force: true }); }
+ });
 });
 
 describe("recorded shortcut programs", () => {

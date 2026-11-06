@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof import('node:fs')>() }));
-import { buildCliCopy, cliCopyIsCurrent, launcherContents, installLauncher, removeLauncher, editWindowsPath, windowsPathCommand, pathHint, observeCli, launcherPath, updateOwnedUserPath, readUserPath, writeUserPath } from '../../src/adapters/cli-installation.ts';
+import { buildCliCopy, cliCopyIsCurrent, launcherContents, installLauncher, removeLauncher, editWindowsPath, windowsPathCommand, pathHint, observeCli, launcherPath, updateOwnedUserPath, readUserPath, writeUserPath, isPackageEntry, retireLauncher } from '../../src/adapters/cli-installation.ts';
 import type { DoctorPorts } from '../../src/core/doctor.ts';
 import { createInstallAdapter } from '../../src/adapters/installation.ts';
 import { checkCli } from '../../src/core/doctor.ts';
@@ -253,6 +253,124 @@ describe('installed CLI (isolated home; no real PATH changes)', () => {
     expect(missing[2]!.fix).toContain('fish_add_path ~/.local/bin');
    }
   } finally { rmSync(home, { recursive: true, force: true }); }
+ });
+ it.runIf(process.platform !== 'win32')('reports the first mars-ram on PATH by its path and never reads what it runs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cli-command-'));
+  const home = join(root, 'home'); mkdirSync(home);
+  const command = (dir: string, text: string) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'mars-ram'), text, { mode: 0o755 }); return join(dir, 'mars-ram'); };
+  try {
+   // npm and bun: a symlink into the global node_modules.
+   const npm = join(root, 'npm'), pkg = join(npm, 'lib/node_modules/mars-ram');
+   mkdirSync(join(pkg, 'bin'), { recursive: true }); mkdirSync(join(npm, 'bin'));
+   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'mars-ram' }));
+   writeFileSync(join(pkg, 'bin/mars-ram.mjs'), '#!/usr/bin/env node\n', { mode: 0o755 });
+   symlinkSync('../lib/node_modules/mars-ram/bin/mars-ram.mjs', join(npm, 'bin/mars-ram'));
+   expect(observeCli(home, 'linux', join(npm, 'bin'))).toMatchObject({ resolved: false, command: join(npm, 'bin/mars-ram') });
+   // Shims that exit before the line that names the package are just a path too.
+   const sh = command(join(root, 'sh'), '#!/bin/sh\nexit 0\nexec node "$basedir/node_modules/mars-ram/bin/mars-ram.mjs" "$@"\n');
+   expect(observeCli(home, 'linux', dirname(sh))).toMatchObject({ resolved: false, command: sh });
+   const cmd = command(join(root, 'cmd'), '@ECHO off\r\nEXIT /B 0\r\n@"%~dp0\\node.exe" "%~dp0\\node_modules\\mars-ram\\bin\\mars-ram.mjs" %*\r\n');
+   expect(observeCli(home, 'linux', dirname(cmd))).toMatchObject({ resolved: false, command: cmd });
+   const read = vi.spyOn(fs, 'openSync');
+   expect(observeCli(home, 'linux', `${join(root, 'missing')}:${dirname(sh)}`).command).toBe(sh);
+   expect(read).not.toHaveBeenCalled(); read.mockRestore();
+   expect(observeCli(home, 'linux', join(root, 'missing')).command).toBeUndefined();
+   // The installer's own launcher resolves.
+   const launcher = installLauncher(home, process.execPath, 'linux');
+   expect(observeCli(home, 'linux', `${join(home, '.local/bin')}:${dirname(sh)}`)).toMatchObject({ resolved: true, command: launcher });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+ });
+ it.runIf(process.platform !== 'win32')('never blocks on a FIFO on PATH, and isPackageEntry reads at most 64 KiB of package.json', () => {
+  const root = mkdtempSync(join(tmpdir(), 'cli-bounded-'));
+  try {
+   const pkg = join(root, 'lib/node_modules/mars-ram'), entry = join(pkg, 'bin/mars-ram.mjs');
+   mkdirSync(join(pkg, 'bin'), { recursive: true });
+   writeFileSync(entry, '#!/usr/bin/env node\n', { mode: 0o755 });
+   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'mars-ram', padding: 'x'.repeat(64 * 1024) }));
+   expect(isPackageEntry(entry)).toBe(false);
+   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'mars-ram' }));
+   expect(isPackageEntry(entry)).toBe(true);
+   writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'not-mars-ram' }));
+   expect(isPackageEntry(entry)).toBe(false);
+   rmSync(join(pkg, 'package.json')); mkdirSync(join(pkg, 'package.json'));
+   expect(isPackageEntry(entry)).toBe(false);
+   rmSync(join(pkg, 'package.json'), { recursive: true }); execFileSync('mkfifo', [join(pkg, 'package.json')]);
+   const module = pathToFileURL(join(import.meta.dirname, '../../src/adapters/cli-installation.ts')).href;
+   // In a child process: a blocking read cannot be interrupted inside this one.
+   const blocked = spawnSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(module)}); console.log(JSON.stringify(m.isPackageEntry(${JSON.stringify(entry)})));`], { encoding: 'utf8', timeout: 15_000 });
+   expect(blocked.signal).toBeNull(); expect(JSON.parse(blocked.stdout)).toBe(false);
+   const fifo = join(root, 'fifo'); mkdirSync(fifo);
+   execFileSync('mkfifo', ['-m', '0755', join(fifo, 'mars-ram')]);
+   const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(module)}); console.log(JSON.stringify(m.observeCli(${JSON.stringify(join(root, 'home'))}, 'linux', ${JSON.stringify(fifo)})));`], { encoding: 'utf8', timeout: 15_000 });
+   expect(probe.signal).toBeNull();
+   expect(JSON.parse(probe.stdout)).toMatchObject({ resolved: false, command: join(fifo, 'mars-ram') });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+ }, 60_000);
+ it('from the package, removes only the user Path entry install added and forgets the launcher (Windows, fake registry)', async () => {
+  const home = 'C:\\Users\\Test', entry = home + '\\.mars-ram\\bin';
+  let raw = `C:\\keep;${entry}`;
+  const io = { read: () => ({ raw, kind: 'ExpandString' }), write: (_previous: unknown, value: string) => { raw = value; } };
+  const record: { launcher?: string; addedPath?: string; pendingPath?: string } = { launcher: launcherPath(home, 'win32'), addedPath: entry };
+  const saved: object[] = [];
+  expect(await retireLauncher(record, home, 'win32', async () => { saved.push({ ...record }); }, io)).toBeUndefined();
+  expect(raw).toBe('C:\\keep');
+  expect(record).toEqual({});
+  expect(saved.at(-1)).toEqual({});
+  // An entry that was already there (not recorded as added) stays.
+  raw = `C:\\keep;${entry}`;
+  await retireLauncher({}, home, 'win32', async () => {}, io);
+  expect(raw).toBe(`C:\\keep;${entry}`);
+ });
+ it.runIf(process.platform !== 'win32')('from the package, removes an owned launcher and keeps a foreign one or one behind a linked folder', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'cli-retire-'));
+  try {
+   const path = installLauncher(home, process.execPath, 'linux');
+   const record: { launcher?: string } = { launcher: path };
+   expect(await retireLauncher(record, home, 'linux', async () => {})).toBeUndefined();
+   expect(existsSync(path)).toBe(false); expect(record).toEqual({});
+   writeFileSync(path, 'user command');
+   expect(await retireLauncher({}, home, 'linux', async () => {})).toBe(path);
+   expect(readFileSync(path, 'utf8')).toBe('user command');
+   // A linked bin folder is never followed: the launcher behind it stays and is reported.
+   const real = join(home, 'real-bin'); renameSync(join(home, '.local/bin'), real);
+   installLauncher(join(home, 'other'), process.execPath, 'linux');
+   writeFileSync(join(real, 'mars-ram'), readFileSync(join(home, 'other/.local/bin/mars-ram')));
+   symlinkSync(real, join(home, '.local/bin'));
+   expect(await retireLauncher({}, home, 'linux', async () => {})).toBe(path);
+   expect(existsSync(join(real, 'mars-ram'))).toBe(true);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+ });
+ it.runIf(process.platform !== 'win32')('doctor in package mode names the mars-ram on PATH, warns when it is missing or is the old launcher, and never claims it is the package', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cli-package-mode-'));
+  const home = join(root, 'home');
+  const command = (dir: string, text: string) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'mars-ram'), text, { mode: 0o755 }); return join(dir, 'mars-ram'); };
+  const doctor = async (path: string, spanish: boolean) => checkCli({ platform: 'linux', spanish, cli: async () => observeCli(home, 'linux', path) } as DoctorPorts);
+  try {
+   mkdirSync(join(home, '.mars-ram'), { recursive: true });
+   expect(observeCli(home, 'linux', '').packageMode).toBe(false);
+   writeFileSync(join(home, '.mars-ram/install.json'), JSON.stringify({ packageBin: join(root, 'pnpm/global/5/node_modules/mars-ram/bin/mars-ram.mjs') }));
+   expect(observeCli(home, 'linux', '').packageMode).toBe(true);
+   const sh = command(join(root, 'sh'), '#!/bin/sh\nexit 0\nexec node "$basedir/node_modules/mars-ram/bin/mars-ram.mjs" "$@"\n');
+   const cmd = command(join(root, 'cmd'), '@ECHO off\r\nEXIT /B 0\r\n@"%~dp0\\node.exe" "%~dp0\\node_modules\\mars-ram\\bin\\mars-ram.mjs" %*\r\n');
+   const entry = 'global/5/node_modules/mars-ram/bin/mars-ram.mjs';
+   const pnpm = command(join(root, 'pnpm'), `#!/bin/sh\nbasedir=$(dirname "$(echo "$0" | sed -e 's,\\\\,/,g')")\nif [ -x "$basedir/node" ]; then\n  exec "$basedir/node"  "$basedir/${entry}" "$@"\nelse\n  exec node  "$basedir/${entry}" "$@"\nfi\n`);
+   for (const spanish of [false, true]) {
+    for (const found of [sh, cmd, pnpm]) {
+     const lines = await doctor(dirname(found), spanish);
+     expect(lines).toHaveLength(2);
+     expect(lines[0]).toEqual({ status: 'ok', finding: spanish ? `mars-ram en PATH: ${found}` : `mars-ram on PATH: ${found}` });
+    }
+    expect((await doctor(join(root, 'missing'), spanish))[0]).toEqual({ status: 'warning', finding: spanish ? 'mars-ram no está en PATH.' : 'mars-ram is not on PATH.', fix: spanish ? 'Abrí una terminal nueva o revisá la instalación de pnpm/npm (pnpm setup).' : 'Open a new terminal or check the pnpm/npm install (pnpm setup).' });
+   }
+   installLauncher(home, process.execPath, 'linux');
+   for (const spanish of [false, true]) {
+    const lines = await doctor(`${join(home, '.local/bin')}:${dirname(pnpm)}`, spanish);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toEqual({ status: 'warning', finding: spanish ? 'mars-ram en PATH es el lanzador anterior de mars-ram install;' : 'mars-ram on PATH is the old launcher from mars-ram install;', fix: spanish ? 'ejecutá mars-ram install de nuevo para retirarlo.' : 'run mars-ram install again to retire it.' });
+    // Behind the package's bin, the old launcher is not the command: informational line.
+    expect((await doctor(`${dirname(pnpm)}:${join(home, '.local/bin')}`, spanish))[0]).toEqual({ status: 'ok', finding: spanish ? `mars-ram en PATH: ${pnpm}` : `mars-ram on PATH: ${pnpm}` });
+   }
+  } finally { rmSync(root, { recursive: true, force: true }); }
  });
 });
 

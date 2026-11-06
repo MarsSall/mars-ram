@@ -2,7 +2,33 @@
 
 The command the user runs on their computer: install the Pi session bridge and private-link server, remove them, or pair a phone with a QR code and no cloud.
 
-**First time:** the one-line installer below (Linux, macOS or Windows). **From a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram install` updates, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. Nothing is published; the installed copy works without the clone.
+**First time:** `pnpm add -g mars-ram` (recommended), `npm i -g mars-ram` or `bun add -g mars-ram`, then `mars-ram install` (Linux, macOS or Windows; Node.js 24+). On Linux and macOS the one-line script below is an alternative. **From a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram install` updates, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. The installed copy works without the clone.
+
+## Install from npm
+
+```bash
+pnpm add -g mars-ram   # recommended; or npm i -g mars-ram, or bun add -g mars-ram
+mars-ram install
+mars-ram pair
+```
+
+The package has no install scripts (pnpm blocks them) and no dependencies; see [npm package](#npm-package). If pnpm says the global bin directory is not set, run `pnpm setup` once and open a new terminal. On Windows, use pnpm or npm.
+
+To update: `pnpm add -g mars-ram` (or the same npm or Bun command), then `mars-ram install`. If you installed earlier with the curl script or from a clone and `mars-ram install` still runs the old version, run `mars-ram uninstall` first, then `mars-ram install`. To remove: `mars-ram uninstall`, then `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`, `bun remove -g mars-ram`).
+
+To read the package before installing it (Linux, macOS and Windows; Windows 10+ ships `tar`), download it; `npm pack` prints the exact file name, for example `mars-ram-0.1.2.tgz`:
+
+```bash
+npm pack mars-ram
+```
+
+Extract that exact file (with the name it printed, no wildcard):
+
+```bash
+tar -xzf mars-ram-0.1.2.tgz
+```
+
+Open `package/bin/mars-ram.mjs` (the launcher) and `package/README.md` with any editor, Notepad on Windows. The source of the launcher is `host/cli/npm/mars-ram.mjs` in the public repository https://github.com/MarsSall/mars-ram, and `package/archive/` holds the same archive as the GitHub release.
 
 ## One-line install (Linux, macOS)
 
@@ -28,21 +54,9 @@ sh install.sh
 
 `MARS_RAM_DOWNLOAD_URL` replaces the archive URL (a mirror or a local `file://` copy); the embedded checksum is still enforced, so it cannot install different bytes. Messages are in Spanish when `LC_ALL`, `LC_MESSAGES` or `LANG` starts with `es`, otherwise English. The script's whole body is one function called on its last line, so a cut-off download runs nothing.
 
-## One-line install (Windows)
+## install.ps1 (not advertised)
 
-In a **normal** (not administrator) PowerShell window:
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://marssall.github.io/mars-ram/install.ps1 | iex"
-```
-
-To read it before running it:
-
-```powershell
-irm https://marssall.github.io/mars-ram/install.ps1 -OutFile install.ps1
-notepad install.ps1
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
+The release builder still renders `install.ps1`, but the guides no longer show it: on Windows, use pnpm or npm.
 
 `install.ps1` runs in Windows PowerShell 5.1 and PowerShell 7, per-user, no administrator rights. Like `install.sh`, it names one version and that archive's SHA-256, its only trust anchor.
 
@@ -167,9 +181,11 @@ Pi must be on `PATH`. On Windows, use a **non-elevated** terminal; installation 
 
    Node must be an absolute existing executable file (Windows: existing file). Windows Herdr lookup also checks `herdr.exe` and the supported `.exe` PATHEXT entry; command/batch shims are not executable Herdr paths. If Herdr is absent, clears its stale field, still installs both copies, and explains that the terminal will not open until Herdr is installed and install is run again. The phone's Herdr reader accepts the additional fields. The phone runs the recorded Node and main paths over SSH without relying on non-interactive PATH; Node itself is **not** copied, so reinstall if that executable moves. Native Windows paths use backslashes, JSON-escaped as usual.
 
-7. Copies this CLI's `src/`, `package.json`, protocol, typebox and uqr into `~/.mars-ram/cli`, dereferencing dependency symlinks. It uses `cli.staging`, `cli.previous` and a swapped `fingerprint.sha256`, with the same interrupted-swap recovery. Node does not strip TypeScript under `node_modules`: the bundled protocol retains its TypeScript and adds JavaScript emitted with Node's built-in type stripper, with exports pointing to JavaScript. Fingerprints include those emitted bytes. Original protocol source/package bytes are also retained under `cli/protocol` for bridge updates and diagnostics without a checkout. The CLI path and a launcher using the stable absolute Node executable are recorded as owned in `install.json` before launcher creation:
+7. Copies this CLI's `src/`, `package.json`, protocol, typebox and uqr into `~/.mars-ram/cli`, dereferencing dependency symlinks. It uses `cli.staging`, `cli.previous` and a swapped `fingerprint.sha256`, with the same interrupted-swap recovery. Node does not strip TypeScript under `node_modules`: the bundled protocol retains its TypeScript and adds JavaScript emitted with Node's built-in type stripper, with exports pointing to JavaScript. Fingerprints include those emitted bytes. Original protocol source/package bytes are also retained under `cli/protocol` for bridge updates and diagnostics without a checkout. The CLI path and a launcher using the stable absolute Node executable are recorded as owned in `install.json` before launcher creation (except from the npm package, below):
    - Linux/macOS: executable `~/.local/bin/mars-ram` (new bin directory mode `0755`), a `#!/bin/sh` script with an ownership marker and `exec '<node>' '<home>/.mars-ram/cli/src/main.ts' "$@"`. A pre-existing launcher without the exact marker is refused, never overwritten. If the directory is absent from PATH, install prints `fish_add_path ~/.local/bin` for fish, or `export PATH="$HOME/.local/bin:$PATH"` for bash/zsh. Shell configuration is never edited.
    - Windows: `%USERPROFILE%\\.mars-ram\\bin\\mars-ram.cmd`, with an ownership marker and `@"<node.exe>" "<main.ts>" %*`; usable in cmd, PowerShell and nushell. The raw HKCU Environment `Path` is read without expansion; a missing directory is appended while preserving `REG_SZ`/`REG_EXPAND_SZ` and all existing entries. The intended addition is recorded as pending before the registry write and becomes owned only after the write is verified; a pending record never lets uninstall remove an entry. **Open a new terminal** afterwards (no environment broadcast is sent). No machine PATH or shell profile is changed.
+
+**From the npm package**, the package launcher sets `MARS_RAM_PACKAGE_BIN` to its own absolute path. When it names a regular file whose package (two folders up, `package.json` read bounded) is `mars-ram`, install writes **no launcher of its own**: the package's bin is the command, because an installer launcher earlier on PATH would keep running the old copy's `install` after an update. Install records `packageBin` and the CLI path in `install.json` first, then removes a launcher left by an earlier install only if it carries the ownership marker (and is not behind a linked folder), and on Windows removes the user Path entry it recorded as added, exactly as uninstall does. A file at the launcher path without the marker is kept and reported (`Kept <path>: mars-ram install did not create it…`); it is not refused in this mode, since nothing is written there. Without the variable (the curl script, a clone) install is unchanged.
 
 Launcher updates are written to an exclusive private temporary file in the launcher's directory, given executable mode `0755` on POSIX, then renamed into place. An interrupted write leaves the previous launcher intact rather than truncated; an unmarked foreign launcher is still refused.
 
@@ -187,7 +203,7 @@ Messages and prompts follow the system language (Spanish or English). No adminis
 mars-ram uninstall
 ```
 
-Removes the CLI copy/staging/backup and the recorded launcher only if its ownership marker remains. On Windows, removes only the last exact occurrence of the entry confirmed as added by install from the raw user Path (install always appends), preserving any earlier duplicates, empty components, other entries and the value type; an already-present entry is never adopted or removed. Open a new terminal after removal. The bin directory itself is retained, as it may contain other user files.
+Removes the CLI copy/staging/backup and the recorded launcher only if its ownership marker remains. On Windows, removes only the last exact occurrence of the entry confirmed as added by install from the raw user Path (install always appends), preserving any earlier duplicates, empty components, other entries and the value type; an already-present entry is never adopted or removed. Open a new terminal after removal. The bin directory itself is retained, as it may contain other user files. Run from the npm package, uninstall removes what install wrote and leaves the package itself: it prints that `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`) removes it.
 
 Shows only the completed and pending homes recorded in `~/.mars-ram/install.json` and asks for confirmation. Checks each home's settings first, runs `pi remove <copy>` only when that registration is still present, and drops successfully handled homes from the record. It never removes unrecorded registrations. After all recorded homes are handled, it deletes `~/.mars-ram/pi-bridge/`, `~/.mars-ram/link-server/`, `~/.mars-ram/install.json`, and the fixed installer staging/backup/temporary leftovers. It removes `herdr`, `node`, `cli`, `linkServer` and `linkPort` from `host.json`, preserving unrelated fields; an empty host record is deleted. With no state file, uninstall still recovers and cleans those installer-owned paths without running Pi. Other Pi homes, the bridges registry, uploads, paired phones, and everything under `~/.ssh/` are untouched. **`~/.mars-ram/links` is retained as user data:** T2 does not specify deleting that store on uninstall.
 
@@ -205,7 +221,7 @@ Read-only diagnostics: no prompts, writes, pruning, installation, service change
 
 | Check | What doctor reads and reports |
 |-------|-------------------------------|
-| CLI command/copy | Looks up `mars-ram` on PATH without running it, checks that it resolves to the marked installed launcher, and compares the CLI/protocol/typebox/uqr copy against the invoking source (an updated clone is needed to detect newer code). Also requires `host.json`'s `cli` to name the exact existing installed entry; missing/invalid config makes the copy check warn to reinstall. On Linux also reports whether `~/.local/bin` is on PATH, with fish and bash/zsh advice. No registry writes. Shell aliases/functions are not observable through filesystem PATH lookup. |
+| CLI command/copy | Looks up `mars-ram` on PATH without running it; of what it finds, it reads only the installer's own launcher, for its ownership marker. Installed from a clone or the curl script, checks that it resolves to the marked installed launcher; any other `mars-ram` warns. When `install.json` records `packageBin` (installed from the package), doctor does not guess what the command is: it prints its path as information (`ok: mars-ram on PATH: <path>`), warns `mars-ram is not on PATH.` (open a new terminal or check the pnpm/npm install, `pnpm setup`) when there is none, and warns `mars-ram on PATH is the old launcher from mars-ram install;` (run `mars-ram install` again to retire it) only when it resolves to the installer's own launcher with the ownership marker; `~/.local/bin` is not checked. Doctor also compares the CLI/protocol/typebox/uqr copy against the invoking source (an updated clone is needed to detect newer code). Also requires `host.json`'s `cli` to name the exact existing installed entry; missing/invalid config makes the copy check warn to reinstall. On Linux also reports whether `~/.local/bin` is on PATH, with fish and bash/zsh advice. No registry writes. Shell aliases/functions are not observable through filesystem PATH lookup. |
 | Herdr | Reads `~/.mars-ram/host.json` without executing Herdr. An absolute safe path to an existing executable regular file named exactly `herdr` or `herdr.exe` is ok. Missing, invalid, non-executable or moved files warn to install Herdr and run `mars-ram install` again. |
 | Pi | Pi on `PATH` and `pi --version`. Missing is a problem; older than **1.2.0**, or an unrecognized version, is a warning because the bridge needs `getSettings`. |
 | Bridge installed | `~/.mars-ram/install.json`, then `settings.json` in **every existing** plain Pi and Gentle Shell home, including relative and object `packages` entries resolving to the copy. Missing registration or state warns to run `mars-ram install`. |
@@ -244,7 +260,7 @@ pnpm --filter @workspace/host-cli typecheck
 pnpm release:host <MAJOR.MINOR.PATCH> <outDir>   # node host/cli/scripts/build-release.ts
 ```
 
-Writes `<outDir>/mars-ram-<version>.tar.gz`, `<outDir>/SHA256SUMS` (`sha256sum` format; check with `sha256sum -c SHA256SUMS`), `<outDir>/install.sh` and `<outDir>/install.ps1`, rendered from `scripts/install.sh` and `scripts/install.ps1` with the version and the archive's SHA-256. It needs GNU tar and refuses an invalid version or an existing archive, `SHA256SUMS`, `install.sh` or `install.ps1`; if a write fails, it removes the files it already wrote. The same version from the same sources gives the same bytes: sorted names, time 0, owner 0, normalized modes, gzip without timestamp.
+Writes `<outDir>/mars-ram-<version>.tar.gz`, `<outDir>/SHA256SUMS` (`sha256sum` format; check with `sha256sum -c SHA256SUMS`), `<outDir>/install.sh` and `<outDir>/install.ps1`, rendered from `scripts/install.sh` and `scripts/install.ps1` with the version and the archive's SHA-256, and the npm package `<outDir>/mars-ram-<version>.tgz` (below). It needs GNU tar and refuses an invalid version or an existing archive, `SHA256SUMS`, `install.sh`, `install.ps1` or `.tgz`; if a write fails, it removes the files it already wrote. The same version from the same sources gives the same bytes: sorted names, time 0, owner 0, normalized modes, gzip without timestamp.
 
 ```text
 mars-ram-<version>/
@@ -256,6 +272,29 @@ mars-ram-<version>/
 
 It needs only Node 24+ on the computer: extract it anywhere and run `node mars-ram-<version>/cli/src/main.ts install`. The builder only writes local files; publishing a release is a separate decision of the owner.
 
+### npm package
+
+`mars-ram-<version>.tgz` is the `mars-ram` npm package (`package/` root, like `npm pack`), reproducible like the archive. Node refuses to strip TypeScript types under `node_modules`, so the package carries the release archive and a JavaScript launcher instead of the sources:
+
+```text
+package/
+  package.json              name mars-ram, bin mars-ram, engines node >=24, license UNLICENSED; no scripts, no dependencies
+  README.md                 rendered from npm/README.md
+  bin/mars-ram.mjs          rendered from npm/mars-ram.mjs (Node built-ins only)
+  archive/mars-ram-<version>.tar.gz   the release archive, byte for byte
+```
+
+The launcher has the version, the archive's SHA-256 and the CLI copy's `fingerprint.sha256` written into it at build time.
+
+- For `install`, `uninstall`, and any command when `~/.mars-ram/cli/fingerprint.sha256` is missing or different, it checks the archive against the SHA-256 and refuses on a mismatch (exit 1, expected and actual values, nothing run). Then it unpacks the checked bytes into a new private folder under the system temporary folder (`mkdtemp`, 0700), using `tar` (on Windows `%SystemRoot%\System32\tar.exe`). It runs `node --disable-warning=ExperimentalWarning <tmp>/mars-ram-<version>/cli/src/main.ts …` and removes the folder when the CLI ends. Its signal handlers are installed before the folder is created, so SIGTERM or SIGHUP during unpacking waits for it, reaches the CLI as soon as it starts, and the folder is still removed. Only a killed launcher (SIGKILL) leaves it behind.
+- When the installed copy has the same fingerprint, it runs `~/.mars-ram/cli/src/main.ts` directly, without unpacking.
+
+The launcher passes the CLI's exit code or signal through. Ctrl+C reaches the CLI directly, and SIGTERM or SIGHUP sent to the launcher is passed on to the CLI. Its own messages follow the CLI's locale rule.
+
+It passes `MARS_RAM_PACKAGE_BIN=<its own path>` to the CLI, so `mars-ram install` from the package writes no launcher of its own and removes an owned one left by the curl script or a clone (see install). The only `mars-ram` command is then the package manager's (`$PNPM_HOME/bin`, `<npm prefix>/bin`), and `mars-ram doctor` reports its path as information: "mars-ram on PATH: <path>" (see doctor).
+
+What the SHA-256 protects: the value written into the launcher detects a damaged or truncated archive. It does not stop someone who can write the package folder (they can change the launcher and its value together), your home folder (`~/.mars-ram`, which the launcher runs directly when its fingerprint matches) or the parent of the temporary folder; anyone with that access already runs code as you.
+
 ## Layout
 
 | Path | Layer |
@@ -264,3 +303,4 @@ It needs only Node 24+ on the computer: extract it anywhere and run `node mars-r
 | `src/adapters/` | Tailscale, identity, authorized keys, HTTP endpoint, terminal, filesystem copy and shell-free Pi execution |
 | `src/arguments.ts`, `src/main.ts`, `src/install-command.ts`, `src/doctor-command.ts` | Strict argument parsing, interactive selection, diagnostic output and wiring |
 | `scripts/build-release.ts`, `scripts/install.sh`, `scripts/install.ps1` | Release archive builder and the one-line installer templates it renders (not part of the installed copy) |
+| `npm/mars-ram.mjs`, `npm/README.md` | npm package launcher and README templates rendered by the builder |

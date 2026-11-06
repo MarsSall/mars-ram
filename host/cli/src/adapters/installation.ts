@@ -11,7 +11,10 @@ import { readWindowsPrivileges } from "./authorized-keys.ts";
 import { installText } from "./terminal.ts";
 import { validHerdrPath } from "../core/herdr.ts";
 import { buildLinkCopy } from "./link-installation.ts";
-import { buildCliCopy, protocolSource, checkLauncher, launcherPath, installLauncher, removeLauncher, updateOwnedUserPath, type UserPathIO } from "./cli-installation.ts";
+import { buildCliCopy, protocolSource, checkLauncher, isPackageEntry, launcherPath, installLauncher, removeLauncher, retireLauncher, updateOwnedUserPath, type UserPathIO } from "./cli-installation.ts";
+
+/** packageBin: `mars-ram install` ran from the npm package, whose bin (this path) is the command. */
+type CliRecord = InstallRecord & { packageBin?: string };
 
 export function executableHerdr(path: unknown, platform: NodeJS.Platform = process.platform): path is string {
  if (!validHerdrPath(path) || path === "herdr") return false;
@@ -73,8 +76,12 @@ export function stableNodePath(options: { execPath?: string; path?: string; stor
 	return execPath;
 }
 
-export function createInstallAdapter(options: { home?: string; herdr?: () => string | undefined; userPath?: UserPathIO; /** Allowlisted shortcut programs to record (install command only). */ programs?: () => Promise<Record<string, string>> } = {}): InstallPorts & { writeHostConfig(): Promise<boolean> } {
+export function createInstallAdapter(options: { home?: string; herdr?: () => string | undefined; userPath?: UserPathIO; /** Allowlisted shortcut programs to record (install command only). */ programs?: () => Promise<Record<string, string>>; /** The npm package's bin; defaults to MARS_RAM_PACKAGE_BIN, set by the package launcher (undefined: none). */ packageBin?: string | undefined } = {}): InstallPorts & { writeHostConfig(): Promise<boolean>; packageBin: string | undefined; keptLauncher(): string | undefined } {
 	const home = options.home ?? homedir();
+ // Only the bin of a package named mars-ram counts; anything else installs as from a clone.
+ const named = "packageBin" in options ? options.packageBin : process.env.MARS_RAM_PACKAGE_BIN;
+ const packageBin = named && isAbsolute(named) && isPackageEntry(named) ? named : undefined;
+ let keptLauncher: string | undefined;
 	const root = join(home, `.${APP_ID}`);
 	const copy = join(root, "pi-bridge");
 	const statePath = join(root, "install.json");
@@ -157,8 +164,8 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
 		async readRecord() {
 			assertSafe();
 			if (!existsSync(statePath)) return undefined;
-			const value = JSON.parse(readFileSync(statePath, "utf8")) as InstallRecord;
-   if ((value.cli !== undefined && value.cli !== join(root, "cli")) || (value.launcher !== undefined && value.launcher !== launcherPath(home, process.platform)) || (value.addedPath !== undefined && (process.platform !== "win32" || value.addedPath !== join(root, "bin")))) throw new Error(installText.invalidRecord);
+			const value = JSON.parse(readFileSync(statePath, "utf8")) as CliRecord;
+   if ((value.packageBin !== undefined && (typeof value.packageBin !== "string" || !isAbsolute(value.packageBin))) || (value.cli !== undefined && value.cli !== join(root, "cli")) || (value.launcher !== undefined && value.launcher !== launcherPath(home, process.platform)) || (value.addedPath !== undefined && (process.platform !== "win32" || value.addedPath !== join(root, "bin")))) throw new Error(installText.invalidRecord);
 			if (value.copy !== copy || !Array.isArray(value.homes) || value.homes.some((entry) => !candidates.includes(entry)) || (value.pending !== undefined && (!Array.isArray(value.pending) || value.pending.some((entry) => !candidates.includes(entry)))) || typeof value.version !== "string" || typeof value.date !== "string") throw new Error(installText.invalidRecord);
 			return value;
 		},
@@ -183,7 +190,8 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
 			}
 			const packageVersion: unknown = JSON.parse(readFileSync(join(bridge, "package.json"), "utf8")).version;
 			mkdirSync(root, { recursive: true, mode: 0o700 });
-   checkLauncher(home, process.platform);
+   // From the package no launcher is written, so a foreign one is kept and reported instead of refused.
+   if (!packageBin) checkLauncher(home, process.platform);
    buildCliCopy(root);
    buildLinkCopy(root);
 			const temporary = staging;
@@ -218,8 +226,18 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
 				return { copy, version };
 			} finally { rmSync(temporary, { recursive: true, force: true }); }
 		},
-  async installCli(record) {
+  async installCli(installRecord) {
    assertSafe();
+   const record: CliRecord = installRecord;
+   if (packageBin) {
+    // The package's bin is the command; an installer launcher earlier on PATH would run the old copy's install.
+    record.cli = join(root, "cli");
+    record.packageBin = packageBin;
+    await this.writeRecord(record);
+    keptLauncher = await retireLauncher(record, home, process.platform, () => this.writeRecord(record), options.userPath);
+    return;
+   }
+   delete record.packageBin;
    checkLauncher(home, process.platform);
    // Durable ownership precedes both launcher creation and user-Path mutation.
    record.cli = join(root, "cli");
@@ -268,5 +286,7 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
    if (stopFailed) throw new Error("Link-server stop failed; installed code was removed, but retained links may still be served until expiry. Check the host process and Windows task manually.");
 		},
 		clock: () => new Date().toISOString(),
+  packageBin,
+  keptLauncher: () => keptLauncher,
 	};
 }

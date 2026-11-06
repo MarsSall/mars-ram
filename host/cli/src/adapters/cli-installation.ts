@@ -1,9 +1,9 @@
 // Per-user CLI copy and launcher. Registry edits are argv-only and preserve raw values/types.
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { accessSync, constants, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, chmodSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, chmodSync, writeFileSync } from 'node:fs';
 import { createRequire, stripTypeScriptTypes } from 'node:module';
-import { dirname, join, resolve, win32 } from 'node:path';
+import { dirname, join, posix, resolve, win32 } from 'node:path';
 
 export const cliSource = resolve(import.meta.dirname, '../..');
 export const protocolSource = existsSync(resolve(cliSource, '../../packages/protocol/package.json')) ? resolve(cliSource, '../../packages/protocol') : join(cliSource, 'protocol');
@@ -22,9 +22,25 @@ export function launcherContents(node: string, main: string, platform: NodeJS.Pl
  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
  return `#!/bin/sh\n${marker}\nexec ${quote(node)} ${quote(main)} "$@"\n`;
 }
+const smallFile = 64 * 1024;
+/** A regular file of at most 64 KiB, read through one descriptor; a FIFO, device, directory, link or larger file is undefined. */
+export function readSmallFile(path: string): string | undefined {
+ let fd: number | undefined;
+ try {
+  if (!lstatSync(path).isFile()) return undefined;
+  // Non-blocking and no-follow where available: a FIFO or link swapped in after lstat cannot block or redirect the open.
+  fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+  const stat = fstatSync(fd);
+  if (!stat.isFile() || stat.size > smallFile) return undefined;
+  const buffer = Buffer.alloc(smallFile + 1);
+  let length = 0, read: number;
+  while ((read = readSync(fd, buffer, length, buffer.length - length, null)) > 0) if ((length += read) > smallFile) return undefined;
+  return buffer.toString('utf8', 0, length);
+ } catch { return undefined; } finally { if (fd !== undefined) closeSync(fd); }
+}
 function owned(path: string, platform: NodeJS.Platform): boolean {
  const stat = lstatSync(path);
- return !stat.isSymbolicLink() && stat.isFile() && readFileSync(path, 'utf8').split(/\r?\n/).includes(platform === 'win32' ? cmdMarker : marker);
+ return !stat.isSymbolicLink() && stat.isFile() && !!readSmallFile(path)?.split(/\r?\n/).includes(platform === 'win32' ? cmdMarker : marker);
 }
 function present(path: string): boolean {
  try { lstatSync(path); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
@@ -60,6 +76,20 @@ export function removeLauncher(home: string, platform: NodeJS.Platform): void {
  const path = launcherPath(home, platform);
  if (present(dirname(path)) && lstatSync(dirname(path)).isSymbolicLink()) throw new Error('Launcher directory is linked.');
  if (present(path) && owned(path, platform)) rmSync(path);
+}
+/** From the npm package, the package's bin is the command: remove the installer's own launcher and, on Windows, the user
+ * Path entry install added, both only when owned (marker, recorded addedPath). Returns a launcher kept because it is not
+ * owned or sits behind a linked folder. */
+export async function retireLauncher(record: { launcher?: string; addedPath?: string; pendingPath?: string }, home: string, platform: NodeJS.Platform, save: () => Promise<void>, io: UserPathIO = userPathIO): Promise<string | undefined> {
+ const path = launcherPath(home, platform), directory = (platform === 'win32' ? win32 : posix).dirname(path);
+ let kept: string | undefined;
+ if (present(path)) {
+  if (!lstatSync(directory).isSymbolicLink() && owned(path, platform)) rmSync(path);
+  else kept = path;
+ }
+ delete record.launcher; await save();
+ if (platform === 'win32') await updateOwnedUserPath(record, win32.join(home, '.mars-ram', 'bin'), home, false, save, io);
+ return kept;
 }
 export function pathHint(home: string, path: string, shell: string, spanish: boolean): string | undefined {
  if (path.split(':').includes(join(home, '.local/bin'))) return undefined;
@@ -219,7 +249,19 @@ function cliConfigIsValid(home: string, platform: NodeJS.Platform): boolean {
   return config.cli === expected && lstatSync(expected).isFile() && !lstatSync(expected).isSymbolicLink();
  } catch { return false; }
 }
-export function observeCli(home: string, platform: NodeJS.Platform, path = process.env.PATH ?? '', pathExt = process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD'): { resolved: boolean; current: boolean; localBin: boolean } {
+/** True when entry is a regular file whose package (two folders up) is named mars-ram. */
+export function isPackageEntry(entry: string): boolean {
+ try {
+  const manifest = lstatSync(entry).isFile() ? readSmallFile(join(dirname(dirname(entry)), 'package.json')) : undefined;
+  return manifest !== undefined && JSON.parse(manifest).name === 'mars-ram';
+ } catch { return false; }
+}
+/** install.json says `mars-ram install` ran from the npm package, so the package's bin is the command. */
+function packageMode(home: string, platform: NodeJS.Platform): boolean {
+ try { return typeof JSON.parse(readSmallFile(paths(platform).join(home, '.mars-ram/install.json')) ?? '{}').packageBin === 'string'; } catch { return false; }
+}
+/** command: the first mars-ram on PATH, by path only; what it runs is never read or guessed. */
+export function observeCli(home: string, platform: NodeJS.Platform, path = process.env.PATH ?? '', pathExt = process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD'): { resolved: boolean; command?: string; current: boolean; localBin: boolean; packageMode: boolean } {
  const expected = launcherPath(home, platform);
  let found: string | undefined;
  const p = paths(platform);
@@ -234,5 +276,5 @@ export function observeCli(home: string, platform: NodeJS.Platform, path = proce
  }
  let resolved = false;
  try { resolved = !!found && realpathSync(found) === realpathSync(expected) && owned(expected, platform); } catch { /* absent */ }
- return { resolved, current: cliConfigIsValid(home, platform) && cliCopyIsCurrent(p.join(home, '.mars-ram/cli')), localBin: path.split(':').includes(join(home, '.local/bin')) };
+ return { resolved, ...(found ? { command: found } : {}), current: cliConfigIsValid(home, platform) && cliCopyIsCurrent(p.join(home, '.mars-ram/cli')), localBin: path.split(':').includes(join(home, '.local/bin')), packageMode: packageMode(home, platform) };
 }

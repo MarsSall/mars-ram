@@ -80,7 +80,7 @@ export const es: Strings = {
 	home: {
 		title: "Inicio", brand: "Mars-RAM", tagline: "Tu computadora y tus sesiones, desde el teléfono.",
 		install: "En tu computadora, abrí una terminal y ejecutá:", run: "Ejecutá", scanStep: "Escaneá el código",
-		systemUnix: "Linux / Mac", systemWindows: "Windows", copy: "Copiar", copied: "Copiado", copyCommand: "Copiar el comando", copyFailed: "No se pudo copiar. Probá de nuevo.",
+		recommended: "Recomendado", usingNpm: "¿Usás npm?", copy: "Copiar", copied: "Copiado", copyCommand: "Copiar el comando", copyFailed: "No se pudo copiar. Probá de nuevo.",
 		scan: "Escanear código", manual: "Agregar a mano", needsYou: "Te necesitan", activeSessions: "Sesiones activas",
 		empty: "Todavía no hay sesiones abiertas.", emptyHint: "Abrí Pi en tu computadora para verla acá.",
 		computerStatus: { responding: "Responde", unreachable: "no responde", locked: "Requiere desbloqueo", "identity-changed": "Identidad cambiada" },
@@ -218,6 +218,14 @@ export const es: Strings = {
 		notMine: "No coinciden",
 		notMineHint: "No sigas: puede estar respondiendo otra máquina en esa dirección.",
 	},
+	pair: {
+		title: "¿Agregar esta computadora?",
+		explain: "Se va a enviar la clave pública de este teléfono a esa computadora; ahí te van a pedir que confirmes.",
+		add: "Agregar",
+		cancel: "Cancelar",
+		scan: "Escanear código",
+	},
+	notFound: { title: "No encontramos esa pantalla.", home: "Ir a Inicio" },
 	computer: {
 		copy: (label: string) => `Copiar ${label.toLowerCase()}`, copied: "Copiado", copyFailed: "No se pudo copiar. Intentá de nuevo.",
 		address: "Dirección",

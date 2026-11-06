@@ -78,7 +78,7 @@ export const en = {
 	home: {
 		title: "Home", brand: "Mars-RAM", tagline: "Your computer and your sessions, from your phone.",
 		install: "On your computer, open a terminal and run:", run: "Run", scanStep: "Scan the code",
-		systemUnix: "Linux / Mac", systemWindows: "Windows", copy: "Copy", copied: "Copied", copyCommand: "Copy the command", copyFailed: "Could not copy. Try again.",
+		recommended: "Recommended", usingNpm: "Using npm?", copy: "Copy", copied: "Copied", copyCommand: "Copy the command", copyFailed: "Could not copy. Try again.",
 		scan: "Scan code", manual: "Add manually", needsYou: "Needs you", activeSessions: "Active sessions",
 		empty: "No sessions open yet.", emptyHint: "Open Pi on your computer to see it here.",
 		computerStatus: { responding: "Responding", unreachable: "Not responding", locked: "Unlock required", "identity-changed": "Identity changed" },
@@ -216,6 +216,14 @@ export const en = {
 		notMine: "They do not match",
 		notMineHint: "Do not continue: another machine may be answering at that address.",
 	},
+	pair: {
+		title: "Add this computer?",
+		explain: "This phone's public key will be sent to that computer, which will ask you to confirm.",
+		add: "Add",
+		cancel: "Cancel",
+		scan: "Scan code",
+	},
+	notFound: { title: "We couldn't find that screen.", home: "Go to Home" },
 	computer: {
 		copy: (label: string) => `Copy ${label.toLowerCase()}`, copied: "Copied", copyFailed: "Could not copy. Try again.",
 		address: "Address",

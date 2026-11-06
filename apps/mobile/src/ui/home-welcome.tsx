@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
-import { installCommand, type InstallSystem } from "../core/install-command";
+import { installCommands } from "../core/install-command";
 import { clipboard } from "../services";
 import { PrimaryButton, Screen } from "./components";
 import { usePreferences } from "./preferences";
@@ -19,51 +19,48 @@ export function HomeHeading({ welcome = false }: { welcome?: boolean }) {
 	);
 }
 
-/** Step 1: the one-line install for the computer's system, selectable and with a copy button. */
-function InstallStep() {
+/** One selectable command with its own copy button and feedback. */
+function CommandBlock({ command, secondary = false }: { command: string; secondary?: boolean }) {
 	const { theme, t } = usePreferences();
 	const c = theme.colors;
-	const [system, setSystem] = useState<InstallSystem>("unix");
 	const [feedback, setFeedback] = useState<"copied" | "failed" | null>(null);
 	useEffect(() => {
 		if (!feedback) return;
 		const timer = setTimeout(() => setFeedback(null), 2000);
 		return () => clearTimeout(timer);
 	}, [feedback]);
-	const command = installCommand(system);
 	const copy = () => void clipboard.writeText(command).then(() => setFeedback("copied"), () => setFeedback("failed"));
-	const systems: { value: InstallSystem; label: string }[] = [{ value: "unix", label: t.home.systemUnix }, { value: "windows", label: t.home.systemWindows }];
+	return (
+		<View style={{ backgroundColor: c.surfaceRaised, borderColor: c.border, borderWidth: 1, borderRadius: theme.radius.medium, padding: theme.spacing(3), gap: theme.spacing(2) }}>
+			<Text selectable style={{ color: c.text, fontFamily: theme.font.mono, fontSize: secondary ? 13 : 14, lineHeight: secondary ? 18 : 20 }}>{command}</Text>
+			<Pressable
+				onPress={copy}
+				accessibilityRole="button"
+				accessibilityLabel={`${t.home.copyCommand}: ${command}`}
+				style={({ pressed }) => ({ alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: theme.spacing(2), minHeight: theme.touch, minWidth: theme.touch, paddingHorizontal: theme.spacing(3), borderRadius: theme.radius.medium, borderWidth: 1, borderColor: c.accentText, opacity: pressed ? 0.85 : 1 })}
+			>
+				<Ionicons name={feedback === "copied" ? "checkmark-outline" : "copy-outline"} size={18} color={c.accentText} />
+				<Text style={{ color: c.accentText, fontWeight: "700" }}>{feedback === "copied" ? t.home.copied : t.home.copy}</Text>
+			</Pressable>
+			{feedback === "failed" ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 14 }}>{t.home.copyFailed}</Text> : null}
+		</View>
+	);
+}
+
+/** Step 1: the global install, the same on every system; pnpm recommended, npm as the alternative. */
+function InstallStep() {
+	const { theme, t } = usePreferences();
+	const c = theme.colors;
 	return (
 		<View style={{ gap: theme.spacing(3) }}>
 			<Text style={{ color: c.text, fontSize: 16 }}>{t.home.install}</Text>
-			<View accessibilityRole="tablist" style={{ flexDirection: "row", backgroundColor: c.surfaceRaised, borderRadius: theme.radius.medium, padding: 3 }}>
-				{systems.map((option) => {
-					const selected = option.value === system;
-					return (
-						<Pressable
-							key={option.value}
-							onPress={() => { setSystem(option.value); setFeedback(null); }}
-							accessibilityRole="tab"
-							accessibilityState={{ selected }}
-							style={{ flex: 1, minHeight: theme.touch, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.small, backgroundColor: selected ? c.accent : "transparent" }}
-						>
-							<Text style={{ color: selected ? c.onAccent : c.textMuted, fontWeight: "700" }}>{option.label}</Text>
-						</Pressable>
-					);
-				})}
+			<View style={{ gap: theme.spacing(2) }}>
+				<Text style={{ color: c.textMuted, fontSize: 14, fontWeight: "700" }}>{t.home.recommended}</Text>
+				<CommandBlock command={installCommands.recommended} />
 			</View>
-			<View style={{ backgroundColor: c.surfaceRaised, borderColor: c.border, borderWidth: 1, borderRadius: theme.radius.medium, padding: theme.spacing(3), gap: theme.spacing(2) }}>
-				<Text selectable style={{ color: c.text, fontFamily: theme.font.mono, fontSize: 14, lineHeight: 20 }}>{command}</Text>
-				<Pressable
-					onPress={copy}
-					accessibilityRole="button"
-					accessibilityLabel={t.home.copyCommand}
-					style={({ pressed }) => ({ alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: theme.spacing(2), minHeight: theme.touch, minWidth: theme.touch, paddingHorizontal: theme.spacing(3), borderRadius: theme.radius.medium, borderWidth: 1, borderColor: c.accentText, opacity: pressed ? 0.85 : 1 })}
-				>
-					<Ionicons name={feedback === "copied" ? "checkmark-outline" : "copy-outline"} size={18} color={c.accentText} />
-					<Text style={{ color: c.accentText, fontWeight: "700" }}>{feedback === "copied" ? t.home.copied : t.home.copy}</Text>
-				</Pressable>
-				{feedback === "failed" ? <Text accessibilityLiveRegion="polite" style={{ color: c.danger, fontSize: 14 }}>{t.home.copyFailed}</Text> : null}
+			<View style={{ gap: theme.spacing(2) }}>
+				<Text style={{ color: c.textMuted, fontSize: 14 }}>{t.home.usingNpm}</Text>
+				<CommandBlock command={installCommands.npm} secondary />
 			</View>
 		</View>
 	);
@@ -73,7 +70,8 @@ export function HomeWelcome() {
 	const { theme, t } = usePreferences();
 	const steps: ReactNode[] = [
 		<InstallStep key="install" />,
-		<Text key="command" style={{ color: theme.colors.text, fontSize: 16 }}>{t.home.run} <Text style={{ fontFamily: theme.font.mono }}>mars-ram pair</Text></Text>,
+		<Text key="setup" style={{ color: theme.colors.text, fontSize: 16 }}>{t.home.run} <Text style={{ fontFamily: theme.font.mono }}>mars-ram install</Text></Text>,
+		<Text key="pair" style={{ color: theme.colors.text, fontSize: 16 }}>{t.home.run} <Text style={{ fontFamily: theme.font.mono }}>mars-ram pair</Text></Text>,
 		<Text key="scan" style={{ color: theme.colors.text, fontSize: 16 }}>{t.home.scanStep}</Text>,
 	];
 	return (

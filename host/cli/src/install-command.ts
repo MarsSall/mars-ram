@@ -15,14 +15,17 @@ export async function installCommand(command: "install" | "uninstall"): Promise<
    const linkWarning = spanish
     ? "Se intentará detener el servidor confirmado antes de borrar la copia; se informarán los errores. Se conserva ~/.mars-ram/links (datos del usuario)."
     : "Uninstall attempts to stop the confirmed server before removing its copy and reports failures. ~/.mars-ram/links (user data) is retained.";
+   // From the npm package, uninstall removes what install wrote; the package itself belongs to the package manager.
+   const packageNote = () => { if (adapter.packageBin) console.log(spanish ? "El paquete de npm mars-ram queda instalado; quitalo con pnpm remove -g mars-ram (o npm uninstall -g mars-ram)." : "The mars-ram npm package stays installed; remove it with pnpm remove -g mars-ram (or npm uninstall -g mars-ram)."); };
 			const record = await installation.record();
-			if (!record) { const failures = await installation.uninstall(true); if (failures.length) throw new Error(failures.join("\n")); console.log(linkWarning); console.log(installText.noInstallation); return 0; }
+			if (!record) { const failures = await installation.uninstall(true); if (failures.length) throw new Error(failures.join("\n")); console.log(linkWarning); console.log(installText.noInstallation); packageNote(); return 0; }
 			console.log([...new Set([...record.homes, ...(record.pending ?? [])])].map((home, index) => `${index + 1}. ${home}`).join("\n"));
 			if (!isYes(await prompter.ask(installText.confirmRemove))) { console.log(installText.cancelled); return 0; }
    console.log(linkWarning);
 			const failures = await installation.uninstall(true);
 			if (failures.length) throw new Error(failures.join("\n"));
 			console.log(installText.removed);
+   packageNote();
    if (process.platform === "win32") console.log(spanish ? "Abrí una terminal nueva para actualizar PATH." : "Open a new terminal to refresh PATH.");
 			return 0;
 		}
@@ -40,10 +43,17 @@ export async function installCommand(command: "install" | "uninstall"): Promise<
 		console.log(selected.join("\n"));
 		if (!isYes(await prompter.ask(installText.confirmInstall))) { console.log(installText.cancelled); return 0; }
 		const skipped = await installation.install(selected, true);
-  const hint = process.platform === "win32"
+  // From the npm package its bin is the command, already on PATH; install wrote no launcher of its own.
+  const hint = adapter.packageBin
+   ? (process.platform === "win32" ? (spanish ? "Abrí una terminal nueva para usar mars-ram." : "Open a new terminal to use mars-ram.") : undefined)
+   : process.platform === "win32"
    ? (spanish ? "Abrí una terminal nueva para usar mars-ram (PATH de usuario actualizado si faltaba)." : "Open a new terminal to use mars-ram (user PATH updated if missing).")
    : pathHint(homedir(), process.env.PATH ?? "", process.env.SHELL ?? "", spanish);
   if (hint) console.log(hint);
+  const kept = adapter.keptLauncher();
+  if (kept) console.log(spanish
+   ? `Se conservó ${kept}: no lo creó mars-ram install. Si está antes en PATH, se ejecuta en lugar del paquete de npm.`
+   : `Kept ${kept}: mars-ram install did not create it. If it comes first on PATH, it runs instead of the npm package.`);
   if (!await adapter.writeHostConfig()) console.log(spanish
    ? "La terminal no se abrirá hasta que instales Herdr y ejecutes mars-ram install de nuevo."
    : "The terminal will not open until Herdr is installed; run mars-ram install again.");

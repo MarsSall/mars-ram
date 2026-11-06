@@ -3,36 +3,57 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { PairingFailureCode, PairingResult } from "../../core/pairing";
+import { pairingFailureMessage } from "../../core/pair-link";
 import { pair } from "../../services";
 import { PrimaryButton, Screen } from "../../ui/components";
 import { usePreferences } from "../../ui/preferences";
 
-type Phase = { kind: "scanning" } | { kind: "pairing" } | { kind: "failed"; message: string };
+export type PairingPhase = { kind: "idle" } | { kind: "pairing" } | { kind: "failed"; message: string };
+
+/** Pairs with a scanned QR or a confirmed link the same way: one run at a time, then the computer's screen or a localized failure. */
+export function usePairingRunner() {
+	const { t } = usePreferences();
+	const [phase, setPhase] = useState<PairingPhase>({ kind: "idle" });
+	// The scanner reports the same code many times per second; pair only once.
+	const busy = useRef(false);
+	const run = async (uri: string) => {
+		if (busy.current) return;
+		busy.current = true;
+		setPhase({ kind: "pairing" });
+		const result = await pair(uri, t.add.unlockTitle);
+		if (result.ok) {
+			router.replace({ pathname: "/computer/[id]", params: { id: result.host.id } });
+			return;
+		}
+		setPhase({ kind: "failed", message: pairingFailureMessage(result, t.add) });
+	};
+	const reset = () => {
+		busy.current = false;
+		setPhase({ kind: "idle" });
+	};
+	return { phase, run, reset };
+}
+
+/** Shown while the computer's user decides; the request waits for their answer. */
+export function PairingProgress() {
+	const { theme, t } = usePreferences();
+	const c = theme.colors;
+	return (
+		<View accessibilityLiveRegion="polite" style={{ padding: theme.spacing(6), gap: theme.spacing(4), alignItems: "center" }}>
+			<ActivityIndicator size="large" color={c.accentText} />
+			<Text style={{ color: c.text, fontSize: 17, fontWeight: "700", textAlign: "center" }}>{t.add.stepConfirm}</Text>
+			<Text style={{ color: c.textMuted, fontSize: 15, textAlign: "center" }}>{t.add.stepConfirmHint}</Text>
+		</View>
+	);
+}
 
 export default function AddComputerScreen() {
 	const { theme, t } = usePreferences();
 	const [permission, requestPermission] = useCameraPermissions();
 	const [cameraReady, setCameraReady] = useState(false);
 	const [permissionPending, setPermissionPending] = useState(false);
-	const [phase, setPhase] = useState<Phase>({ kind: "scanning" });
-	// The scanner reports the same code many times per second; pair only once.
-	const busy = useRef(false);
+	const { phase, run, reset } = usePairingRunner();
 	const c = theme.colors;
-
-	const onScanned = async (data: string) => {
-		if (busy.current) return;
-		busy.current = true;
-		setPhase({ kind: "pairing" });
-		const result: PairingResult = await pair(data, t.add.unlockTitle);
-		if (result.ok) {
-			router.replace({ pathname: "/computer/[id]", params: { id: result.host.id } });
-			return;
-		}
-		// Core messages are English; show the screen's language when the failure has a known code.
-		const failures: Partial<Record<PairingFailureCode, string>> = { ...t.add.failures, UNREACHABLE: t.add.unreachable };
-		setPhase({ kind: "failed", message: (result.code && failures[result.code]) || result.message });
-	};
 
 	const header = (
 		<View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: theme.spacing(2), paddingVertical: theme.spacing(2) }}>
@@ -60,13 +81,7 @@ export default function AddComputerScreen() {
 	const cameraLoading = <View accessibilityLiveRegion="polite" style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0, backgroundColor: c.background, justifyContent: "center", alignItems: "center", gap: theme.spacing(2) }}><ActivityIndicator color={c.accentText} /><Text style={{ color: c.text }}>{t.add.cameraOpening}</Text></View>;
 	let body;
 	if (phase.kind === "pairing") {
-		body = (
-			<View style={{ padding: theme.spacing(6), gap: theme.spacing(4), alignItems: "center" }}>
-				<ActivityIndicator size="large" color={c.accentText} />
-				<Text style={{ color: c.text, fontSize: 17, fontWeight: "700", textAlign: "center" }}>{t.add.stepConfirm}</Text>
-				<Text style={{ color: c.textMuted, fontSize: 15, textAlign: "center" }}>{t.add.stepConfirmHint}</Text>
-			</View>
-		);
+		body = <PairingProgress />;
 	} else if (phase.kind === "failed") {
 		body = (
 			<>
@@ -74,9 +89,8 @@ export default function AddComputerScreen() {
 				<PrimaryButton
 					label={t.add.scanAgain}
 					onPress={() => {
-						busy.current = false;
 						setCameraReady(false);
-						setPhase({ kind: "scanning" });
+						reset();
 					}}
 				/>
 				{manualLink}
@@ -97,7 +111,7 @@ export default function AddComputerScreen() {
 			<>
 				{message(t.add.scanTitle, t.add.scanHint)}
 				<View style={{ marginHorizontal: theme.spacing(6), aspectRatio: 1, borderRadius: theme.radius.large, overflow: "hidden", borderWidth: 2, borderColor: c.accentText }}>
-					<CameraView onCameraReady={() => setCameraReady(true)} style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={({ data }) => void onScanned(data)} />
+					<CameraView onCameraReady={() => setCameraReady(true)} style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={({ data }) => void run(data)} />
 					{!cameraReady ? cameraLoading : null}
 				</View>
 				{manualLink}

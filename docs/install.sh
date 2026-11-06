@@ -20,8 +20,8 @@
 
 main() {
  set -eu
- version='0.1.1'
- sha256='787c5efb47e5f3518a7dbc6270f49136d992af9df46f1cd4a3300c51789fed50'
+ version='0.1.2'
+ sha256='ac1d4fe944e803f57a71b1bd626b756198ceafb8a67e0cfa232886f025fde6d6'
  url=${MARS_RAM_DOWNLOAD_URL:-"https://github.com/MarsSall/mars-ram/releases/download/v$version/mars-ram-$version.tar.gz"}
  page='https://marssall.github.io/mars-ram/install.sh'
 

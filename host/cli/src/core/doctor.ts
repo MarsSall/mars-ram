@@ -7,7 +7,8 @@ export interface DoctorPorts {
 	spanish: boolean;
 	piVersion(): Promise<string>;
  herdr(): Promise<boolean>;
- cli(): Promise<{ resolved: boolean; current: boolean; localBin: boolean }>;
+ /** command: the first mars-ram on PATH (path only). packageMode: install.json records that `mars-ram install` ran from the npm package. */
+ cli(): Promise<{ resolved: boolean; command?: string; current: boolean; localBin: boolean; packageMode?: boolean }>;
  linkServer(): Promise<{ present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean }>;
 	installation(): Promise<{ present: boolean; current: boolean; homes: { path: string; registered: boolean }[] }>;
 	registry(): Promise<RegistryObservation>;
@@ -34,9 +35,18 @@ export async function checkPi(p: DoctorPorts): Promise<Finding[]> {
 
 export async function checkCli(p: DoctorPorts): Promise<Finding[]> {
  const state = await p.cli();
+ const copy = result(state.current ? "ok" : "warning", say(p, state.current ? "CLI copy matches current sources." : "CLI copy is outdated or missing.", state.current ? "La copia del CLI coincide con el código actual." : "La copia del CLI está desactualizada o ausente."), state.current ? undefined : state.packageMode ? say(p, "Run mars-ram install.", "Ejecutá mars-ram install.") : installFix(p));
+ // From the package, install writes no launcher of its own. Doctor only names the command PATH finds; it warns
+ // only for what it can prove: nothing found, or the installer's own launcher, which install retires.
+ if (state.packageMode) return [
+  !state.command ? result("warning", say(p, "mars-ram is not on PATH.", "mars-ram no está en PATH."), say(p, "Open a new terminal or check the pnpm/npm install (pnpm setup).", "Abrí una terminal nueva o revisá la instalación de pnpm/npm (pnpm setup)."))
+   : state.resolved ? result("warning", say(p, "mars-ram on PATH is the old launcher from mars-ram install;", "mars-ram en PATH es el lanzador anterior de mars-ram install;"), say(p, "run mars-ram install again to retire it.", "ejecutá mars-ram install de nuevo para retirarlo."))
+   : result("ok", say(p, `mars-ram on PATH: ${state.command}`, `mars-ram en PATH: ${state.command}`)),
+  copy,
+ ];
  const results = [
   result(state.resolved ? "ok" : "warning", say(p, state.resolved ? "mars-ram on PATH resolves to the installed launcher." : "mars-ram on PATH does not resolve to the installed launcher.", state.resolved ? "mars-ram en PATH corresponde al lanzador instalado." : "mars-ram en PATH no corresponde al lanzador instalado."), state.resolved ? undefined : say(p, "Run install from a clone, check PATH order and open a new terminal.", "Ejecutá install desde un clon, revisá el orden de PATH y abrí una terminal nueva.")),
-  result(state.current ? "ok" : "warning", say(p, state.current ? "CLI copy matches current sources." : "CLI copy is outdated or missing.", state.current ? "La copia del CLI coincide con el código actual." : "La copia del CLI está desactualizada o ausente."), state.current ? undefined : installFix(p)),
+  copy,
  ];
  if (p.platform === "linux") results.push(result(state.localBin ? "ok" : "warning", say(p, `~/.local/bin ${state.localBin ? "is" : "is not"} on PATH.`, `~/.local/bin ${state.localBin ? "está" : "no está"} en PATH.`), state.localBin ? undefined : "fish: fish_add_path ~/.local/bin; bash/zsh: export PATH=\"$HOME/.local/bin:$PATH\""));
  return results;

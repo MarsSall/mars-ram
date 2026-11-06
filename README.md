@@ -13,19 +13,16 @@ Mars-RAM connects to your own computers over SSH on your Tailscale network. It s
 
 ## Install on your computer
 
-Linux or macOS:
+Needs Node.js 24 or newer. With pnpm (recommended) or npm:
 
 ```sh
-curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
+pnpm add -g mars-ram
+# or: npm i -g mars-ram
+mars-ram install
+mars-ram pair
 ```
 
-Windows (a normal PowerShell window):
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://marssall.github.io/mars-ram/install.ps1 | iex"
-```
-
-Then run `mars-ram pair` and scan the code with the app. Requirements, what the installer does and how to read it first: [install guide](docs/install.md) ([español](docs/install.es.md)).
+Scan the code with the app. On Linux and macOS, `curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh` also works. Requirements, what the installer does and how to read it first: [install guide](docs/install.md) ([español](docs/install.es.md)).
 
 ## License
 

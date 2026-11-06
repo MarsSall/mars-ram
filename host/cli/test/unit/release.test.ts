@@ -11,13 +11,13 @@ const fresh = (prefix: string) => { const dir = mkdtempSync(join(tmpdir(), prefi
 afterEach(() => { for (const dir of temporary.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
-describe('release archive, install.sh and install.ps1 (temporary output only; nothing published)', () => {
+describe('release archive, install.sh, install.ps1 and the npm package (temporary output only; nothing published)', () => {
  it('packs cli, link-server, pi-bridge and VERSION under one folder with a sha256sum-format checksum', () => {
   const out = fresh('release-out-');
   const result = buildRelease('1.2.3', out);
   const archive = join(out, 'mars-ram-1.2.3.tar.gz');
   expect(result.archive).toBe(archive);
-  expect(readdirSync(out).sort()).toEqual(['SHA256SUMS', 'install.ps1', 'install.sh', 'mars-ram-1.2.3.tar.gz']);
+  expect(readdirSync(out).sort()).toEqual(['SHA256SUMS', 'install.ps1', 'install.sh', 'mars-ram-1.2.3.tar.gz', 'mars-ram-1.2.3.tgz']);
   const digest = sha256(readFileSync(archive));
   expect(result.sha256).toBe(digest);
   expect(readFileSync(join(out, 'SHA256SUMS'), 'utf8')).toBe(`${digest}  mars-ram-1.2.3.tar.gz\n`);
