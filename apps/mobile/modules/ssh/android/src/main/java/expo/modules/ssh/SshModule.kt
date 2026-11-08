@@ -4,7 +4,6 @@ import android.net.Uri
 import android.util.Base64
 import net.schmizz.sshj.connection.channel.direct.SessionChannel
 import android.provider.OpenableColumns
-import android.security.keystore.UserNotAuthenticatedException
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
@@ -17,8 +16,11 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileAttributes
@@ -27,70 +29,105 @@ import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.sftp.Response
 import net.schmizz.sshj.sftp.SFTPException
-import net.schmizz.sshj.transport.TransportException
-import net.schmizz.sshj.transport.verification.HostKeyVerifier
-import net.schmizz.sshj.userauth.UserAuthException
-import net.schmizz.sshj.userauth.keyprovider.KeyPairWrapper
 import java.io.File
 import java.io.IOException
-import java.net.ConnectException
 import java.net.InetSocketAddress
-import java.net.ServerSocket
 import java.net.Socket
-import java.net.NoRouteToHostException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
-import java.security.KeyPair
-import java.security.PublicKey
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 
-class ConnectOptions : Record {
-  @Field val host: String = ""
+class ConnectOptions(
+  @Field val host: String = "",
   /** Tried when the host name cannot be resolved, for example the host's Tailscale IP. */
-  @Field val fallbackHost: String? = null
-  @Field val port: Int = 22
-  @Field val username: String = ""
-  @Field val keyAlias: String = ""
+  @Field val fallbackHost: String? = null,
+  @Field val port: Int = 22,
+  @Field val username: String = "",
+  @Field val keyAlias: String = "",
   /** null on first contact: the module reports the host identity instead of trusting it. */
-  @Field val expectedFingerprint: String? = null
-}
-
-/** Where a connection was when it failed; it decides what a timeout means. */
-private enum class Stage { CONNECTING, AUTHENTICATING, CONNECTED }
+  @Field val expectedFingerprint: String? = null,
+) : Record
 
 private class SourceUnreadable(cause: Exception) : IOException("Cannot read the selected attachment. Select it again.", cause)
 
-private const val CONNECT_TIMEOUT_MS = 10_000
-private const val NAME_RETRY_DELAY_MS = 1_500L
 internal const val LOOPBACK = "127.0.0.1"
 private const val MAX_DIR_ENTRIES = 1_000
-private const val UNLOCK_MESSAGE = "Unlock the phone to use the SSH key."
 
 class SshModule : Module() {
-  private val connections = ConcurrentHashMap<String, SSHClient>()
-  private val forwards = ConcurrentHashMap<String, LoopbackForward>()
   private val terminals = ConcurrentHashMap<String, InteractiveTerminal>()
-  /** Guards publishing connections, tunnels and terminals, so none outlives its connection. */
-  private val lifecycle = Any()
+  private val lifecycle get() = ConnectionManager.lifecycle
+  private var playUpdates: PlayAppUpdates? = null
+  @Synchronized private fun playUpdates(): PlayAppUpdates? = playUpdates
+    ?: appContext.reactContext?.applicationContext?.let { context ->
+      PlayAppUpdates(context) { status -> sendEvent("onAppUpdateStatus", mapOf("status" to status)) }.also { playUpdates = it }
+    }
+  // Runs after the lifecycle lock is released: closing a channel can wait for the host.
+  private val lease = ConnectionManager.acquire(LeaseOwner.UI) { connectionId ->
+    val closing = terminals.filterValues { it.connectionId == connectionId }
+    closing.keys.forEach { terminals.remove(it) }
+    closing.values.forEach { it.close("connection_closed") }
+  }
 
   override fun definition() = ModuleDefinition {
     Name("Ssh")
-    Events("onTerminalOutput", "onTerminalExit")
+    Events("onTerminalOutput", "onTerminalExit", "onAppUpdateStatus")
 
     OnCreate { Crypto.ensureReady() }
 
     OnDestroy {
-      val closing = synchronized(lifecycle) {
-        forwards.values.forEach { it.close() }
-        forwards.clear()
-        terminals.values.toList().forEach { it.close("module_destroyed") }
-        terminals.clear()
-        connections.values.toList().also { connections.clear() }
+      val closing = synchronized(lifecycle) { terminals.values.toList().also { terminals.clear() } }
+      closing.forEach { it.close("module_destroyed") }
+      // A tombstoned UI lease rejects late connection/forward/channel publication.
+      // Other owners keep their clients and their own forwards.
+      lease.close()
+      playUpdates?.stopListening()
+    }
+
+    Function("appBuild") { installedBuild(appContext.reactContext) }
+    AsyncFunction("checkAppUpdate") Coroutine { -> playUpdates()?.check() ?: appUpdateResult(null, null) }
+    AsyncFunction("startFlexibleUpdate") Coroutine { -> playUpdates()?.start(appContext.currentActivity) ?: startResult(null) }
+    AsyncFunction("appUpdateProgress") Coroutine { -> playUpdates()?.progress() ?: installProgress(null) }
+    AsyncFunction("completeUpdate") Coroutine { -> playUpdates()?.complete(); Unit }
+
+    AsyncFunction("startSessionWatch") { config: SessionWatchConfig ->
+      SessionWatchControl.start(appContext.currentActivity as? FragmentActivity, config)
+    }
+    AsyncFunction("stopSessionWatch") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      SessionWatchControl.stop(context)
+    }
+    Function("sessionWatchStatus") { SessionWatchControl.status }
+    AsyncFunction("registerAlwaysNotify") Coroutine { hostId: String ->
+      withContext(Dispatchers.IO) {
+        val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+        try { mapOf("secret" to AlwaysNotifySecrets.get(context).register(hostId), "port" to ALWAYS_NOTIFY_PORT) }
+        catch (_: Exception) { throw IllegalStateException("NOTIFY_STORAGE_FAILED") }
       }
-      closing.forEach { runCatching { it.disconnect() } }
+    }
+    AsyncFunction("forgetAlwaysNotify") Coroutine { hostId: String ->
+      withContext(Dispatchers.IO) {
+        val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+        try { AlwaysNotifySecrets.get(context).forget(hostId) }
+        catch (_: Exception) { throw IllegalStateException("NOTIFY_STORAGE_FAILED") }
+      }
+    }
+    Function("isIgnoringBatteryOptimizations") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      (context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(context.packageName)
+    }
+    AsyncFunction("openBatteryOptimizationSettings") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        val opened = launchBatterySettings(activity.packageName) { target ->
+          val intent = android.content.Intent(target.action)
+          target.uri?.let { intent.data = android.net.Uri.parse(it) }
+          // Launch directly: resolver queries can hide Settings under Android package visibility.
+          // ActivityNotFoundException (or a rejected launch) triggers the policy's fallback.
+          activity.startActivity(intent)
+          true
+        }
+        if (!opened) throw IllegalStateException("SETTINGS_UNAVAILABLE")
+      }
     }
 
     /** Returns the key's authorized_keys line, creating the key if it does not exist. */
@@ -123,11 +160,23 @@ class SshModule : Module() {
      * Opens a connection with the Keystore key. The host identity must match
      * expectedFingerprint; an unknown or changed identity is reported, never accepted.
      */
-    AsyncFunction("connect") Coroutine { options: ConnectOptions -> withContext(Dispatchers.IO) { connect(options) } }
+    AsyncFunction("connect") Coroutine { options: ConnectOptions -> withContext(Dispatchers.IO) {
+      ConnectionManager.connect(lease, options).also { result ->
+        if (result["ok"] == true) appContext.reactContext?.let { SessionWatchControl.connected(it, options) }
+      }
+    } }
 
     /** Runs one command on an open connection, which stays open afterwards. */
     AsyncFunction("exec") Coroutine { connectionId: String, command: String ->
       withContext(Dispatchers.IO) { exec(connectionId, command) }
+    }
+
+    /** Bounded stdin for notification registration; never interpolate secrets into commands. */
+    AsyncFunction("execWithInput") Coroutine { connectionId: String, command: String, input: String ->
+      withContext(Dispatchers.IO) { execWithInput(connectionId, command, input) }
+    }
+    AsyncFunction("setNotificationLanguage") { language: String ->
+      SessionWatchControl.language = if (language == "es") "es" else "en"
     }
 
     AsyncFunction("openTerminal") Coroutine { connectionId: String, command: List<String>, cols: Int, rows: Int, term: String? ->
@@ -172,12 +221,12 @@ class SshModule : Module() {
     }
 
     AsyncFunction("closeTerminal") Coroutine { terminalId: String ->
-      withContext(Dispatchers.IO) { synchronized(lifecycle) { terminals.remove(terminalId)?.close("closed") } }
+      withContext(Dispatchers.IO) { synchronized(lifecycle) { terminals.remove(terminalId) }?.close("closed") }
       Unit
     }
 
     AsyncFunction("disconnect") Coroutine { connectionId: String ->
-      withContext(Dispatchers.IO) { drop(connectionId)?.let { runCatching { it.disconnect() } } }
+      withContext(Dispatchers.IO) { lease.disconnect(connectionId) }
       Unit
     }
 
@@ -192,7 +241,7 @@ class SshModule : Module() {
     /** Resolve the actual login home over SFTP, without invoking the host shell. */
     AsyncFunction("homeDirectory") Coroutine { connectionId: String ->
       withContext(Dispatchers.IO) {
-        val ssh = connections[connectionId] ?: return@withContext notConnected()
+        val ssh = lease.connection(connectionId) ?: return@withContext notConnected()
         try {
           ssh.newSFTPClient().use { sftp ->
             val reported = sftp.canonicalize(".")
@@ -226,86 +275,59 @@ class SshModule : Module() {
 
     /** Phone binds only IPv4 loopback; remote destination is exactly IPv4 or IPv6 loopback. */
     AsyncFunction("forwardLocal") Coroutine { connectionId: String, remotePort: Int, remoteHost: String? ->
-      withContext(Dispatchers.IO) { forwardLocal(connectionId, remotePort, remoteHost ?: LOOPBACK) }
+      withContext(Dispatchers.IO) { ConnectionManager.forwardLocal(lease, connectionId, remotePort, remoteHost ?: LOOPBACK) }
     }
 
     AsyncFunction("closeForward") Coroutine { forwardId: String ->
-      // Remove and close under the lifecycle lock, so a concurrent disconnect never misses it.
-      withContext(Dispatchers.IO) { synchronized(lifecycle) { forwards.remove(forwardId)?.close() } }
+      // Removed under the lifecycle lock, so a concurrent disconnect never misses it; closed after.
+      withContext(Dispatchers.IO) { lease.closeForward(forwardId) }
       Unit
     }
 
     /** Whether the connection is still open; keep-alives make a dead link show up as closed. */
     Function("isConnected") { connectionId: String ->
-      connections[connectionId]?.let { it.isConnected && it.isAuthenticated } ?: false
+      lease.connection(connectionId)?.let { it.isConnected && it.isAuthenticated } ?: false
     }
   }
 
-  private suspend fun connect(options: ConnectOptions): Map<String, Any?> {
-    val pair = KeystoreKeys.load(options.keyAlias) ?: return failure("KEY_MISSING", "No key named ${options.keyAlias}.")
-    when (KeystoreKeys.usability(pair.private)) {
-      KeystoreKeys.Usability.UNLOCK_REQUIRED -> return failure("UNLOCK_REQUIRED", UNLOCK_MESSAGE)
-      KeystoreKeys.Usability.INVALIDATED -> return failure(
-        "KEY_INVALIDATED",
-        "Android disabled the SSH key because the screen lock or fingerprints changed. Create a new key and authorize it on the host again.",
-      )
-      KeystoreKeys.Usability.READY -> Unit
-    }
-    // A Tailscale name lookup can fail briefly: retry once, then try the fallback address.
-    var result = attempt(options, options.host, pair)
-    if (result["code"] == "HOST_NOT_FOUND") {
-      delay(NAME_RETRY_DELAY_MS)
-      result = attempt(options, options.host, pair)
-    }
-    val fallback = options.fallbackHost
-    if (result["code"] == "HOST_NOT_FOUND" && !fallback.isNullOrBlank() && fallback != options.host) {
-      result = attempt(options, fallback, pair)
-    }
-    return result
-  }
-
-  private fun attempt(options: ConnectOptions, address: String, pair: KeyPair): Map<String, Any?> {
-    var stage = Stage.CONNECTING
-    var seen: String? = null
-    val ssh = SSHClient(SshConfig.create())
-    ssh.connectTimeout = CONNECT_TIMEOUT_MS
-    ssh.timeout = SshConfig.CHANNEL_READ_TIMEOUT_MS
-    ssh.addHostKeyVerifier(object : HostKeyVerifier {
-      override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
-        seen = Crypto.fingerprint(key)
-        return seen == options.expectedFingerprint
-      }
-      override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
-    })
+  private suspend fun execWithInput(connectionId: String, command: String, input: String): Map<String, Any?> = coroutineScope {
+    if (input.toByteArray(Charsets.UTF_8).size > 1024 || command.length > 4096) return@coroutineScope failure("TOO_LARGE", "Command input is too large.")
+    val ssh = lease.connection(connectionId) ?: return@coroutineScope notConnected()
     try {
-      ssh.connect(address, options.port)
-      stage = Stage.AUTHENTICATING
-      ssh.connection.keepAlive.keepAliveInterval = SshConfig.KEEP_ALIVE_SECONDS
-      ssh.authPublickey(options.username, KeyPairWrapper(pair))
-      stage = Stage.CONNECTED
-      val connectionId = UUID.randomUUID().toString()
-      ssh.transport.setDisconnectListener { _, _ ->
-        // Never wait for channel close on sshj's transport reader itself.
-        Thread({ drop(connectionId) }, "ssh-disconnected").apply { isDaemon = true; start() }
+      ssh.startSession().use { session ->
+        // Absolute deadline also closes a channel that continuously produces output.
+        val deadline = launch(Dispatchers.IO) { delay(30_000); runCatching { session.close() } }
+        try {
+          val running = session.exec(command)
+          fun readBounded(stream: java.io.InputStream): String {
+            val bytes = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(1024)
+            while (true) {
+              val n = stream.read(buffer)
+              if (n < 0) break
+              if (bytes.size() + n > 4096) throw IOException("Command output too large")
+              bytes.write(buffer, 0, n)
+            }
+            return bytes.toString("UTF-8")
+          }
+          val stderr = async(Dispatchers.IO) { readBounded(running.errorStream) }
+          running.outputStream.write(input.toByteArray(Charsets.UTF_8))
+          running.outputStream.flush()
+          running.outputStream.close() // SSH EOF lets the CLI finish reading JSON stdin.
+          val stdout = readBounded(running.inputStream)
+          val error = stderr.await()
+          running.join(30, TimeUnit.SECONDS)
+          mapOf("ok" to true, "stdout" to stdout, "stderr" to error, "exitStatus" to running.exitStatus)
+        } finally { deadline.cancel() }
       }
-      synchronized(lifecycle) {
-        if (!ssh.isConnected) return notConnected()
-        connections[connectionId] = ssh
-      }
-      return mapOf("ok" to true, "connectionId" to connectionId, "fingerprint" to seen, "address" to address)
-    } catch (e: Exception) {
-      runCatching { ssh.disconnect() }
-      val identity = seen
-      if (e is TransportException && stage == Stage.CONNECTING && identity != null && identity != options.expectedFingerprint) {
-        val code = if (options.expectedFingerprint == null) "HOST_KEY_UNKNOWN" else "HOST_KEY_CHANGED"
-        return failure(code, "The host identity is $identity.", mapOf("fingerprint" to identity, "expected" to options.expectedFingerprint))
-      }
-      return classify(e, stage, address, options.port, options.username)
+    } catch (_: Exception) {
+      // Do not surface remote diagnostics: a compromised command may echo stdin.
+      failure("SSH_ERROR", "Notification registration command failed.")
     }
   }
 
   private fun exec(connectionId: String, command: String): Map<String, Any?> {
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     try {
       val session = ssh.startSession()
       try {
@@ -345,7 +367,7 @@ class SshModule : Module() {
   }
 
   private fun listDir(connectionId: String, path: String): Map<String, Any?> {
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     return try {
       ssh.newSFTPClient().use { sftp ->
         val listed = sftp.ls(path)
@@ -360,7 +382,7 @@ class SshModule : Module() {
 
   private fun readFile(connectionId: String, path: String, maxBytes: Int): Map<String, Any?> {
     if (maxBytes <= 0) return failure("SSH_ERROR", "The size limit must be positive.")
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     return try {
       ssh.newSFTPClient().use { sftp ->
         sftp.open(path).use { file ->
@@ -392,7 +414,7 @@ class SshModule : Module() {
     if (remoteDir.startsWith('/') || remoteDir.any { it == '\\' || it == ':' || it == '\u0000' } || directories.any { it == ".." }) {
       return failure("SSH_ERROR", "Upload directory must be relative to home.")
     }
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     val directory = directories.joinToString("/").ifEmpty { "." }
     val path = "$directory/$remoteName"
     val part = "$path.part"
@@ -479,7 +501,7 @@ class SshModule : Module() {
   }
 
   private fun removeFile(connectionId: String, path: String): Map<String, Any?> {
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     return try {
       ssh.newSFTPClient().use { sftp ->
         if (sftp.lstat(path).type != FileMode.Type.REGULAR) return failure("SSH_ERROR", "$path is not a regular file.")
@@ -489,33 +511,6 @@ class SshModule : Module() {
     } catch (e: Exception) {
       sftpFailure(e, path) ?: connectedFailure(connectionId, ssh, e)
     }
-  }
-
-  private fun forwardLocal(connectionId: String, remotePort: Int, remoteHost: String): Map<String, Any?> {
-    if (remoteHost != LOOPBACK && remoteHost != "::1") return failure("SSH_ERROR", "Only loopback destinations are allowed.")
-    if (remotePort !in 1..65535) return failure("SSH_ERROR", "Invalid port $remotePort.")
-    val ssh = connections[connectionId] ?: return notConnected()
-    val socket = ServerSocket()
-    try {
-      socket.reuseAddress = true
-      // Only apps on this phone can reach the tunnel.
-      socket.bind(InetSocketAddress(LOOPBACK, 0))
-    } catch (e: Exception) {
-      runCatching { socket.close() }
-      return failure("SSH_ERROR", "Cannot open a local port: ${e.message}")
-    }
-    val forwardId = UUID.randomUUID().toString()
-    val forward = LoopbackForward(connectionId, ssh, socket, remotePort, remoteHost) { forwards.remove(forwardId) }
-    synchronized(lifecycle) {
-      // The connection may have closed while the socket was opening.
-      if (connections[connectionId] !== ssh) {
-        forward.close()
-        return notConnected()
-      }
-      forwards[forwardId] = forward
-    }
-    forward.start()
-    return mapOf("ok" to true, "forwardId" to forwardId, "localPort" to forward.localPort)
   }
 
   private fun validTerminalSize(cols: Int, rows: Int) = cols in 1..1000 && rows in 1..1000
@@ -532,7 +527,7 @@ class SshModule : Module() {
     if (!allowed) return failure("SSH_ERROR", "Only Herdr can be opened")
     if (!validTerminalSize(cols, rows)) return failure("SSH_ERROR", "PTY dimensions must be between 1 and 1000.")
     if (!Regex("[A-Za-z0-9._-]{1,64}").matches(term)) return failure("SSH_ERROR", "Invalid terminal type.")
-    val ssh = connections[connectionId] ?: return notConnected()
+    val ssh = lease.connection(connectionId) ?: return notConnected()
     var session: SessionChannel? = null
     try {
       session = ssh.startSession() as SessionChannel
@@ -549,45 +544,26 @@ class SshModule : Module() {
           sendEvent("onTerminalExit", mapOf("terminalId" to terminalId, "exitStatus" to status, "reason" to reason))
         },
       )
-      synchronized(lifecycle) {
-        if (connections[connectionId] !== ssh || !ssh.isConnected) {
-          runCatching { session.close() }
-          return notConnected()
-        }
-        terminals[terminalId] = terminal
+      val registered = synchronized(lifecycle) {
+        (lease.connection(connectionId) === ssh && ssh.isConnected).also { if (it) terminals[terminalId] = terminal }
+      }
+      if (!registered) {
+        runCatching { session.close() }
+        return notConnected()
       }
       terminal.start()
       return mapOf("ok" to true, "terminalId" to terminalId)
     } catch (_: Exception) {
       runCatching { session?.close() }
-      if (!ssh.isConnected) drop(connectionId)
+      if (!ssh.isConnected) ConnectionManager.transportClosed(connectionId)
       return failure("SSH_ERROR", "Cannot open the Herdr terminal.")
     }
   }
 
-  /** Removes a connection and closes its channels atomically; the caller disconnects it. */
-  private fun drop(connectionId: String): SSHClient? = synchronized(lifecycle) {
-    closeForwards(connectionId)
-    val closing = terminals.filterValues { it.connectionId == connectionId }
-    closing.keys.forEach { terminals.remove(it) }
-    closing.values.forEach { it.close("connection_closed") }
-    connections.remove(connectionId)
-  }
-
-  /** Called with the lifecycle lock held. */
-  private fun closeForwards(connectionId: String) {
-    val closing = forwards.filterValues { it.connectionId == connectionId }
-    closing.keys.forEach { forwards.remove(it) }
-    closing.values.forEach { it.close() }
-  }
-
-  private fun notConnected() = failure("NOT_CONNECTED", "The connection is closed. Connect again.")
-
   /** Failures on an open connection; a dead link is closed so the caller reconnects. */
   private fun connectedFailure(connectionId: String, ssh: SSHClient, e: Exception): Map<String, Any?> {
     if (!ssh.isConnected) {
-      drop(connectionId)
-      runCatching { ssh.disconnect() }
+      ConnectionManager.transportClosed(connectionId)
     }
     return classify(e, Stage.CONNECTED, ssh.remoteHostname ?: "", ssh.remotePort, "")
   }
@@ -601,42 +577,4 @@ class SshModule : Module() {
     }
   }
 
-  private fun classify(e: Exception, stage: Stage, address: String, port: Int, username: String): Map<String, Any?> {
-    val cause = rootCause(e)
-    val timedOut = cause is TimeoutException || cause is SocketTimeoutException
-    return when {
-      cause is UserNotAuthenticatedException -> failure("UNLOCK_REQUIRED", UNLOCK_MESSAGE)
-      cause is UnknownHostException -> failure("HOST_NOT_FOUND", "Cannot resolve $address. Check that the phone is on the tailnet.")
-      stage == Stage.CONNECTING && (timedOut || cause is ConnectException || cause is NoRouteToHostException) ->
-        failure("UNREACHABLE", "Cannot reach $address:$port. Check that the phone is on the tailnet and the host is on.")
-      // After the TCP connection opened, a timeout means the host stopped answering.
-      timedOut -> failure("TIMEOUT", "The host stopped responding for ${SshConfig.CHANNEL_READ_TIMEOUT_MS / 1000} seconds.")
-      e is UserAuthException ->
-        failure("AUTH_FAILED", "The host did not accept the app's key for $username.", mapOf("detail" to describe(e)))
-      else -> failure("SSH_ERROR", cause.message ?: cause.javaClass.simpleName)
-    }
-  }
-
-  private fun failure(code: String, message: String, extra: Map<String, Any?> = emptyMap()) =
-    mapOf("ok" to false, "code" to code, "message" to message) + extra
-
-  /** Exception chain, including suppressed causes, for diagnosing failures sshj wraps. */
-  private fun describe(e: Throwable): String {
-    val parts = mutableListOf<String>()
-    var current: Throwable? = e
-    while (current != null && parts.size < 8) {
-      parts += "${current.javaClass.simpleName}: ${current.message}"
-      current.suppressed.take(2).forEach { parts += "suppressed ${it.javaClass.simpleName}: ${it.message}" }
-      current = current.cause.takeIf { it !== current }
-    }
-    return parts.take(8).joinToString(" <- ").take(1_000)
-  }
-
-  /** Deepest cause, stopping if the cause chain loops. */
-  private fun rootCause(e: Throwable): Throwable {
-    val seen = mutableSetOf<Throwable>()
-    var current = e
-    while (seen.add(current)) current = current.cause ?: break
-    return current
-  }
 }

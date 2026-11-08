@@ -1,4 +1,20 @@
 export const en = {
+ whatsNew: {
+  title: "What's new", open: "What's new", version: (version: string, build: number | null) => build === null ? `Version ${version}` : `Version ${version} (${build})`,
+  new: "New", fixes: "Fixes", done: "Got it", empty: "No notes are bundled with this version.",
+ },
+ appUpdate: {
+  available: "A new version of Mars-RAM is available", update: "Update", dismiss: "Not now",
+  downloading: "Downloading the update in Google Play… You can keep using the app.",
+  downloaded: "The update is downloaded.", restart: "Restart to update",
+  failed: "The download failed. Try again.",
+ },
+ hostUpdate: {
+  required: 'Update needed on this computer',
+  soft: 'A newer host release is available',
+  terminal: 'Run these commands in the computer’s terminal (Linux or Windows):',
+  reload: 'Type /reload in this session to use the new features',
+ },
  shortcuts: {
   limit: (max: number) => `You reached the maximum of ${max} shortcuts. Remove one to add another.`,
   storageFailed: "Could not update shortcuts on this phone. Try again.",

@@ -33,6 +33,13 @@ function fixture() {
 }
 
 describe("link use cases with port fakes", () => {
+ it('stays alive for registered phones and restores link expiry when disabled', async () => {
+  const f = fixture(); let enabled = true;
+  const service = new LinkService(f.ports, 47811, async () => enabled);
+  expect(await service.shouldExit()).toBe(false);
+  enabled = false;
+  expect(await service.shouldExit()).toBe(true);
+ });
 	it("creates a one-day copy, ensures once, lists without raw token, deletes idempotently", async () => {
 		const f = fixture();
 		const created = await f.service.create("file.txt");

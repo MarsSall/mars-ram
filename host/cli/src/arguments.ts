@@ -2,12 +2,13 @@
 
 import type { KeyChange } from './adapters/key-change.ts';
 
-export type Arguments = { ok: true; command: 'herdr' | 'servers' | 'project' | 'repos' | 'launch'; args: string[] } | ({ ok: true; command: 'key' } & KeyChange) | { ok: true; command: "pair"; sshPort: number } | { ok: true; command: "install" | "uninstall" | "doctor" } | { ok: false };
+export type Arguments = { ok: true; command: 'version'; json: boolean } | { ok: true; command: 'notify' | 'herdr' | 'servers' | 'project' | 'repos' | 'launch'; args: string[] } | ({ ok: true; command: 'key' } & KeyChange) | { ok: true; command: "pair"; sshPort: number } | { ok: true; command: "install" | "uninstall" | "doctor" } | { ok: false };
 
 export function parseArguments(args: string[]): Arguments {
 	const [command, ...rest] = args;
+	if (command === 'version') return rest.length === 0 || (rest.length === 1 && rest[0] === '--json') ? { ok: true, command, json: rest.length === 1 } : { ok: false };
 	// Herdr owns its invalid-usage response too: all failures use the v1 JSON envelope.
-	if (command === 'herdr' || command === 'servers' || command === 'project' || command === 'repos' || command === 'launch') return { ok: true, command, args: rest };
+	if (command === 'notify' || command === 'herdr' || command === 'servers' || command === 'project' || command === 'repos' || command === 'launch') return { ok: true, command, args: rest };
 	if (command === 'key') {
 		const [action, ...flags] = rest;
 		if ((action !== 'add' && action !== 'remove') || flags.length !== 4) return { ok: false };

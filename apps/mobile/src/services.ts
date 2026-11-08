@@ -11,6 +11,9 @@ import { KeySecurity, type KeyGeneration } from "./core/key-security";
 import { LinkService } from "./core/links";
 import { Servers, ServerTunnel } from "./core/servers";
 import { HerdrSwitcher } from "./core/herdr-switcher";
+import { HostUpdates, LatestHostRelease } from './core/host-updates';
+import { createNpmHostRelease } from './adapters/npm-host-release';
+import { fileHostReleaseCache } from './adapters/file-host-release-cache';
 import { ProjectBrowser } from "./core/project";
 import { createOnDeviceDictation } from "./adapters/on-device-dictation";
 import { deviceName, newId, postJson } from "./adapters/platform";
@@ -27,6 +30,13 @@ import { SessionLister } from "./core/session-list";
 import { bridgeClient } from "./core/bridge-client";
 import type { AttachmentUploads } from "./core/attachment-uploads";
 import { AttachmentHistory } from "./core/attachment-history";
+import { NotificationRegistration, NotificationSettings } from "./core/notifications";
+import { nativeNotifications } from "./adapters/native-notifications";
+import { WhatsNew } from "./core/whats-new";
+import { AppUpdates } from "./core/app-updates";
+import { fileSeenBuild } from "./adapters/file-seen-build";
+import { fileAppUpdateCheck } from "./adapters/file-app-update-check";
+import { playAppUpdates, readAppBuild } from "./adapters/play-app-updates";
 
 import { expoAttachmentStorage } from "./adapters/expo-attachment-storage";
 
@@ -46,11 +56,33 @@ export const attachmentPreference = {
  set: async (value: AttachmentRetention) => { await writeRetention(value); retention = value; },
 };
 
+/** The installed build, read once: Android versionCode first, Expo's values as fallback. */
+export const appBuild = readAppBuild();
+/** «Novedades»: bundled notes shown once per build. */
+export const whatsNew = new WhatsNew({ store: fileSeenBuild, current: appBuild });
+/** Google Play update notice: at most once per start and once a day; silent without Play. */
+export const appUpdates = new AppUpdates({ source: playAppUpdates, store: fileAppUpdateCheck, clock: Date.now, build: appBuild.build });
+
 /** The app's own SSH key; device unlock is required to use it (PRD R1, on by default). */
 export const KEY_ALIAS = "app-ssh-key";
 const PROBE_TIMEOUT_MS = 4_000;
 
-export const catalog = fileHostCatalog;
+export const catalog = {
+ list: () => fileHostCatalog.list(),
+ save: async (host: SavedHost) => {
+  const previous = (await fileHostCatalog.list()).find(h => h.id === host.id);
+  await fileHostCatalog.save(host);
+  // Do not await: credential rotation may be holding its own serialized lock.
+  if (!previous || previous.keyAlias !== host.keyAlias || previous.hostKey !== host.hostKey) void notifications.computersChanged();
+ },
+ remove: async (id: string) => {
+  const host = (await fileHostCatalog.list()).find(h => h.id === id);
+  if (host) await notifications.removeComputer(host);
+  await fileHostCatalog.remove(id);
+  // Restart only from the visible app, with the remaining saved computers.
+  await notifications.ensureWatching();
+ },
+};
 /** Clipboard adapter: read only after an explicit paste action. */
 export const clipboard = { readText: () => Clipboard.getStringAsync(), writeText: (text: string) => Clipboard.setStringAsync(text) };
 
@@ -113,12 +145,33 @@ export function setUnlockTitle(title: string): void {
 	unlockTitle = title;
 }
 
-const connections = new HostConnections({ host: sshModuleHostConnection, catalog, keyAlias: KEY_ALIAS, unlock: () => unlock(unlockTitle), retention: () => retention,
+const connections: HostConnections = new HostConnections({ host: sshModuleHostConnection, catalog, keyAlias: KEY_ALIAS, unlock: () => unlock(unlockTitle), retention: () => retention,
  // Independent, non-blocking maintenance: rotation resumes on every fresh
  // connection; link restoration and retention remain once per app opening.
  afterConnect: computer => keySecurity.resume(computer.id),
+ onConnected: (computer, connectionId) => hostUpdates.connected(computer.id, connectionId),
  afterFirstConnect: (computer, connectionId) => createLinkService(computer).restore(connectionId),
 });
+export const hostUpdates: HostUpdates = new HostUpdates({ connections, host: sshModuleHostConnection, clock: Date.now,
+ latest: new LatestHostRelease({ registry: createNpmHostRelease(), cache: fileHostReleaseCache, clock: Date.now }),
+});
+const notificationRegistration = new NotificationRegistration({
+ connections,
+ host: { readFile: sshModuleHostConnection.readFile, execWithInput: (id, command, input) => Ssh.execWithInput(id, command, input) },
+ local: { register: nativeNotifications.register },
+});
+export const notifications = new NotificationSettings({
+ ...nativeNotifications, hosts: () => catalog.list(),
+ connect: host => connections.connection(host),
+ register: (host, signal) => notificationRegistration.register(host, signal),
+ unregister: host => notificationRegistration.unregister(host),
+});
+export const notificationSystem = {
+ batteryExempt: nativeNotifications.batteryExempt,
+ openBattery: nativeNotifications.openBattery,
+ openSettings: nativeNotifications.openSettings,
+ setLanguage: (language: "es" | "en") => { notifications.setLanguage(language); return nativeNotifications.language(language); },
+};
 export const herdrSwitcher = new HerdrSwitcher({ connections, host: sshModuleHostConnection });
 export const shortcuts = fileShortcuts;
 export const shortcutHost = new ShortcutHost({ connections, host: sshModuleHostConnection });
@@ -188,7 +241,13 @@ export const sessions = {
 	},
 	list: async () => {
 		const hosts = await catalog.list();
-		return { hosts, computers: await lister.list(hosts) };
+		hostUpdates.retain(hosts.map(h => h.id));
+		const computers = await lister.list(hosts);
+		if (computers.some(c => c.sessions.some(s => s.status === "working" || s.status === "attention"))) void notifications.ensureWatching();
+		// Version checks never delay the session list; their results show on the next refresh.
+		const reachable = new Set(computers.filter(c => c.state === 'ok' || c.state === 'no-pi').map(c => c.hostId));
+		const updates = hostUpdates.snapshot(hosts.filter(h => reachable.has(h.id)));
+		return { hosts, computers, updates };
 	},
 	/** A refresh by hand: after a cancelled unlock, the next connection may ask again. */
 	allowUnlockAgain: () => connections.allowUnlockAgain(),

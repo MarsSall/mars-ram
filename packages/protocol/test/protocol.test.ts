@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Type } from "typebox";
 import {
 	checkCompatibility,
+	EVENT_SCHEMAS,
 	decodeEvent,
 	decodeRegistryEntry,
 	decodeResponse,
@@ -48,7 +50,7 @@ describe("decodeResponse", () => {
 	};
 
 	it("preserves the optional captured pane and accepts older snapshots", () => {
-		expect(PROTOCOL_VERSION).toBe("1.5");
+		expect(PROTOCOL_VERSION).toBe("1.6");
 		const snapshot = { ...state, terminal: true, terminalPane: "w2G:p2" };
 		expect(decodeResponse(StateResponse, snapshot)).toEqual({ ok: true, value: snapshot });
 		expect(decodeResponse(StateResponse, { ...state, protocolVersion: "1.4" }).ok).toBe(true);
@@ -81,6 +83,34 @@ describe("decodeResponse", () => {
 	it("ignores unknown fields, so a newer minor version can add them", () => {
 		const result = decodeResponse(StateResponse, { ...state, addedLater: 1 });
 		expect(result.ok).toBe(true);
+	});
+});
+
+describe("settle outcome contract (1.6)", () => {
+	const state = { ...envelope, idle: true, pendingMessages: false, pendingPrompt: null, model: null, lastSeq: 5, oldestSeq: 1, lastActivityAt: 1000 };
+	it.each(["completed", "failed", "aborted"])("carries %s on events and snapshots", (outcome) => {
+		const event = { type: "agent_settled", seq: 5, at: 1000, aborted: outcome === "aborted", pendingMessages: false, outcome };
+		expect(decodeEvent(event)).toEqual({ kind: "known", event });
+		const snapshot = { ...state, lastOutcome: { outcome, seq: 5 } };
+		expect(decodeResponse(StateResponse, snapshot)).toEqual({ ok: true, value: snapshot });
+	});
+	it("keeps 1.5 app schemas compatible with the new additive fields", () => {
+		const oldState = Type.Omit(StateResponse, ["lastOutcome"]);
+		const oldSettle = Type.Omit(EVENT_SCHEMAS.agent_settled, ["outcome"]);
+		expect(decodeResponse(oldState, { ...state, lastOutcome: { outcome: "failed", seq: 5 } }).ok).toBe(true);
+		expect(decodeResponse(oldSettle, { type: "agent_settled", seq: 5, at: 1000, aborted: false, pendingMessages: false, outcome: "failed" }).ok).toBe(true);
+	});
+	it("accepts older payloads without claiming an outcome", () => {
+		const event = { type: "agent_settled", seq: 5, at: 1000, aborted: false, pendingMessages: false };
+		expect(decodeEvent(event)).toEqual({ kind: "known", event });
+		expect(decodeResponse(StateResponse, { ...state, protocolVersion: "1.5" })).toEqual({ ok: true, value: { ...state, protocolVersion: "1.5" } });
+	});
+	it.each(["error", "unknown", null, 1])("rejects invalid outcome %s", (outcome) => {
+		expect(decodeEvent({ type: "agent_settled", seq: 5, at: 1000, aborted: false, pendingMessages: false, outcome }).kind).toBe("invalid");
+		expect(decodeResponse(StateResponse, { ...state, lastOutcome: { outcome, seq: 5 } }).ok).toBe(false);
+	});
+	it.each([0, -1, 1.5, "5", undefined])("rejects invalid outcome cursor %s", (seq) => {
+		expect(decodeResponse(StateResponse, { ...state, lastOutcome: { outcome: "completed", seq } }).ok).toBe(false);
 	});
 });
 

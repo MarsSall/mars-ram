@@ -33,6 +33,7 @@
         }
       ],
       "./plugins/with-loopback-network-security",
+      "./plugins/with-session-watch",
       [
         "expo-build-properties",
         {

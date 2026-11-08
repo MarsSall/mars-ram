@@ -1,0 +1,6 @@
+{
+ "secret": "0000000000000000000000000000000000000000000000000000000000000000",
+ "notice": { "v": 1, "hostKeyId": "SHA256:host", "bridgeInstanceId": "bridge-1", "project": "demo", "kind": "finished", "seq": 7, "sentAt": 1800000000000, "nonce": "0123456789abcdef0123456789abcdef" },
+ "canonical": "[1,\"SHA256:host\",\"bridge-1\",\"demo\",\"finished\",7,1800000000000,\"0123456789abcdef0123456789abcdef\"]",
+ "mac": "614bc5a00db58abe29148d25d2c415c051261ca68ab3ebebb2bc4746cc13334f"
+}

@@ -63,12 +63,7 @@ internal class LoopbackForward(
       runCatching { client.close() }
       runCatching { channel.get()?.close() }
     }
-    links.add(link)
-    if (closed) {
-      link.close()
-      links.remove(link)
-      return
-    }
+    if (!track(link)) return
     val opened = try {
       ssh.newDirectConnection(remoteHost, remotePort)
     } catch (_: IOException) {
@@ -110,14 +105,28 @@ internal class LoopbackForward(
     }
   }
 
-  /** Synchronized, so a second caller returns only after the first has finished closing. */
-  @Synchronized
+  /**
+   * Registers a link, or closes it when the forward is already closing. Registration and
+   * close's collection share the monitor, so every link is either collected or refused.
+   */
+  internal fun track(link: Closeable): Boolean {
+    val accepted = synchronized(this) { if (!closed) links.add(link); !closed }
+    if (!accepted) runCatching { link.close() }
+    return accepted
+  }
+
+  /**
+   * The monitor guards only the closed flag and link collection: closing a channel can wait
+   * for the host, so it runs after release. A second caller returns at once.
+   */
   fun close() {
-    if (closed) return
-    closed = true
+    val closing = synchronized(this) {
+      if (closed) return
+      closed = true
+      links.toList().also { links.clear() }
+    }
     runCatching { socket.close() }
-    links.forEach { it.close() }
-    links.clear()
+    closing.forEach { runCatching { it.close() } }
   }
 
   private companion object {

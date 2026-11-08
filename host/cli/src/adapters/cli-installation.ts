@@ -5,6 +5,8 @@ import { accessSync, closeSync, constants, cpSync, existsSync, fstatSync, lstatS
 import { createRequire, stripTypeScriptTypes } from 'node:module';
 import { dirname, join, posix, resolve, win32 } from 'node:path';
 
+import { readRelease } from './release-version.ts';
+
 export const cliSource = resolve(import.meta.dirname, '../..');
 export const protocolSource = existsSync(resolve(cliSource, '../../packages/protocol/package.json')) ? resolve(cliSource, '../../packages/protocol') : join(cliSource, 'protocol');
 const marker = '# mars-ram installer-owned launcher v1';
@@ -220,9 +222,10 @@ function fingerprint(entries: [string, string][], canonical = false): string {
  return hash.digest('hex');
 }
 export function cliCopyIsCurrent(copy: string): boolean {
- try { const entries = sources(); return fingerprint(entries, true) === fingerprint(entries.map(([, target]) => [join(copy, target), target])); } catch { return false; }
+ try { const entries = sources(); return readRelease(copy) === readRelease(cliSource) && fingerprint(entries, true) === fingerprint(entries.map(([, target]) => [join(copy, target), target])); } catch { return false; }
 }
-export function buildCliCopy(root: string): void {
+export function buildCliCopy(root: string, release = readRelease(cliSource)): void {
+ if (release !== 'dev' && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(release)) throw new Error('Invalid CLI release.');
  const copy = join(root, 'cli'), staging = `${copy}.staging`, backup = `${copy}.previous`;
  for (const path of [copy, staging, backup]) if (present(path) && lstatSync(path).isSymbolicLink()) throw new Error('Linked CLI installer path.');
  if (!existsSync(copy) && existsSync(backup)) renameSync(backup, copy);
@@ -234,6 +237,8 @@ export function buildCliCopy(root: string): void {
   for (const [source, target] of entries) { mkdirSync(dirname(join(staging, target)), { recursive: true }); cpSync(source, join(staging, target), { recursive: true, dereference: true }); }
   emitProtocol(join(staging, 'node_modules/@workspace/protocol'));
   if (fingerprint(entries.map(([, target]) => [join(staging, target), target])) !== expected) throw new Error('CLI source changed during installation.');
+  // The release travels with every installed copy, independently of the source fingerprint.
+  writeFileSync(join(staging, 'VERSION'), `${release}\n`, { mode: 0o600 });
   writeFileSync(join(staging, 'fingerprint.sha256'), `${expected}\n`, { mode: 0o600 });
   if (existsSync(copy)) { rmSync(backup, { recursive: true, force: true }); renameSync(copy, backup); moved = true; }
   try { renameSync(staging, copy); } catch (error) { if (moved) renameSync(backup, copy); throw error; }

@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { lstatSync, readFileSync, readdirSync, accessSync, constants, statSync } from "node:fs";
 import { linkCopyIsCurrent } from "./link-installation.ts";
 
-export type LinkObservation = { present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean };
+export type LinkObservation = { present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean };
 const regular = (path: unknown): path is string => {
  try { return typeof path === "string" && isAbsolute(path) && lstatSync(path).isFile(); } catch { return false; }
 };
@@ -24,6 +24,11 @@ async function status(node: string, main: string, home: string): Promise<{ servi
 export async function observeLinkServer(root: string, options: { now?: number; status?: typeof status } = {}): Promise<LinkObservation> {
  const copy = join(root, "link-server"), main = join(copy, "src/main.ts"), store = join(root, "links");
  const result: LinkObservation = { present: regular(main), current: linkCopyIsCurrent(copy), configured: false, validLinks: 0, listener: false };
+ // Presence is diagnostic only, never authorization to read secrets or deliver a notice.
+ try {
+  const notify = join(root, 'notify'); const info = lstatSync(notify);
+  if (info.isDirectory() && !info.isSymbolicLink() && readdirSync(notify).some(n => /^[a-f0-9]{64}\.json$/.test(n))) result.notificationsRegistered = true;
+ } catch { /* No registration directory. */ }
  try {
   const value = read(join(root, "host.json")) as Record<string, unknown>;
   // node may be a stable symlink (e.g. a Nix profile's bin/node); follow it. The installed copy must be a plain file.

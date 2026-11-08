@@ -32,6 +32,7 @@ type Preferences = {
 	theme: Theme;
 	setTheme: (name: ThemeName) => void;
 	language: LanguageChoice;
+	locale: "es" | "en";
 	setLanguage: (choice: LanguageChoice) => void;
 	t: Strings;
 	showEmpty: boolean;
@@ -54,6 +55,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 			theme: themes[themeName],
 			setTheme,
 			language,
+			locale: language === "system" ? systemLanguage() : language,
 			setLanguage,
 			t: dictionaries[language === "system" ? systemLanguage() : language],
 			showEmpty,

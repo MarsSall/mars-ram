@@ -7,6 +7,8 @@ import { createFileStore } from "./adapters/file-store.ts";
 import { createLauncher, publishPid } from "./adapters/launcher.ts";
 import { tailscale } from "./adapters/tailscale.ts";
 import { startHttp } from "./adapters/http.ts";
+import { createNotifyStore } from './adapters/notify-store.ts';
+import { startNotifier } from './adapters/notifier.ts';
 
 function parse(args: string[]) {
 	const command = args.shift();
@@ -35,7 +37,8 @@ export async function main(args: string[]): Promise<void> {
 	const store = createFileStore(root);
 	if (command !== "status" && command !== "stop") await store.init();
 	const launcher = createLauncher(root, fileURLToPath(import.meta.url));
-	const service = new LinkService({ clock: Date.now, random: bytes => randomBytes(bytes).toString("base64url"), store, tailscale, launcher }, port);
+	const notifyStore = createNotifyStore(join(homedir(), '.mars-ram', 'notify'));
+ const service = new LinkService({ clock: Date.now, random: bytes => randomBytes(bytes).toString("base64url"), store, tailscale, launcher }, port, async () => { try { return (await notifyStore.all()).length > 0; } catch { return false; } });
 	let output: unknown;
 	switch (command) {
 		case "status": output = await service.status(); break;
@@ -54,14 +57,15 @@ export async function main(args: string[]): Promise<void> {
 			const instance = randomBytes(16).toString("base64url");
 			const startedAt = new Date(Date.now() - Math.floor(process.uptime() * 1000)).toISOString();
 			const server = await startHttp(service, { ip: address.ip, port, instance, log: message => process.stderr.write(`${message}\n`) });
-			let removePid: (() => Promise<void>) | undefined;
+			const notifier = startNotifier(join(homedir(), '.mars-ram'));
+   let removePid: (() => Promise<void>) | undefined;
 			const stop = () => { void server.close(); };
 			process.once("SIGTERM", stop); process.once("SIGINT", stop);
 			try {
 				removePid = await publishPid(root, { pid: process.pid, startedAt, instance, ip: address.ip, port });
 				await server.closed;
 			} finally {
-				await server.close(); await removePid?.();
+				await notifier.close(); await server.close(); await removePid?.();
 				process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);
 			}
 			return;

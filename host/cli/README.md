@@ -68,6 +68,26 @@ The release builder still renders `install.ps1`, but the guides no longer show i
 
 It never closes your console: the body is one function called on the last line, and a failure prints why, returns and sets `$LASTEXITCODE` (1, or the exit code of `mars-ram install`), so `powershell -File install.ps1` itself exits 0 even on a refusal. `MARS_RAM_DOWNLOAD_URL` replaces the archive URL (a mirror, a `file://` URL or a local path); the embedded checksum is still enforced. Messages are in Spanish when the regional format (`Get-Culture`) is Spanish, otherwise English. The file is plain ASCII so 5.1 reads it the same from disk or from `irm`; Spanish accents are written as `{a}`, `{e}`… and expanded at run time.
 
+## version
+
+```text
+mars-ram version
+mars-ram version --json
+```
+
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.4`); JSON is `{"version":1,"release":"0.1.4"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+
+The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
+
+The app requires host **0.1.4** for this feature. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run the pinned commands shown by the app, for example:
+
+```text
+pnpm add -g mars-ram@0.1.4
+mars-ram install
+```
+
+Then type `/reload` in an existing Pi session to load the updated bridge.
+
 ## pair
 
 ```bash

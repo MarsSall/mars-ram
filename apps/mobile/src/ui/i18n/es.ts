@@ -1,6 +1,22 @@
 import type { Strings } from "./en";
 
 export const es: Strings = {
+ whatsNew: {
+  title: "Novedades", open: "Novedades", version: (version: string, build: number | null) => build === null ? `Versión ${version}` : `Versión ${version} (${build})`,
+  new: "Nuevo", fixes: "Arreglos", done: "Entendido", empty: "Esta versión no trae notas.",
+ },
+ appUpdate: {
+  available: "Hay una versión nueva de Mars-RAM", update: "Actualizar", dismiss: "Ahora no",
+  downloading: "Descargando la actualización en Google Play… Podés seguir usando la app.",
+  downloaded: "La actualización ya se descargó.", restart: "Reiniciar para actualizar",
+  failed: "No se pudo descargar. Probá de nuevo.",
+ },
+ hostUpdate: {
+  required: 'Esta computadora necesita una actualización',
+  soft: 'Hay una versión más nueva para la computadora',
+  terminal: 'Ejecutá estos comandos en la terminal de la computadora (Linux o Windows):',
+  reload: 'Escribí /reload en esta sesión para usar lo nuevo',
+ },
  shortcuts: {
   limit: (max: number) => `Llegaste al máximo de ${max} atajos. Quitá uno para agregar otro.`,
   storageFailed: "No se pudieron actualizar los atajos en este teléfono. Volvé a intentar.",

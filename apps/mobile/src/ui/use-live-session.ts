@@ -5,7 +5,7 @@ import { AppState } from "react-native";
 import type { ActionResult, LiveSession, LiveView } from "../core/live-session";
 import type { Attachment } from "../core/attachment-draft";
 import type { UploadProgress } from "../core/attachment-uploads";
-import { sessions } from "../services";
+import { notifications, sessions } from "../services";
 
 export function useLiveSession(key: string | undefined): { view: LiveView | null; send: (text: string, attachments?: readonly Attachment[], progress?: UploadProgress) => Promise<ActionResult>; stop: () => Promise<ActionResult> } {
 	const [snapshot, setSnapshot] = useState<{ key: string; view: LiveView } | null>(null);
@@ -22,7 +22,11 @@ export function useLiveSession(key: string | undefined): { view: LiveView | null
 			} else if (key && !live.current) {
 				const session = sessions.follow(key);
 				live.current = session;
-				session.subscribe(view => { if (live.current === session) setSnapshot({ key, view }); });
+				session.subscribe(view => {
+					if (live.current !== session) return;
+					setSnapshot({ key, view });
+					if (view.phase === "live" && (view.conversation?.running || view.conversation?.prompt)) void notifications.ensureWatching();
+				});
 				session.start();
 			}
 		};

@@ -2,6 +2,70 @@
 
 The paired phone can list repositories and open **Gentle Shell, Pi or OpenCode** in Herdr. It cannot supply an arbitrary command or program arguments through these commands. This is not an SSH sandbox: the paired key already permits interactive Herdr terminals.
 
+## Read the installed host release
+
+`mars-ram version` prints a release such as `0.1.4`; `mars-ram version --json` prints exactly one bounded line:
+
+```json
+{"version":1,"release":"0.1.4"}
+```
+
+Both exit 0, without prompts, network or changes. Only the optional `--json` flag is accepted; other/duplicate arguments exit 2 with usage. The envelope `version: 1` is separate from both the release and the bridge protocol. A checkout with no valid release metadata prints `dev` (or `{"version":1,"release":"dev"}`), not an error.
+
+`host/cli/scripts/build-release.ts` embeds `cli/VERSION` in the archive; `buildCliCopy` carries it through installation and subsequent reinstalls into `~/.mars-ram/cli/VERSION`. The phone invokes the absolute recorded Node and `cli/src/main.ts` paths, with the same conservative POSIX/cmd quoting as the Herdr switcher, so the result does not depend on SSH PATH or npm launcher variables. The bridge source fingerprint in `install.json` is unchanged.
+
+The phone warns prominently below its `MINIMUM_HOST_VERSION` (`apps/mobile/src/core/host-update.ts`, initially **0.1.4**; bump only when newly required host functionality needs it). An older CLI's nonzero/usage response is treated as legacy, without breaking sessions; transport failures and malformed successful responses are unknown, not evidence of an old release. `dev` never warns. A validated newer npm release gives only a subtle optional notice. The copyable remedy is `pnpm add -g mars-ram@<target>` followed by `mars-ram install`, run in the **computer's terminal**, on Linux or Windows. A still-running session with an older compatible bridge protocol minor gets a separate `/reload` hint.
+
+## Always-attentive notification registration (host foundation)
+
+Run through the paired phone's authenticated SSH connection:
+
+```text
+mars-ram notify register --json   # stdin: {"secret":"<64 lowercase hex chars>","port":47812}
+mars-ram notify status --json
+mars-ram notify unregister
+```
+
+Never put the secret in arguments, shell history or logs. Registration reads at
+most 1024 bytes of stdin with a five-second input deadline. It accepts exactly
+`secret` (32 random bytes encoded as lowercase hex) and integer `port` (1–65535).
+The destination comes only from `SSH_CONNECTION` / `SSH_CLIENT` source IP, not
+stdin. Missing, conflicting or non-Tailscale addresses are refused. Allowed
+literal ranges are `100.64.0.0/10` and `fd7a:115c:a1e0::/48`; no DNS or mapped IPs.
+
+Each phone IP has one record under `~/.mars-ram/notify/` (0700 directory, 0600
+files; existing current-user ACL adapter on Windows). Different phones do not
+rewrite a shared index. Re-registering replaces that address's record atomically;
+unregister removes only that caller's address. Status never returns the secret.
+Results are a bounded single JSON line: `{v:1,ok:true,hostKeyId,port}` for register,
+`{v:1,ok:true,registered,...}` for status and `{v:1,ok:true}` for unregister.
+Errors return `{v:1,ok:false,code:"NOTIFY_FAILED"}`, exit 1. If server startup
+fails after persistence, status may still show the registration; retry enabling
+or unregister. The host must already have the normal host installation.
+
+Registration ensures the existing link server is running. At least one valid
+phone record keeps it alive without valid links. Removing the last phone restores
+the normal link-expiry shutdown; no permanent service or login startup is added.
+Doctor warns when records exist without a confirmed server listener. The host
+process must remain running; reboot, stop, or process death stops notices until
+it is ensured again.
+
+The server polls the local bridge registry every 30 seconds (1000 directory
+entries, 64 KiB per entry, at most 128 watched instances); it validates registry
+shape/protocol and liveness, then follows authenticated loopback state/events.
+Snapshots and replay-gap resnapshots are silent. Prompt start means needs-answer;
+completed/failed settles map to finished/failed. Aborts and unknown outcomes are
+silent; absent outcome means finished only below bridge protocol 1.6. Sequence
+cursors deduplicate within each instance. Bridge tokens never leave the host.
+Only project basename and state enter notices, never paths or agent content.
+
+Delivery has no persistent queue: at most 16 in-flight fan-outs, four TCP sends
+per fan-out, three attempts per phone with 2-second deadlines and 250/500 ms
+retry delays. Overload and persistent failures drop notices. Registrations are
+not deleted on delivery failure. Unregister cannot retract an already in-flight
+notice. This host foundation does not yet enable the phone's ALWAYS listener;
+UI, battery/Doze and native Windows/device checks remain follow-up work.
+
 ## Choose repository roots on the computer
 
 ```text

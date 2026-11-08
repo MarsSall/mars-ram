@@ -123,6 +123,7 @@ describe('npm package mars-ram (built locally; nothing published)', () => {
    const home = fresh('npm-home-');
    mkdirSync(join(home, '.mars-ram/cli/src'), { recursive: true });
    writeFileSync(join(home, '.mars-ram/cli/fingerprint.sha256'), recorded);
+   writeFileSync(join(home, '.mars-ram/cli/VERSION'), '1.2.3\n');
    writeFileSync(join(home, '.mars-ram/cli/src/main.ts'), print);
    return home;
   }
@@ -148,6 +149,16 @@ describe('npm package mars-ram (built locally; nothing published)', () => {
    const home = installedHome("console.log('installed copy');\n");
    const run = launch(pkg, [command], { HOME: home, TMPDIR: tmp }, '');
    expect(run.stdout).not.toContain('installed copy');
+   expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  it('does not reuse matching source bytes from a different release', () => {
+   const pkg = unpack(), tmp = fresh('npm-tmp-');
+   const home = installedHome("console.log('wrong release');\n");
+   writeFileSync(join(home, '.mars-ram/cli/VERSION'), '1.2.2\n');
+   const run = launch(pkg, ['version', '--json'], { HOME: home, TMPDIR: tmp });
+   expect(run.status).toBe(0);
+   expect(run.stdout).toBe('{"version":1,"release":"1.2.3"}\n');
    expect(readdirSync(tmp)).toEqual([]);
   });
 

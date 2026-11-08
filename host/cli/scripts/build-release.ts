@@ -56,7 +56,7 @@ export function buildRelease(version: string, outDir: string): { archive: string
  try {
   const folder = join(staging, name);
   mkdirSync(folder);
-  buildCliCopy(folder);
+  buildCliCopy(folder, version);
   buildLinkCopy(folder);
   for (const entry of ['src', 'package.json']) cpSync(join(bridgeSource, entry), join(folder, 'pi-bridge', entry), { recursive: true, dereference: true });
   writeFileSync(join(folder, 'VERSION'), `${version}\n`);

@@ -9,7 +9,7 @@ export interface DoctorPorts {
  herdr(): Promise<boolean>;
  /** command: the first mars-ram on PATH (path only). packageMode: install.json records that `mars-ram install` ran from the npm package. */
  cli(): Promise<{ resolved: boolean; command?: string; current: boolean; localBin: boolean; packageMode?: boolean }>;
- linkServer(): Promise<{ present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean }>;
+ linkServer(): Promise<{ present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean }>;
 	installation(): Promise<{ present: boolean; current: boolean; homes: { path: string; registered: boolean }[] }>;
 	registry(): Promise<RegistryObservation>;
 	alive(pid: number): boolean;
@@ -91,6 +91,7 @@ export async function checkLinkServer(p: DoctorPorts): Promise<Finding[]> {
 	const state = await p.linkServer();
  const installed = state.present && state.current;
  return [
+  ...(state.notificationsRegistered && !state.listener ? [result('warning', say(p, 'Always-attentive notifications need the link server running.', 'Los avisos de Siempre atento necesitan el servidor de enlaces en ejecución.'), say(p, 'Enable the mode again from the phone to ensure the server. No permanent service is installed.', 'Activá de nuevo el modo desde el teléfono para iniciar el servidor. No se instala un servicio permanente.'))] : []),
   result(installed ? "ok" : "warning", say(p, installed ? "Link-server copy matches current sources." : "Link-server copy missing or outdated.", installed ? "La copia del servidor de enlaces coincide con el código actual." : "Copia del servidor de enlaces ausente o desactualizada."), installed ? undefined : installFix(p)),
   result(state.configured ? "ok" : "warning", say(p, state.configured ? "Link-server host.json paths and port valid." : "Link-server host.json paths or port missing/invalid.", state.configured ? "Rutas y puerto del servidor de enlaces válidos en host.json." : "Rutas o puerto del servidor de enlaces ausentes o inválidos en host.json."), state.configured ? undefined : installFix(p)),
   result(!state.listener && state.validLinks ? "warning" : "ok", say(p,

@@ -107,7 +107,7 @@ export function PrimaryButton({ label, onPress, disabled = false }: { label: str
 }
 
 /** Two or more mutually exclusive options; the selected one is filled with the accent. */
-export function Segmented<T extends string | number>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (value: T) => void }) {
+export function Segmented<T extends string | number>({ options, value, onChange, compact = false }: { options: { value: T; label: string }[]; value: T; onChange: (value: T) => void; compact?: boolean }) {
 	const { theme } = usePreferences();
 	return (
 		<View style={{ flexDirection: "row", backgroundColor: theme.colors.surfaceRaised, borderRadius: theme.radius.medium, padding: 3 }}>
@@ -119,9 +119,10 @@ export function Segmented<T extends string | number>({ options, value, onChange 
 						onPress={() => onChange(option.value)}
 						accessibilityRole="tab"
 						accessibilityState={{ selected }}
-						style={{ flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.small, backgroundColor: selected ? theme.colors.accent : "transparent" }}
+						style={{ flex: compact ? Math.max(8, option.label.length) : 1, minHeight: compact ? 44 : 40, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.small, backgroundColor: selected ? theme.colors.accent : "transparent" }}
 					>
-						<Text style={{ color: selected ? theme.colors.onAccent : theme.colors.textMuted, fontWeight: "700" }}>{option.label}</Text>
+						{/* Compact selectors share width by label length; larger accessibility text may still reflow. */}
+						<Text style={{ color: selected ? theme.colors.onAccent : theme.colors.textMuted, fontWeight: "700", ...(compact ? { fontSize: 12, textAlign: "center" as const, paddingHorizontal: 2, paddingVertical: 6 } : {}) }}>{option.label}</Text>
 					</Pressable>
 				);
 			})}

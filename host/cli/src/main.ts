@@ -17,6 +17,9 @@ import { herdrCommand } from './herdr-command.ts';
 import { serversCommand } from './servers-command.ts';
 import { projectCommand } from './project-command.ts';
 import { shortcutsCommand } from './shortcuts-command.ts';
+import { notifyCommand } from './notify-command.ts';
+
+import { readRelease } from './adapters/release-version.ts';
 
 const TTL_MS = 5 * 60_000;
 
@@ -86,7 +89,12 @@ function fail(message: string): number {
 // Exit explicitly: a confirmation question left unanswered after a cancel or expiry would keep reading stdin.
 const parsed = parseArguments(process.argv.slice(2));
 if (!parsed.ok) {
-	console.error(text.usage + '\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json]\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
+	console.error(text.usage + '\nmars-ram version [--json]\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json]\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
 	process.exit(2);
 }
-process.exit(await (parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed.sshPort) : parsed.command === "doctor" ? doctorCommand() : installCommand(parsed.command)));
+if (parsed.command === 'version') {
+ const release = readRelease();
+ console.log(parsed.json ? JSON.stringify({ version: 1, release }) : release);
+ process.exit(0);
+}
+process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed.sshPort) : parsed.command === "doctor" ? doctorCommand() : installCommand(parsed.command)));

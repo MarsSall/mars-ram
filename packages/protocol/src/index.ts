@@ -4,7 +4,7 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const PROTOCOL_VERSION = "1.5";
+export const PROTOCOL_VERSION = "1.6";
 
 /** The one value that names the product; change it when the final name is chosen. */
 export const APP_ID = "mars-ram";
@@ -96,6 +96,12 @@ export const Activity = Type.Union([
 	Type.Null(),
 ]);
 
+/** Since 1.6: absence means unknown, never inferred success. */
+export const RunOutcome = Type.Union([Type.Literal("completed"), Type.Literal("failed"), Type.Literal("aborted")]);
+export type RunOutcome = Static<typeof RunOutcome>;
+export const LastOutcome = Type.Object({ outcome: RunOutcome, seq: Type.Integer({ minimum: 1 }) });
+export type LastOutcome = Static<typeof LastOutcome>;
+
 export const ImageInput = Type.Object({ data: Type.String({ minLength: 1 }), mimeType: Type.String({ minLength: 1 }) });
 
 /**
@@ -152,6 +158,8 @@ export const StateResponse = Type.Object({
 	terminalPane: Type.Optional(Type.String({ minLength: 1, maxLength: 129, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}(:[a-zA-Z0-9][a-zA-Z0-9_-]{0,63})?$" })),
 	/** Since 1.4: latest activity phase; absence is equivalent to null. */
 	activity: Type.Optional(Activity),
+	/** Since 1.6: latest settle's known outcome and its instance-local event seq; absent if unknown. */
+	lastOutcome: Type.Optional(LastOutcome),
 });
 
 export const HistoryResponse = Type.Object({
@@ -268,7 +276,7 @@ export const EVENT_SCHEMAS = {
 	session_start: event("session_start", { reason: Type.String() }),
 	agent_start: event("agent_start", {}),
 	agent_end: event("agent_end", { pendingMessages: Type.Boolean() }),
-	agent_settled: event("agent_settled", { aborted: Type.Boolean(), pendingMessages: Type.Boolean() }),
+	agent_settled: event("agent_settled", { aborted: Type.Boolean(), pendingMessages: Type.Boolean(), outcome: Type.Optional(RunOutcome) }),
 	turn_start: event("turn_start", { turnIndex: Type.Integer({ minimum: 0 }) }),
 	message_start: event("message_start", { message: MessageSummary, pendingMessages: Type.Boolean() }),
 	message_end: event("message_end", { message: MessageSummary }),

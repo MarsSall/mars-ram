@@ -1,6 +1,6 @@
 // Follows one session live: loads a consistent snapshot, applies the event stream from where
 // it ends, and reconnects on its own after a drop (PRD R3, R4).
-import { type BridgeEvent, decodeEvent, decodeResponse, ReplayHeader } from "@workspace/protocol";
+import { type BridgeEvent, type LastOutcome, decodeEvent, decodeResponse, ReplayHeader } from "@workspace/protocol";
 import { bridgeClient, type BridgeEndpoint, type BridgeHttp } from "./bridge-client";
 import { addQueued, applyEvent, type Conversation, fromSnapshot } from "./conversation";
 import type { Attachment } from "./attachment-draft";
@@ -42,6 +42,8 @@ export type LiveView = {
 	missedEvents: boolean;
 	/** A stop was requested a while ago and Pi has not confirmed it. */
 	stopSlow: boolean;
+	/** Latest settle evidence, scoped to the current bridge instance; undefined means unknown. */
+	lastOutcome?: LastOutcome | undefined;
 };
 
 export type ActionResult = { ok: true; imagesWithheld?: "none" | "model" | "blocked" } | { ok: false; message: string };
@@ -141,7 +143,7 @@ export class LiveSession {
 			if (before.value.lastSeq === after.value.lastSeq || attempt === SNAPSHOT_TRIES) {
 				this.protocolVersion = after.value.protocolVersion;
 				const loaded = fromSnapshot(after.value, history.value.messages);
-				this.update({ conversation: { ...loaded, outgoing: this.view.conversation?.outgoing ?? [] } });
+				this.update({ conversation: { ...loaded, outgoing: this.view.conversation?.outgoing ?? [] }, lastOutcome: after.value.lastOutcome });
 				return true;
 			}
 		}
@@ -194,10 +196,16 @@ export class LiveSession {
 
 	private apply(events: BridgeEvent[]): void {
 		if (!this.view.conversation) return;
-		const conversation = events.reduce(applyEvent, this.view.conversation);
+		let lastOutcome = this.view.lastOutcome;
+		const conversation = events.reduce((current, event) => {
+			if (event.seq > current.lastSeq && event.type === "agent_settled") {
+				lastOutcome = event.outcome === undefined ? undefined : { outcome: event.outcome, seq: event.seq };
+			}
+			return applyEvent(current, event);
+		}, this.view.conversation);
 		const settled = !conversation.stopping;
 		if (settled) this.deps.timers.clear(this.stopTimer);
-		this.update({ conversation, stopSlow: settled ? false : this.view.stopSlow });
+		this.update({ conversation, lastOutcome, stopSlow: settled ? false : this.view.stopSlow });
 	}
 
 	private async reload(): Promise<void> {

@@ -9,6 +9,7 @@
 | The app's SSH private key | Android Keystore on the phone | Non-exportable; device unlock required by default (PRD R1); the user may turn it off, which rotates to a new key on every computer |
 | Access to the user's computer | Host `authorized_keys` entry for the app key | Added by QR pairing after an explicit yes at the computer, or by hand; restricted to `restrict,port-forwarding,pty`; on Windows administrators it grants administrator access |
 | Pairing code | QR and link on the computer's screen, valid 5 minutes | One use, constant-time check, 5 invalid requests close it, the user must still confirm at the computer |
+| Per-phone notification HMAC secret | Host `~/.<appId>/notify/<address-hash>.json` | 32 random bytes from the phone, SSH stdin only; private directory/file and Windows current-user ACL; never returned by status or logged. Phone copy and replay cursors are AES-GCM encrypted under a non-auth-bound Android Keystore key in noBackupFilesDir; local host forgetting deletes both. |
 | Bridge token | Host registry file `~/.<appId>/bridges/<id>.json` | Readable only by the host user (0600 / single-SID ACL); constant-time comparison; never logged |
 | Live session content | Pi process on the host; streamed to the phone | Bridge listens on host `127.0.0.1` only; reached through the SSH tunnel |
 | Pinned host identities | App storage (planned) | A changed identity is refused, never accepted silently |
@@ -30,10 +31,11 @@
 | Other users on the host | Registry file with the token | User-only permissions | Implemented, verified on Linux and Windows |
 | A machine impersonating the host | SSH connection | Host identity pinning by fingerprint; with QR pairing the identity comes from the QR, by hand the user compares it on the computer | Implemented |
 | Someone who photographs the pairing QR | Pairing endpoint on the tailnet | Needs to be on the user's tailnet, within 5 minutes, before the real phone, and the user must answer yes at the computer to a request showing the phone's name and key fingerprint | Implemented |
-| Any app or web page on the phone | External system links (store and preview schemes) | `+native-intent.tsx` applies the pure `core/link-policy.ts` allowlist on cold start and warm links: external links can only open Inicio (`/`) or the pairing confirmation (`/pair?p=…`). Only the exact `pair` route with exactly one non-empty literal `p` parameter and nothing else is allowed, and its raw value is preserved; a link with any other parameter, a triple slash or an encoded parameter name goes to Inicio. All other routes, schemes and malformed inputs go to Inicio without their parameters; internal navigation is unchanged. External links cannot reach the terminal, computer/session discovery, repository listing or key initialization routes. Opening a pairing link only decodes it on the phone, with no network request; the app shows «¿Agregar esta computadora?» with the computer's name and address (MagicDNS name, else the tailnet address) from the link, and sends this phone's public key only after the user taps «Agregar». An invalid or expired link shows the pairing error and a way to scan instead; a disallowed system link opens Inicio. After «Agregar» the link pairs exactly like a scanned QR, so the computer still asks its user before accepting the key. Residual: the name is whatever the link's author wrote; the address is what to check. A link made by someone else could save a computer that is not the user's if that computer's user accepts the key (only the public key is sent; the phone then trusts that computer's identity from the link). | Implemented; one-line-install L27 MEDIUM external-link PTY/Herdr-focus finding fixed by the system-link allowlist; core, cold/warm hook and text tests; allowlist phone check pending |
+| Any app or web page on the phone | External system links (store and preview schemes) | `+native-intent.tsx` applies the pure `core/link-policy.ts` allowlist on cold start and warm links: external links can open Inicio (`/`), the pairing confirmation (`/pair?p=…`), or an exact notification link (`notice?h=<hex>&b=<hex>&encoding=utf16-hex`) resolved against saved hosts and live discovered sessions. Only the exact `pair` route with exactly one non-empty literal `p` parameter and nothing else is allowed, and its raw value is preserved; a link with any other parameter, a triple slash or an encoded parameter name goes to Inicio. All other routes, schemes and malformed inputs go to Inicio without their parameters; internal navigation is unchanged. Non-notification external links cannot reach the terminal, computer/session discovery, repository listing or key initialization routes. A notification link is not an authentication token: another app can synthesize one for a known host/session. Resolving it can invoke ordinary SSH unlock and opening a confirmed live session can focus Herdr, as with an in-app session tap; it cannot select a command or repository. Unknown/removed hosts are rejected before discovery; ended/unreachable sessions go to Inicio. Opening a pairing link only decodes it on the phone, with no network request; the app shows «¿Agregar esta computadora?» with the computer's name and address (MagicDNS name, else the tailnet address) from the link, and sends this phone's public key only after the user taps «Agregar». An invalid or expired link shows the pairing error and a way to scan instead; a disallowed system link opens Inicio. After «Agregar» the link pairs exactly like a scanned QR, so the computer still asks its user before accepting the key. Residual: the name is whatever the link's author wrote; the address is what to check. A link made by someone else could save a computer that is not the user's if that computer's user accepts the key (only the public key is sent; the phone then trusts that computer's identity from the link). | Implemented; one-line-install L27 MEDIUM external-link PTY/Herdr-focus finding fixed by the system-link allowlist; core, cold/warm hook and text tests; allowlist phone check pending |
 | A network between the phone and the computer | The pairing request (code and the phone's public key) | Plain HTTP sent only to the computer's MagicDNS name from the QR (lowercased, one trailing dot removed, accepted only as a host under `ts.net`), never to the IP address. MagicDNS names resolve to tailnet addresses, so the request travels inside Tailscale's WireGuard encryption. Without a usable name the phone stops before any request and asks to turn on MagicDNS. Android's network security config allows cleartext only to `*.ts.net` and loopback; the base config stays cleartext-off. The config allows every `*.ts.net` name app-wide: pairing sends cleartext there, and so can a page shown in the servers viewer (subresources; see the WebView row). Residual: the app checks the name's suffix, not the address it resolves to or the route; if the phone resolved it outside Tailscale (for example without Tailscale's DNS), the request could leave the tailnet in clear. Public Funnel names serve HTTPS only, so they do not offer a working cleartext pairing endpoint. The request carries only the one-time code and a public key, and the user still confirms at the computer. | Implemented; fake-port and config tests; phone check pending |
 | A request crafted to inject `authorized_keys` options | Pairing request | Only one-line ECDSA/Ed25519 keys without options are accepted; the device name cannot hold control characters | Implemented |
 | Other apps on the phone | Tunnel port on the phone's 127.0.0.1 | Tunnel reaches only the bridge port; the bridge still requires its token | Implemented; any phone app can reach the local port |
+| Hostile or malformed npm release metadata, or a network failure | Optional HTTPS GET to `registry.npmjs.org/mars-ram/latest` from the phone | Fixed public URL, no credentials, user/host identifiers or content in the request; npm sees the phone's IP and ordinary request data. 5 s abort timeout; reject declared bodies over 64 KiB and check actual text size before JSON parsing (React Native fetch buffers undeclared bodies, so this is not a hard transport-memory cap). Require the expected package name and a bounded, syntactically valid semantic version; validate cached metadata too. Only validated versions can enter the pinned copyable update command; never execute it automatically. Latest metadata affects only the optional soft notice, not the app's minimum requirement. Persist the attempt timestamp before requesting and deduplicate concurrent calls, so failures/offline also consume the once-per-day budget across openings; if the timestamp cannot be saved, skip the request. Errors stay silent and no response/error content is logged. Only public release metadata and its timestamp persist globally, not per host. | Implemented; fake registry/cache and mocked HTTP rejection/daily-budget tests; phone verification pending |
 | A compromised dependency | npm and Maven packages | Exact pins, lockfile, 3-day release age, trust-downgrade check, blocked install scripts, `pnpm audit` | In place; 3 dev-tool advisories without published fixes |
 | Someone holding the unlocked phone | The terminal on the computer | The native module runs only Herdr, through an exec request with a PTY, never the default shell; output and input are never logged. This is not a sandbox: Herdr itself opens shells on the computer, which is what the user authorized the key for | Implemented, by design |
 | Someone on the tailnet | Link server port on the host | Listens only on the Tailscale address while links are valid; only `/l/<token>` with 256-bit tokens compared in constant time; images inline, everything else downloads with `nosniff` and a sandbox CSP; 4 downloads at a time with deadlines; a deleted or expired link stops serving, including ongoing downloads | Implemented; anyone on the tailnet holding a link can open it for a day (accepted) |
@@ -41,6 +43,73 @@
 | Content sent to the agent | Uploaded files or images with hidden instructions | The app shows every attachment, with image previews, before sending, and the user can remove it | Implemented, checked on the phone |
 | A crafted attachment name | Files outside the uploads folder | Names only (no paths) checked by the protocol schema; the bridge refuses links, hard links, a linked folder, and unfinished uploads, and reads through the handle it checked | Implemented, verified on Linux and Windows |
 | Other users on the host | Uploaded attachments | Uploads folder created `0700` with files `0600` on Linux; on Windows it inherits the user-only `~/.mars-ram`; removed after the chosen retention | Implemented, checked on Linux and Windows |
+
+## Always-attentive notification host foundation (T6 / S7)
+
+New entry point: `notify register|unregister|status` over authenticated SSH. Only
+literal Tailscale SSH source addresses authorize a destination; input cannot
+choose another address. The per-address record contains the SSH host-key
+fingerprint, destination port and per-phone secret. Records are bounded and
+published by private-file rename, without a shared mutable index. Re-register /
+unregister races are last-publication-wins; no cross-process transaction with
+server startup is promised. A failed startup can leave a registered record.
+
+The existing link-server process gains bounded local registry/state/SSE reads
+and outbound TCP, not another host listener. Bridge tokens stay in loopback
+Authorization headers; redirects are refused and tokens/text/errors are never
+logged. Snapshots and gaps cannot imply completion. The wire is a ≤4096-byte
+JSON line, fixed-order canonical UTF-8 bytes authenticated with WebCrypto
+HMAC-SHA256 verification, carrying only host/instance identity, project basename,
+state, sequence, timestamp and nonce. TypeScript replay policy rejects duplicate
+instance sequences and timestamps outside ±120 seconds and fails closed when
+its bounded cursor map is full. Kotlin consumes the original shared JSON vector
+through Gradle resources and applies these checks after authentication. Replay
+cursors are committed atomically with encrypted per-computer records before
+alerts; an in-flight notice cannot commit using a forgotten/rotated secret.
+
+A tailnet member without the secret cannot forge notices, but can deny delivery;
+a compromised same-user host process can read secrets/tokens and forge notices
+by design. Project basename and state are disclosed to the receiving phone and
+its lock screen (S2); no agent text or tokens are included. Delivery is best
+effort, bounded, and dropped on overload or repeated failure. Keeping a
+registration also keeps the link-server process/listener alive even without
+links; token-protected file serving and expiry remain unchanged. No reboot
+startup or new OS service is installed. Force-stop/process death is not covered.
+
+The phone binds port 47812 only to up tun/tunN interface addresses in the two
+Tailscale ranges, never wildcard/LAN/loopback; up to two addresses support IPv4
+and IPv6. It accepts only peers in those ranges, one active read per listener,
+backlog four, and one ≤4096-byte line within an absolute two-second deadline.
+Only configured pinned fingerprints select a secret; constant-time JCA MAC
+comparison precedes any replay update or alert. No socket work runs on main.
+A missing Tailscale interface or bind failure stops the mode with an explicit
+status; there is no fallback or new SSH session. Mode switching serializes full
+cleanup. The ongoing channel has MIN importance; the existing alert channel
+contains only project basename and state.
+
+Notification secrets come from SecureRandom, persist stably per computer, and
+are AES-256-GCM sealed with hostId as associated data under a non-exportable
+Android Keystore key. AtomicFile writes contain ciphertext only. Records and
+replay cursors live in noBackupFilesDir (excluded from cloud/device-transfer
+backup), bounded to 64 computers and 128 live cursors per computer; forgetting
+removes both. Missing/corrupt encryption state fails closed. The app calls local forgetting and attempts host unregister when deleting a host or leaving Always attentive; the native helper does not revoke the host's record over SSH. Remote cleanup is best effort when offline; local revocation must succeed before host deletion. Identity changes are not accepted silently: a new saved identity requires a new validated registration response.
+
+The AES key is intentionally **not user-auth-bound**: the minimal listener must
+read it while the SSH key's 300-second window is closed (S6). This does not unlock
+SSH, but a process running as the app can decrypt notification secrets without
+another prompt. Secrets are returned to JS only for registration and sent through `execWithInput` SSH stdin, never argv or a shell pipe. The app's pure registration use case uses the existing validated node/CLI command builder with fixed notify verbs, requires a v1 success with the saved pinned fingerprint and requested port, and does not expose remote stdout/stderr to UI/logs. Native stdin is capped at 1024 UTF-8 bytes, stdout/stderr at 4096 bytes each, with a 30-second channel-close deadline; failures return a generic message. The JS payload is transient, not logged/persisted. A compromised same-user SSH server can still see/echo the secret, so its diagnostics are not displayed.
+`openBatteryOptimizationSettings` opens only the general
+ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS screen; it neither requests nor adds
+the restricted direct-exemption permission. No keepalive, wake lock, boot
+receiver or sticky restart is added. App force-stop/process death stops notices;
+Doze/OEM/battery/Tailscale routing and Keystore operation still need real-device
+closed-test measurement. JVM tests do not verify Android Keystore hardware.
+
+## App notification consent and lifecycle (T3)
+
+The persistent preference defaults Off. Android 13+ POST_NOTIFICATIONS is requested only on explicit opt-in; denial stops observation, revokes an Always registration locally and persists Off. The denial UI explains system settings. Service starts still enforce a RESUMED Activity; Android 10+ pre-pause re-arms a previously idle-expired SSH watch while still resumed. There is no background-start exception, boot receiver or sticky restart. Older Android versions lack pre-pause callbacks and use onActivityPaused while still STARTED/visible; only that internal edge accepts STARTED, never onStop/background or ordinary JS starts. Settings distinguishes selected preference, starting/running/stopped status, per-computer registration failures and battery exclusion; none proves delivery. Native notification language follows the app's resolved Spanish/English choice.
+
+The narrow notice URI contains only lowercase UTF-16 hex identifiers, never bridge tokens/secrets, and is decoded once. Extra parameters, malformed encoding and other routes fail closed. Live lookup uses both host and bridge identity, not an arbitrary route supplied by the link. URI-unrepresentable IDs fall back to Inicio rather than throwing. Existing pairing validation is unchanged. Phone verification of permission denial, cold/warm notification taps, lifecycle ordering, battery settings and Keystore remains pending.
 
 ## Known gaps
 

@@ -4,6 +4,7 @@ import { TerminalLauncher } from "../../ui/terminal-launcher";
 import { Card, EmptyState, Screen } from "../../ui/components";
 import { usePreferences } from "../../ui/preferences";
 import { useHosts } from "../../ui/use-hosts";
+import { HostUpdateNotice } from '../../ui/host-update-notice';
 
 export default function ComputersScreen() {
 	const router = useRouter();
@@ -16,7 +17,7 @@ export default function ComputersScreen() {
 			<ScrollView>
 				{rows === null ? <ActivityIndicator color={theme.colors.accentText} style={{ marginTop: theme.spacing(8) }} /> : null}
 				{rows?.length === 0 ? <EmptyState message={t.computers.empty} /> : null}
-				{rows?.map(({ host, status }) => (
+				{rows?.map(({ host, status, update }) => (
 					<Card key={host.id}>
 					<View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
 					<Pressable accessibilityRole="button" accessibilityLabel={host.name} style={{ flex: 1, minHeight: theme.touch }} onPress={() => router.push({ pathname: "/computer/[id]", params: { id: host.id } })}>
@@ -30,6 +31,7 @@ export default function ComputersScreen() {
 					</Pressable>
 					<TerminalLauncher host={host} compact />
 					</View>
+					<HostUpdateNotice update={update} />
 					</Card>
 				))}
 			</ScrollView>

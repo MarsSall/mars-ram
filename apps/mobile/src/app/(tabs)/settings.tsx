@@ -1,5 +1,7 @@
 import { useState } from "react";
 import Constants from "expo-constants";
+import { appBuild } from "../../services";
+import { AppUpdateNotice } from "../../ui/app-update-notice";
 import { getLocales } from "expo-localization";
 import { privacyUrl, SOURCE_URL } from "../../core/about";
 import type { AttachmentRetention } from "../../core/attachment-retention";
@@ -7,6 +9,7 @@ import { useRouter } from "expo-router";
 import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { securityRow } from "../../ui/key-security";
 import { DictationSettings } from "../../ui/dictation-settings";
+import { NotificationSettingsCard } from "../../ui/notification-settings";
 import { useKeySecurity } from "../../ui/use-key-security";
 import { Card, Screen, SectionTitle, Segmented } from "../../ui/components";
 import { type LanguageChoice, usePreferences } from "../../ui/preferences";
@@ -57,6 +60,7 @@ export default function SettingsScreen() {
 					{preferenceError ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger }}>{t.attachments.preferenceFailed}</Text> : null}
 				</Card>
 				<DictationSettings />
+				<NotificationSettingsCard />
 				<SectionTitle>{t.settings.security}</SectionTitle>
 				<Card>
 					<View style={{ flexDirection: "row", alignItems: "center", minHeight: 48 }}>
@@ -77,9 +81,13 @@ export default function SettingsScreen() {
 					</Pressable> : null}
 				</Card>
 				<SectionTitle>{t.settings.about}</SectionTitle>
+				<AppUpdateNotice />
 				<Card>
-					{row(t.settings.version, Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? t.settings.unknownVersion)}
-					{row(t.settings.build, Constants.nativeBuildVersion ?? t.settings.unknownVersion)}
+					{row(t.settings.version, appBuild.version ?? Constants.expoConfig?.version ?? t.settings.unknownVersion)}
+					{row(t.settings.build, appBuild.build === null ? t.settings.unknownVersion : String(appBuild.build))}
+					<Pressable accessibilityRole="button" onPress={() => router.push("/whats-new")} style={{ minHeight: 48, justifyContent: "center" }}>
+						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.whatsNew.open}</Text>
+					</Pressable>
 					<Pressable accessibilityRole="link" onPress={() => openLink(privacyUrl(language, getLocales()[0]?.languageCode ?? undefined))} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.settings.privacy}</Text>
 					</Pressable>

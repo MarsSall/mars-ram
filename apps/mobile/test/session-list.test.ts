@@ -115,7 +115,25 @@ const summary = (id: string, hostId: string, status: SessionSummary["status"], l
 });
 const initialOrder = { computers: [], needsYou: [], groupOrder: {} };
 
+describe("outcome discovery", () => {
+	it("carries the latest outcome with its instance-local seq, but leaves legacy bridges unknown", async () => {
+		host.registry(linux.address, entry("a", 1234, "/work/a"));
+		http.states.set(1234, state("a", { lastOutcome: { outcome: "failed", seq: 5 } }));
+		expect((await lister.list([linux]))[0].sessions[0].lastOutcome).toEqual({ outcome: "failed", seq: 5 });
+		http.states.set(1234, state("a", { protocolVersion: "1.5" }));
+		expect((await lister.list([linux]))[0].sessions[0]).not.toHaveProperty("lastOutcome");
+	});
+});
+
 describe("pane discovery", () => {
+ it('marks a live session for /reload from its registry protocol minor, not the host release', async () => {
+  host.registry(linux.address, { ...entry('a', 1234, '/work/a'), protocolVersion: '1.4' });
+  http.states.set(1234, state('a'));
+  const first = await lister.list([linux]);
+  expect(first[0]!.sessions[0]).toMatchObject({ reloadNeeded: true });
+  host.registry(linux.address, entry('a', 1234, '/work/a'));
+  expect((await lister.list([linux]))[0]!.sessions[0]!.reloadNeeded).toBeUndefined();
+ });
  it("refreshes captured pane metadata and accepts older bridge snapshots", async () => {
   host.registry(linux.address, entry("a", 1234, "/work/a"));
   http.states.set(1234, state("a", { terminal: true, terminalPane: "w2G:p2" }));

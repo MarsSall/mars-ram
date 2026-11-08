@@ -1,6 +1,7 @@
 // Use case: the live Pi sessions of every saved computer (PRD R2, R6).
 // Tunnels stay open between refreshes; a bridge that does not answer is never listed.
-import type { RegistryEntry, StateResponse } from "@workspace/protocol";
+import { PROTOCOL_VERSION, type RegistryEntry, type StateResponse } from "@workspace/protocol";
+import { needsBridgeReload } from './host-update';
 import { bridgeClient, type BridgeEndpoint, type BridgeHttp } from "./bridge-client";
 import { discoverBridges, openBridge } from "./bridge-discovery";
 import type { SavedHost } from "./host-catalog";
@@ -16,6 +17,9 @@ export type SessionSummary = {
 	hostId: string;
 	bridgeInstanceId: string;
 	terminalPane?: string;
+	/** Latest settle evidence; absent on older bridges or when the outcome is unknown. */
+	lastOutcome?: StateResponse["lastOutcome"];
+	reloadNeeded?: boolean;
 	project: string;
 	cwd: string;
 	status: SessionStatus;
@@ -137,7 +141,9 @@ export class SessionLister {
 			key,
 			hostId,
 			bridgeInstanceId: entry.bridgeInstanceId,
+			...(needsBridgeReload(entry.protocolVersion, PROTOCOL_VERSION) ? { reloadNeeded: true } : {}),
 			...(state.value.terminalPane === undefined ? {} : { terminalPane: state.value.terminalPane }),
+			...(state.value.lastOutcome === undefined ? {} : { lastOutcome: state.value.lastOutcome }),
 			project: projectName(entry.cwd),
 			cwd: entry.cwd,
 			status: statusOf(state.value),

@@ -5,6 +5,18 @@ import { connectTarget, type HostCatalog, type SavedHost } from "./host-catalog"
 import type { Failure, HostConnection } from "./ports";
 import { cleanupUploads, type AttachmentRetention } from "./attachment-retention";
 
+const CONNECTION_TIMEOUT_MS = 30_000;
+class ConnectionTimeout extends Error {}
+const timedOut = (): ConnectionResult => ({ ok: false, code: "TIMEOUT", message: "The SSH connection or unlock did not finish. Retry with the app open." });
+async function deadline<T>(operation: Promise<T>, onTimeout: () => void = () => {}): Promise<T> {
+ let timer: ReturnType<typeof setTimeout> | undefined;
+ const timeout = new Promise<never>((_, reject) => {
+  timer = setTimeout(() => { onTimeout(); reject(new ConnectionTimeout()); }, CONNECTION_TIMEOUT_MS);
+ });
+ try { return await Promise.race([operation, timeout]); }
+ finally { clearTimeout(timer); }
+}
+
 export type ConnectionDeps = {
 	host: HostConnection;
 	keyAlias: string;
@@ -15,6 +27,8 @@ export type ConnectionDeps = {
 	/** Read at the first successful connection per computer per app opening. Defaults to seven days. */
 	retention?: () => AttachmentRetention;
 	clock?: () => number;
+	/** Observe every fresh connection (e.g. version probe), independently of ongoing maintenance. */
+	onConnected?: (computer: SavedHost, connectionId: string) => Promise<void>;
 	/** Every fresh successful connection; deduplicated while running, never delays or fails SSH. */
 	afterConnect?: (computer: SavedHost, connectionId: string) => Promise<void>;
 	/** Opening-only maintenance, independent of per-connection credential resume. */
@@ -47,7 +61,7 @@ export class HostConnections {
 		if (open !== undefined && this.deps.host.isConnected(open)) return Promise.resolve({ ok: true, connectionId: open });
 		const pending = this.connecting.get(pendingKey);
 		if (pending) return pending;
-		const attempt = this.connect(saved).finally(() => this.connecting.delete(pendingKey));
+		const attempt = this.attempt(saved).finally(() => this.connecting.delete(pendingKey));
 		this.connecting.set(pendingKey, attempt);
 		return attempt;
 	}
@@ -69,17 +83,37 @@ export class HostConnections {
 		await Promise.all([...this.open.keys()].map((hostId) => this.drop(hostId)));
 	}
 
-	private async connect(saved: SavedHost): Promise<ConnectionResult> {
+	/** Bound the shared slot itself, not just an individual notification caller's wait. */
+	private async attempt(saved: SavedHost): Promise<ConnectionResult> {
+		const lifetime = { active: true };
+		try { return await deadline(this.connect(saved, lifetime), () => { lifetime.active = false; }); }
+		catch (error) { if (error instanceof ConnectionTimeout) return timedOut(); throw error; }
+		finally { lifetime.active = false; }
+	}
+
+	private async connect(saved: SavedHost, lifetime: { active: boolean }): Promise<ConnectionResult> {
 		const target = connectTarget(saved, saved.keyAlias ?? this.deps.keyAlias);
-		let result = await this.deps.host.connect(target);
+		const nativeConnect = async () => {
+			const result = await this.deps.host.connect(target);
+			// A native operation is not cancellable. Release a late UI hold, never publish it or run hooks.
+			if (!lifetime.active && result.ok) void this.deps.host.disconnect(result.connectionId).catch(() => {});
+			return result;
+		};
+		let result = await nativeConnect();
+		if (!lifetime.active) return timedOut();
 		if (!result.ok && result.code === "UNLOCK_REQUIRED") {
-			if (!(await this.unlockOnce())) return result;
-			result = await this.deps.host.connect(target);
+			const unlocked = await this.unlockOnce();
+			if (!lifetime.active) return timedOut();
+			if (!unlocked) return result;
+			result = await nativeConnect();
 		}
+		if (!lifetime.active) return timedOut();
 		if (!result.ok) return result;
 		this.open.set(saved.id, result.connectionId);
 		this.aliases.set(saved.id, target.keyAlias);
 		const connectionId = result.connectionId;
+		void Promise.resolve().then(() => this.deps.onConnected?.(saved, connectionId))
+			.catch(() => { /* Optional observation must never delay or fail SSH. */ });
 		if (!this.resuming.has(saved.id)) {
 			this.resuming.add(saved.id);
 			void Promise.resolve().then(() => this.deps.afterConnect?.(saved, connectionId))
@@ -98,11 +132,12 @@ export class HostConnections {
 
 	private unlockOnce(): Promise<boolean> {
 		if (this.unlockDeclined) return Promise.resolve(false);
-		this.unlocking ??= this.deps.unlock().then((unlocked) => {
-			this.unlockDeclined = !unlocked;
-			this.unlocking = null;
-			return unlocked;
-		});
+		if (!this.unlocking) {
+			const attempt = deadline(Promise.resolve().then(() => this.deps.unlock()))
+				.then(unlocked => { this.unlockDeclined = !unlocked; return unlocked; })
+				.finally(() => { if (this.unlocking === attempt) this.unlocking = null; });
+			this.unlocking = attempt;
+		}
 		return this.unlocking;
 	}
 }

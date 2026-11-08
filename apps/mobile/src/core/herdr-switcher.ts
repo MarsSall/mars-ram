@@ -33,10 +33,16 @@ function path(v: unknown, name: RegExp): v is string {
 function config(v: unknown): v is KeyCommandConfig {
  return object(v) && path(v.node, /^(?:node|node\.exe)$/) && path(v.cli, /^main\.ts$/) && v.node.startsWith("/") === v.cli.startsWith("/");
 }
+/** Shared conservative executable-path validation and POSIX/cmd quoting. */
+export function hostCliPrefix(record: unknown): string {
+ if (!config(record)) throw Error('Invalid host CLI paths');
+ const q = record.node.startsWith('/') ? "'" : '"';
+ return `${q}${record.node}${q} ${q}${record.cli}${q}`;
+}
 export function buildHerdrCommand(record: KeyCommandConfig, verb: "list" | "focus", workspace?: string, tab?: string): string {
  if (!config(record) || !["list", "focus"].includes(verb) || (verb === "list" ? workspace !== undefined || tab !== undefined : !workspaceId(workspace) || (tab !== undefined && !tabId(tab, workspace)))) throw Error("Invalid Herdr command");
  const q = record.node.startsWith("/") ? "'" : '"';
- return `${q}${record.node}${q} ${q}${record.cli}${q} herdr ${verb}${verb === "focus" ? ` ${q}${workspace}${q}${tab === undefined ? "" : ` ${q}${tab}${q}`}` : ""}`;
+ return `${hostCliPrefix(record)} herdr ${verb}${verb === "focus" ? ` ${q}${workspace}${q}${tab === undefined ? "" : ` ${q}${tab}${q}`}` : ""}`;
 }
 function decode(text: string): Record<string, unknown> {
  if (text.length > 1_048_576) throw Error("Herdr output too large");

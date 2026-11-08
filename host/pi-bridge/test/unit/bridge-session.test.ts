@@ -33,6 +33,27 @@ beforeEach(() => {
 	bridge = new BridgeSession({ pi, instanceId: "inst-1", capacity: 3, clock: () => now });
 });
 
+describe("settled outcome snapshot", () => {
+	it("retains the latest known settle and its exact seq even after replay eviction", () => {
+		expect(bridge.state()).not.toHaveProperty("lastOutcome");
+		bridge.setActivity("checking");
+		const settled = bridge.record({ type: "agent_settled", aborted: false, pendingMessages: false, outcome: "failed" });
+		expect(bridge.state().lastOutcome).toEqual({ outcome: "failed", seq: settled.seq });
+		for (let i = 0; i < 4; i++) bridge.record({ type: "turn_start", turnIndex: i });
+		expect(bridge.eventsSince(0).header.gap).toBe(true);
+		expect(bridge.state().lastOutcome).toEqual({ outcome: "failed", seq: settled.seq });
+		bridge.record({ type: "agent_start" });
+		expect(bridge.state().lastOutcome).toEqual({ outcome: "failed", seq: settled.seq });
+	});
+	it("replaces the last settle and clears stale evidence when the latest settle is unknown", () => {
+		bridge.record({ type: "agent_settled", aborted: false, pendingMessages: false, outcome: "failed" });
+		const latest = bridge.record({ type: "agent_settled", aborted: true, pendingMessages: false, outcome: "aborted" });
+		expect(bridge.state().lastOutcome).toEqual({ outcome: "aborted", seq: latest.seq });
+		bridge.record({ type: "agent_settled", aborted: false, pendingMessages: false });
+		expect(bridge.state()).not.toHaveProperty("lastOutcome");
+	});
+});
+
 describe("activity", () => {
 	it("starts null and emits numbered events only when the phase changes", () => {
 		expect(bridge.state().activity).toBeNull();

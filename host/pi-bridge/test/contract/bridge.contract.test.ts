@@ -136,6 +136,10 @@ describe.runIf(process.env.RUN_MODEL_TESTS === "1")("with model calls", () => {
 		const { events } = await c.events(since, (e) => e.type === "agent_settled");
 		const answer = events.find((e) => e.type === "message_end" && e.message.role === "assistant");
 		expect(answer).toMatchObject({ message: { text: "CONTRACT-OK" } });
+		const settled = events.at(-1)!;
+		expect(settled).toMatchObject({ type: "agent_settled", outcome: "completed" });
+		const state = (await (await c.get("/state")).json()) as { lastOutcome?: { outcome: string; seq: number } };
+		expect(state.lastOutcome).toEqual({ outcome: "completed", seq: settled.seq });
 	}, 120_000);
 
 	it("queues a message as steering while busy, then stops the run", async () => {
@@ -147,7 +151,7 @@ describe.runIf(process.env.RUN_MODEL_TESTS === "1")("with model calls", () => {
 		expect(queued).toMatchObject({ status: "queued" });
 		expect(await expectDecodes(AbortResponse, await c.post("/abort"), 202)).toMatchObject({ status: "requested" });
 		const { events } = await c.events(since, (e) => e.type === "agent_settled");
-		expect(events.at(-1)).toMatchObject({ type: "agent_settled", aborted: true });
+		expect(events.at(-1)).toMatchObject({ type: "agent_settled", aborted: true, outcome: "aborted" });
 	}, 120_000);
 
 	it("delivers a native image the model can read", async () => {

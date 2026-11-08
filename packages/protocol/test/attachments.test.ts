@@ -18,8 +18,8 @@ const check = (schema: Parameters<typeof decodeResponse>[0], data: unknown) => d
 const name = "20261023-101500-a1b2c3-screenshot.png";
 
 describe("protocol version", () => {
-	it("is 1.5, adding optional pane identity without changing older routes", () => {
-		expect(PROTOCOL_VERSION).toBe("1.5");
+	it("is 1.6, adding optional settled outcomes without changing older routes", () => {
+		expect(PROTOCOL_VERSION).toBe("1.6");
 	});
 
 	it("supports attachments from 1.2 on, so the app never sends them to a bridge that would drop them", () => {

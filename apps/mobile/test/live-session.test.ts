@@ -117,6 +117,36 @@ async function startLive() {
 }
 
 describe("LiveSession", () => {
+	it("carries outcome snapshots and only newer settle events, with legacy absence remaining unknown", async () => {
+		http.states = [state({ lastOutcome: { outcome: "failed", seq: 9 } })];
+		await startLive();
+		expect(view.lastOutcome).toEqual({ outcome: "failed", seq: 9 });
+		stream.event({ seq: 11, type: "agent_settled", aborted: false, pendingMessages: false, outcome: "completed" });
+		expect(view.lastOutcome).toEqual({ outcome: "completed", seq: 11 });
+		stream.event({ seq: 10, type: "agent_settled", aborted: false, pendingMessages: false, outcome: "failed" });
+		expect(view.lastOutcome).toEqual({ outcome: "completed", seq: 11 });
+		stream.event({ seq: 12, type: "agent_settled", aborted: false, pendingMessages: false });
+		expect(view.lastOutcome).toBeUndefined();
+	});
+	it("accepts a 1.5 snapshot and settle without an outcome", async () => {
+		http.states = [state({ protocolVersion: "1.5" })];
+		await startLive();
+		expect(view.lastOutcome).toBeUndefined();
+		stream.event({ seq: 11, type: "agent_settled", aborted: true, pendingMessages: false });
+		expect(view.lastOutcome).toBeUndefined();
+	});
+	it("replaces outcome evidence from a gap snapshot, including unknown", async () => {
+		await startLive();
+		stream.event({ seq: 11, type: "agent_settled", aborted: false, pendingMessages: false, outcome: "failed" });
+		http.states = [state({ lastSeq: 20, lastOutcome: { outcome: "completed", seq: 19 } })];
+		stream.replay(true);
+		await flush();
+		expect(view.lastOutcome).toEqual({ outcome: "completed", seq: 19 });
+		http.states = [state({ lastSeq: 30 })];
+		stream.replay(true);
+		await flush();
+		expect(view.lastOutcome).toBeUndefined();
+	});
 	it("loads the conversation, then follows it live from where the snapshot ends", async () => {
 		await startLive();
 		expect(stream.opened).toEqual(["http://127.0.0.1:50001/events?since=10"]);

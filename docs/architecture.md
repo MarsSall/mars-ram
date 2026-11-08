@@ -25,6 +25,30 @@ The product is **Mars-RAM**, described as **Remote Agent Manager**.
 - The Expo slug and URL scheme are `mars-ram`; the host command is `mars-ram pair`.
 - The Android application ID is `com.marssall.marsram`. It is final: Google Play does not allow changing it after the first release.
 
+## Always-attentive host notification ports (T6)
+
+The link-server core defines `NotifyRegistrationStore` (bounded per-phone records,
+private persistence) and `NoticeDelivery` (bounded TCP attempts). The notifier
+adapter integrates registry discovery and loopback state/events, projecting only
+sequence/type/outcome into pure `NoticeRules`. These are separate from private-link
+storage and downloads; the policy never sees agent text. Secrets arrive only on SSH stdin; the SSH source address, not an
+input field, selects the destination. Bridge tokens stay in the local adapter.
+A registration keeps the existing link-server process alive even without links;
+unregistering the last phone restores the existing link-only expiry lifecycle.
+No permanent OS service or boot startup is added. The installer materializes the
+canonical dependency-free protocol notice modules in the standalone server copy;
+fingerprints cover those bytes too, without requiring TypeBox or a checkout.
+
+Notice wire v1 is independent of bridge protocol 1.6 (no bridge version bump).
+`session-notice.ts` defines fixed-order UTF-8 JSON-array canonical bytes and
+WebCrypto HMAC-SHA256, a 4096-byte line limit and a ±120-second replay window.
+The shared fixture is `packages/protocol/test/fixtures/session-notice-v1.json`.
+The phone's ALWAYS path observes the `AlwaysNoticeSource` port, separate from
+`SessionEventSource` and SSH leases. `AlwaysSecretPersistence` owns encrypted,
+backup-excluded per-computer records; pure `AlwaysNotifyVault` owns registration,
+forgetting and durable replay policy. The TCP adapter projects authenticated
+notices into existing `SessionAlert` values. These ports do not grant SSH access.
+
 ## Deployable parts
 
 | Part | What it is | Lives in |
@@ -91,7 +115,7 @@ draft ─► sending ─► submitted ──────────────
 
 ## Android app
 
-- `core/link-policy.ts` is the pure external-link allowlist; Expo Router's `app/+native-intent.tsx` applies it on cold and warm system links, allowing only Inicio or the pairing confirmation with exactly one `p` parameter and nothing else and leaving internal navigation unchanged.
+- `core/link-policy.ts` is the pure external-link allowlist; Expo Router's `app/+native-intent.tsx` applies it on cold and warm system links, allowing Inicio, pairing confirmation with exactly one `p` parameter, or a narrowly validated `notice` URI resolved to a saved host and live session. `core/notification-routing.ts` decodes the exact UTF-16-hex boundary once; unknown/ended targets and URI-unrepresentable IDs fall back to Inicio. Internal navigation is unchanged.
 
 ### Technology
 
@@ -99,6 +123,175 @@ draft ─► sending ─► submitted ──────────────
 - **SSH lives in our own native module**, written in Kotlin with the Expo Modules API and built on **sshj**, as Moshi does with its own native transport code. sshj is maintained, supports SFTP and local port forwarding, and since 0.30 accepts Android Keystore keys, whose private material the app cannot read. Apache MINA SSHD does not support Android.
 - **The app's key is ECDSA P-256** (`ecdsa-sha2-nistp256`), generated inside the Android Keystore with the unlock requirement from PRD R1. Ed25519 keys in the Keystore are not usable through the platform provider yet. The rest of the app stays in TypeScript and reaches it only through the HostConnection, AttachmentTransfer, and Terminal ports.
 - Because of that native code, the app runs as an Expo **development build**, not in Expo Go.
+
+### Native connection ownership (notification groundwork)
+
+The Android `HostConnection`/`Credentials` adapters now use an application-process
+`ConnectionManager` singleton. Its pure Kotlin `ResourceLeases` owns the clients,
+forwards and lifecycle lock. `acquire(UI | SERVICE)` creates an isolated lease;
+`connect(lease, options)` opens a client for it. A native caller may explicitly
+`lease.retain(connectionId)` to share an existing connection. No sharing is inferred
+from host names. Access, disconnect and forward closure require the caller's lease.
+`disconnect` releases only that owner's hold and forwards; the last hold closes the
+client. A transport failure invalidates all holders. Closing a lease is idempotent
+and rejects/disposes late connection and forward publication. The lock guards
+bookkeeping only: every client disconnect, forward close and detach callback (which
+closes terminal channels) runs after it is released, because closing an SSH channel
+can wait for the host. A slow close never stalls another connect, adoption or
+`isConnected`. Each `LoopbackForward` follows the same rule: its monitor guards only
+the closed flag and link registration, so a link accepted after close starts is
+refused and closed, and its channels close after the monitor is released.
+
+`SshModule` retains the same JS API and owns its terminal channels. Its `OnDestroy`
+closes those channels and releases only its UI lease: a service-held client and
+service-owned forwards survive; releasing a service lease cannot close UI resources.
+The manager does not retain an Activity or React context. SSH work remains on IO.
+`SessionWatchService` now owns separate SERVICE leases through the native
+`SessionEventSource` port. Force-stop/process death still ends these connections
+and notifications; there is no automatic restart (notifications S3/S5).
+
+For non-Activity callers, `KeystoreKeys.withoutPrompt(alias)` returns typed
+`Ready`, `NeedsUnlock`, `Missing`, or `Invalidated`; `signWithoutPrompt` performs an
+actual Keystore signature with the same typed failure states. Neither creates a
+key nor opens UI. Android, not a cached app timestamp, decides whether an existing
+key is usable: keys without authentication binding can sign, while auth-bound keys
+require a valid 300-second unlock window (S6). SSH preflight is not an authorization
+grant: expiry during authentication still returns the existing `UNLOCK_REQUIRED`
+error. Private key material never leaves Keystore, and host pinning and loopback-only
+forward restrictions are unchanged.
+
+### Native session notifications (T2b)
+
+`SessionEventSource.configure(hosts) / events(): Flow<WatchEvent> / close()` is the
+native observation port. Its events contain only snapshot state, instance-scoped
+sequence numbers, projected event types/outcomes, removals and host connectivity;
+never tokens or agent text. The SSH adapter uses each host's saved key alias and
+pinned fingerprint, a SERVICE lease, bounded SFTP registry reads (64 KiB per
+entry, 1,000 directory entries), loopback forwards, Bearer-authenticated `/state`
+and `/events?since=`. It re-enumerates every 30 seconds; HTTP redirects are refused.
+Protocol 1.x is accepted; the native decoder projects the fields needed from the
+canonical TypeScript protocol without changing its version (1.6). The pure Kotlin
+registry decoder checks required fields and their actual JSON types without string
+coercion, including finite numbers, integer port/pid bounds, nonempty IDs and the
+major-version compatibility check. It accepts arbitrary protocol-valid ID strings
+and ignores additive fields; notification constraints never filter registry IDs.
+Registry tokens
+exist only in adapter memory and HTTP authorization headers, never logs, intents,
+notification bodies, or status responses.
+
+The Expo API adds `startSessionWatch({ appId, hosts: [{ hostId, connection }] })`,
+`stopSessionWatch()` and `sessionWatchStatus()`. `connection` includes the actual
+per-host key alias (including a previous generation during rotation), address,
+optional fallback, port, username and **required** pinned fingerprint. Start
+requires a resumed Activity and already-granted/enabled notifications; it never
+prompts or saves opt-in. The TS `SessionNotificationSource` consumer shape is
+configure/getStatus/subscribe. `core/notifications.ts` now owns persisted opt-in, serialized mode changes, permission outcomes and per-host registration behind NotificationPorts; `adapters/native-notifications.ts` implements Android permission, preferences and native control. Settings uses the shared observable use case, not native APIs. Host deletion revokes before removing the catalog entry.
+
+Pure Kotlin `SessionWatchRules` is the notification/lifetime policy. Initial
+snapshots and replay-gap resnapshots are silent; a gap never infers a finish from
+`lastOutcome`. Event deduplication is by (host, instance, seq). `prompt_start`
+alerts needs-response. A non-aborted `agent_settled` alerts finished for completed,
+failed for failed, and nothing for aborted/unknown future outcomes. Registry
+`protocolVersion` travels with both snapshots and events. Only bridges below 1.6
+use the compatibility fallback: missing outcome with `aborted: false` means finished.
+For 1.6+ a missing outcome is unknown and produces **no alert**, since current
+bridges intentionally omit unknown outcomes. The SSH adapter probes connectivity
+through registry discovery; after
+three failed host attempts it reports connection-lost once per outage, retries
+at 30-second intervals, and resets the outage latch on successful discovery.
+A stale individual bridge is not evidence that the host is lost.
+
+The last meaningful state event across all sessions (agent start/settle,
+prompt start/end, activity phase, session start, session removal or a changed
+snapshot attention state) resets a monotonic two-hour deadline. Content chunks,
+keepalives, duplicate events and registry polling do not. With no working or
+waiting sessions, including empty startup, a **two-minute grace** ends the service;
+the timer checks every five seconds. Explicit JS stop cancels all observation.
+Prompt-free reconnect first uses `KeystoreKeys.signWithoutPrompt` with the saved
+alias, then the ConnectionManager's prompt-free SSH authentication. NeedsUnlock
+posts one localized unlock notice per host and parks that host, never opening biometric
+UI in the background. When the visible app then connects to that host, the source
+resumes it at once and adopts the app's live connection; other failures keep their
+own backoff. The connect is matched against the hosts the running source was
+configured with, so during a reconfiguration it never resumes the previous source by
+the newer configuration's hosts.
+
+The config plugin declares an unexported, non-sticky `connectedDevice` foreground
+service with FOREGROUND_SERVICE, FOREGROUND_SERVICE_CONNECTED_DEVICE,
+CHANGE_NETWORK_STATE (Android's prerequisite) and POST_NOTIFICATIONS. A low-importance
+ongoing channel is separate from session alerts. Notification text is project name
+plus state only, localized for Spanish/English from the app's resolved language (`setNotificationLanguage` and start configuration); no agent text.
+Taps launch the main Activity with `sessionWatchHostId` and
+`sessionWatchBridgeInstanceId` extras encoded as lowercase UTF-16 code-unit hex
+(four digits per code unit), plus `sessionWatchIdEncoding: "utf16-hex"`. This
+lossless boundary encoding permits every protocol-valid ID (even lone surrogates)
+without interpreting it as a path/URI or creating delimiter collisions. Internal
+identity and deduplication always use the original strings. The launch Intent also carries the equivalent `notice` URI for Expo cold/warm linking; the exact hex is decoded once before live lookup. Permission requests and denial/settings actions are implemented in T3. Registry tokens containing CR/LF remain schema-valid but are rejected
+separately by the HTTP adapter before creating an Authorization header. Foreground-start denials are reported via the native result/status.
+Play declaration draft and threat-model/privacy updates describe these entry points and permissions. Preview-device verification and the Play evidence video remain T5; there is no delivery promise after force-stop or process death. Android 10+ pre-pause re-arms an idle-expired while-working watch while the Activity is still RESUMED; older versions use onActivityPaused while still STARTED/visible (an internal lifecycle-only exception, never onStop/background). Process-local arming is cleared on explicit stop and is not persisted as a restart mechanism.
+
+### Always-attentive native listener (T6 / S7)
+
+`startSessionWatch` accepts either `{ appId, mode: "while-working", hosts:
+[{hostId, connection}] }` (mode may be omitted for existing callers), or
+`{ appId, mode: "always", hosts: [{hostId, hostKeyId}] }`. `hostKeyId` is the
+saved/pinned SSH fingerprint returned by host registration, not a hostname.
+Duplicate host ids or fingerprints are rejected. ALWAYS never constructs an SSH
+event source, takes a connection lease, checks an SSH key, or starts keepalives
+or the SSH watch's idle deadline. Its status has no per-host connectivity claims:
+a passive listener cannot detect a dead computer or emit connection-lost alerts.
+A mutex serializes full old-mode cleanup before
+new-mode observation, including rapid mode changes. Start still requires a
+resumed Activity and enabled/granted notifications. A separate MIN-importance
+ongoing channel is used; session alerts and project-plus-state text are shared.
+The service remains non-sticky, unexported, and has no boot receiver or wake lock.
+
+`TcpAlwaysNoticeSource` enumerates up `tun`/`tunN` interfaces and binds only their
+literal 100.64.0.0/10 or fd7a:115c:a1e0::/48 addresses, port 47812 (both families
+when present, at most two addresses). Missing/ambiguous addresses or a bind
+failure fail closed with `TAILSCALE_REQUIRED`; there is no wildcard, LAN or
+loopback fallback. Peers must also belong to these ranges. Each listener handles
+one accepted client at a time with backlog four, one ≤4096-byte newline-terminated
+frame and an absolute two-second read deadline. All socket/crypto/storage work
+runs on IO. Socket closure cancels blocked accept/read; there is no idle polling.
+If Tailscale changes underneath a listener, re-enable the mode after an error;
+no delivery or automatic recovery guarantee is made.
+
+`AlwaysNoticeVerifier` checks wire v1, strict field types and string/size bounds,
+fixed-order canonical JSON-array UTF-8 bytes and JCA HmacSHA256 using
+`MessageDigest.isEqual`. Only configured fingerprints select secrets. Unknown or
+invalid MACs cannot advance replay state. Accepted instance sequences and the
+±120-second freshness window are checked before an atomic encrypted cursor
+commit and before alert publication. Cursors survive service/process restart,
+retain the latest accepted timestamp, and fail closed at 128 live instances per
+computer (4096 in-memory cursors overall). Kotlin tests consume the original
+`packages/protocol/test/fixtures/session-notice-v1.json` via Gradle resources;
+there is no second fixture. `org.json:json:20240303` is a JVM-test-only dependency
+for Android's platform JSON API; no runtime dependency was added.
+
+`registerAlwaysNotify(hostId)` returns `{secret,port}` for the caller to send
+through authenticated SSH stdin; it does not itself connect or enable the mode.
+Repeated registration returns the same per-computer 32-byte SecureRandom secret.
+`forgetAlwaysNotify(hostId)` deletes its local secret and replay state; T3 must
+also unregister on the host, and call forgetting when deleting/changing a host.
+The native code retains no secret cache, checks the secret generation again at
+cursor commit, and emits no secret/token/payload diagnostics. AtomicFile records
+are AES-256-GCM encrypted, bound to hostId as associated data, stored under
+`noBackupFilesDir`, limited to 64 computers, and sealed by a non-exportable
+Android Keystore AES key. Corrupt records/missing keys fail closed rather than
+silently regenerating registered secrets.
+
+**Trade-off:** this AES key is deliberately **not user-auth-bound** so a listening
+service can decrypt notification secrets while SSH's 300-second authentication
+window is closed. App-process compromise can therefore decrypt these secrets
+without a new user prompt; it does not unlock or weaken the SSH key (S6).
+`isIgnoringBatteryOptimizations()` reports the system state;
+`openBatteryOptimizationSettings()` opens this app's details screen
+(`ACTION_APPLICATION_DETAILS_SETTINGS`) and falls back to the general
+`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` list. No restricted direct-request
+permission is declared. UI consent/SSH calls remain T3. Force-stop, process death,
+Doze, OEM restrictions and battery behaviour still require closed-test device
+measurement; no notices after force-stop/process death are promised (S5).
 
 ### Use cases
 
@@ -122,13 +315,37 @@ draft ─► sending ─► submitted ──────────────
 | HostConnection | Connect, verify host identity, run commands, read files, open tunnels to the host's loopback | SSH native module ([README](../apps/mobile/modules/ssh/README.md)) |
 | SessionDiscovery | Find live sessions and their bridge instances | `discoverBridges` reads the registry over SFTP, which works the same on Linux and Windows hosts |
 | SessionBridge | Stream events, send, stop, read state and history, focus the session's own Herdr workspace/tab | HTTP and SSE through an SSH tunnel |
+| SessionEventSource (native) | Observe all configured hosts through configure/events/unlocked/close; technology-free event projection | `SshSessionEventSource`, SERVICE leases, SFTP registry + HTTP/SSE through loopback forwards |
+| SessionNotificationSource / NotificationPorts | Configure observation, status, opt-in persistence, permission and per-host registration/revocation; pure `NotificationSettings` serializes transitions | Native Expo start/stop/status, RN notification permission, private preference file; a future relay can replace observation |
+| NotificationRegistration | Register/revoke a phone via the existing authenticated host connection; secrets only on stdin | Installed node/CLI from host.json, fixed notify verbs, bounded SSH `execWithInput`; response identity must match the saved pin |
 | AttachmentTransfer | Copy files to the host's uploads folder, and remove old ones | SFTP in the SSH native module: `uploadFile` writes a private `.part` and renames it, `removeFile`, and listings with modification times |
 | LinkService | Create, list, and delete private links | The copy is staged by SFTP; the installed link server's `create`, `list`, `delete`, and `ensure` run over SSH exec with the paths from `host.json`, quoted for sh/fish or cmd; tokens never appear on a command line |
 | Terminal | Run the computer's Herdr in a PTY and exchange its bytes: open with a size, write, resize, close, output and exit events | `TerminalChannel` in the SSH native module: a PTY plus an exec request (not a shell) limited to Herdr; see the [module README](../apps/mobile/modules/ssh/README.md) |
 | MediaSource | Gallery, camera, file picker | Android system pickers |
 | Clipboard | Read text, images, and files from the clipboard | Android clipboard |
+| HostReleaseRegistry | Read the latest published host release; no host or user data in the request | Bounded HTTPS GET of `https://registry.npmjs.org/mars-ram/latest` (`adapters/npm-host-release.ts`) |
+| HostReleaseCache | Persist the last registry attempt timestamp and last validated latest release | Private app JSON file (`adapters/file-host-release-cache.ts`); global metadata, not associated with a computer |
+| SeenBuildStore | Remember the last build whose «Novedades» were seen; tell a fresh install from an app used before the feature | Private app JSON file (`adapters/file-seen-build.ts`); "used before" means an earlier preference or catalog file exists |
+| AppUpdateSource | Ask Google Play whether a newer version exists, start its flexible update, install it once downloaded | Google Play In-App Updates in the SSH native module (`checkAppUpdate`, `appUpdateProgress`, `startFlexibleUpdate`, `completeUpdate`, `onAppUpdateStatus`; `adapters/play-app-updates.ts`) |
+| AppUpdateCheckStore | Persist the last Play check time and its answer | Private app JSON file (`adapters/file-app-update-check.ts`) |
 
 Two adapters must handle what the phone run taught us: HostConnection retries a failed tailnet name lookup and can fall back to the Tailscale IP; SessionBridge treats a changed bridge instance as a reconnect, not an error.
+
+### Host update checks (R1/R2)
+
+`core/host-update.ts` owns bounded version JSON parsing, semantic-version ordering and `ok` / `soft` / `required` policy. `MINIMUM_HOST_VERSION` is **0.1.4**, the first release with `version --json`; bump it only when new app functionality requires a newer host. Missing legacy commands count as below a minimum ≥ 0.1.4; malformed/transport results are unknown and `dev` never warns. This is advisory: no command installs anything automatically or prevents sessions/terminals from working.
+
+`core/host-updates.ts` probes with HostConnection and the validated paths/quoting shared with the Herdr switcher. Every new pooled connection is probed independently of its maintenance callbacks; concurrent probes share a result, and focus/automatic refreshes have the existing 10-second floor. Host results are memory-only and keyed by saved computer, discarded when the saved catalog no longer includes it. Computadoras refreshes on focus; Inicio checks with its existing session refresh. Both show the shared `ui/host-update-notice.tsx`, using the existing selectable/copyable CommandBlock and directing users to the computer's terminal. Session summaries derive their independent `/reload` hint from registry `protocolVersion` minor versus the app's protocol.
+
+LatestHostRelease uses HostReleaseRegistry and HostReleaseCache: one global timestamp and last validated latest release in private app storage, no per-computer data. The last attempt is persisted **before** a request, so failures/offline also consume the daily budget across app openings. In-flight requests are shared. If recording that attempt fails, no request is made. Failures are silent; cached public release metadata can still support the soft notice. npm metadata never decides the minimum warning and never triggers execution. The HTTPS adapter has a 5-second timeout, refuses declared bodies over 64 KiB and rejects oversized/malformed metadata before parsing; RN fetch buffers undeclared bodies before the size check.
+
+### App updates: «Novedades» and the Play update notice (S2/S3)
+
+The installed build comes from the native module's `appBuild()` (PackageManager versionCode and versionName); Expo's build number is only a fallback because it can be empty on release builds, and the app version is the fallback key when no build number is known. Ajustes → Acerca de shows the same value as «Compilación».
+
+`core/release-notes.ts` bundles each release's notes (Spanish and English, «Nuevo» and «Arreglos»), keyed by versionCode; no network. `core/whats-new.ts` (`WhatsNew`) decides what to show against SeenBuildStore: a fresh install records the build and shows nothing; an update shows every entry newer than the last seen build up to this one; an app used before the feature shows this build's entry; «Entendido» (or back) records the build. Storage failures never block the app. The root layout's `WhatsNewGate` shows it once; Ajustes → Acerca de → «Novedades» lists every entry.
+
+`core/app-updates.ts` (`AppUpdates`) first asks AppUpdateSource for the current flexible download on every app start (`appUpdateProgress`, which also listens again while a download runs): downloading or downloaded is shown regardless of the daily cache. Otherwise it checks availability once per app start and at most once a day: the attempt is recorded before asking, a recent answer is reused only while its versionCode is newer than this build, and if the attempt cannot be recorded nothing is asked. States are idle, available, downloading and downloaded; dismissal lasts for this app start, and a finished download shows again. `onAppUpdateStatus` reports how a download ended: downloaded offers the restart; failed or canceled return to available with «Actualizar» (failed adds a short message), then Play is asked again and the notice hides if the update is no longer offered. An event that arrives while Play is still answering (the start-up status and check, or «Actualizar») is held and applied after the answer, the latest one winning, so a stale answer never leaves a finished download shown as downloading; natively the install listener is registered before Play is asked (`listeningFirst`), and a listener added only for a check is removed again unless a started flow owns it. Native mapping is the pure `AppUpdatePolicy.kt` (JVM-tested): builds whose installer is not Google Play (`com.android.vending`, from `getInstallSourceInfo` on API 30+, else `getInstallerPackageName`) never ask Play; missing Play, timeouts and errors resolve to `available:false`; only flexible updates are offered. The library adds no permission (only Play Core's unexported dialog activity); Play performs the check. `ui/app-update-notice.tsx` appears in Inicio and in Ajustes → Acerca de.
 
 ### Sessions: implemented so far
 
@@ -238,6 +455,8 @@ It never resolves a path from a request: a link token maps to one stored copy, o
 Legacy route binding is retained when pane metadata is unavailable (older CLI without pane arrays), and when the route session is still live but its older bridge reports no pane: such a session cannot be placed, so it keeps today's behaviour unless a newer bridge owns the focused pane. Otherwise known-but-ambiguous/empty focus yields no chat, and a concrete pane requires a matching live bridge; a route session that disappeared from discovery is dropped. Standalone terminals need a matching bridge. Unmatched panes hide the handle and close floating chat; another matching pane replaces the chat. Cached bindings are tagged by both host and route session, so a same-host route change cannot reuse the previous session while discovery loads. Full-chat navigation carries the mapped session's discovered project/cwd, retaining original route params only for that route's session. A keyed floating composer and key-tagged live snapshot prevent previous-session drafts/messages flashing during a switch. Chat rebinding does not recreate the PTY or re-run session focus.
 
 ## Protocol
+
+- Protocol **1.6** adds optional `outcome: "completed" | "failed" | "aborted"` to `agent_settled`, retaining `aborted` and `pendingMessages`. The Pi adapter reads the last assistant in the latest `agent_end.messages`: `stop` (or compatible `end_turn`) means completed, `error` means failed, `aborted` means aborted; the settled `aborted` flag takes precedence. Other/missing stop reasons remain unknown (field omitted); an individual tool error is not a failed run. Evidence resets on agent start, settle, and session replacement. `/state` optionally carries `lastOutcome: { outcome, seq }` for the latest settle, even after its event leaves the replay buffer; an unknown latest settle clears it. The seq belongs only to this bridge instance, and a new run can be working while the snapshot still describes its preceding settle. App session lists and live views carry this evidence without changing UI status; old payloads remain valid and older clients ignore the additive fields.
 
 - Protocol **1.5** adds optional `terminalPane: string` to `/state`, retaining `terminal: boolean`. This is the Terminal port's inherited, validated pane id captured at session start (for example `w2G:p2`), not a new Herdr probe or request-selected target. It is absent outside Herdr and on older bridges. Same-major negotiation continues accepting older/newer minor versions; older clients ignore the new field. The Terminal port exposes this captured identity as optional read-only `paneId`.
 

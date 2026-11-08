@@ -30,6 +30,8 @@ function installedMain() {
  const cli = join(homedir(), '.mars-ram', 'cli');
  try {
   if (readFileSync(join(cli, 'fingerprint.sha256'), 'utf8').trim() !== CLI_FINGERPRINT) return undefined;
+  // Two releases may share source bytes; never run another release's installed metadata.
+  if (readFileSync(join(cli, 'VERSION'), 'utf8').trim() !== VERSION) return undefined;
   const main = join(cli, 'src', 'main.ts'), stat = lstatSync(main);
   return stat.isFile() && !stat.isSymbolicLink() ? main : undefined;
  } catch { return undefined; }

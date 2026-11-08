@@ -58,6 +58,7 @@ export class BridgeSession {
 	private seq = 0;
 	private lastActivityAt: number | null = null;
 	private activity: string | null = null;
+	private lastOutcome: StateResponse["lastOutcome"];
 
 	constructor(options: BridgeSessionOptions) {
 		this.pi = options.pi;
@@ -81,6 +82,9 @@ export class BridgeSession {
 		if (input.type === "agent_start" || input.type === "agent_settled") this.setActivity(null);
 		const event = { ...input, seq: ++this.seq, at: this.clock() } as BridgeEvent;
 		this.lastActivityAt = event.at;
+		if (event.type === "agent_settled") {
+			this.lastOutcome = event.outcome === undefined ? undefined : { outcome: event.outcome, seq: event.seq };
+		}
 		this.log.push(event);
 		if (this.log.length > this.capacity) this.log.shift();
 		for (const listener of this.listeners) listener(event);
@@ -140,6 +144,7 @@ export class BridgeSession {
 			terminal: this.terminal !== undefined,
 			...(this.terminal?.paneId === undefined ? {} : { terminalPane: this.terminal.paneId }),
 			activity: this.activity,
+			...(this.lastOutcome === undefined ? {} : { lastOutcome: this.lastOutcome }),
 			idle: this.pi.isIdle(),
 			pendingMessages: this.pi.hasPendingMessages(),
 			pendingPrompt: this.pendingPrompt,

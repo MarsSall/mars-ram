@@ -10,6 +10,8 @@ import { formatTime, timeAgo } from "../../ui/format";
 import { usePreferences } from "../../ui/preferences";
 import { useSessions } from "../../ui/use-sessions";
 import { ShortcutsSection } from "../../ui/shortcuts";
+import { HostUpdateNotice } from '../../ui/host-update-notice';
+import { AppUpdateNotice } from "../../ui/app-update-notice";
 
 export default function HomeScreen() {
 	const router = useRouter();
@@ -72,6 +74,7 @@ export default function HomeScreen() {
 					{session.lastMessage}
 				</Text>
 			) : null}
+			{session.reloadNeeded ? <Text style={{ color: c.textMuted, fontSize: 13, marginTop: theme.spacing(2) }}>{t.hostUpdate.reload}</Text> : null}
 			{priority ? <Text style={{ color: c.textMuted, fontSize: 13, textTransform: "uppercase", marginTop: theme.spacing(2) }}>{nameOf(session.hostId)}</Text> : null}
 		</Card>
 	);
@@ -98,6 +101,7 @@ export default function HomeScreen() {
 				refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshByHand} tintColor={c.accentText} colors={[c.accentText]} progressBackgroundColor={c.surfaceRaised} />}
 			>
 				<HomeHeading />
+				<AppUpdateNotice />
 				{data === null ? <EmptyState message={t.sessions.loading} /> : null}
 				{home && home.needsYou.length > 0 ? (
 					<>
@@ -111,6 +115,7 @@ export default function HomeScreen() {
 				{home?.computers.map((computer) => (
 					<View key={computer.hostId}>
 						<Text style={{ color: c.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2) }}>{computer.name} · {t.home.computerStatus[computer.status]}</Text>
+						<HostUpdateNotice update={data?.updates[computer.hostId]} />
 						{notice(computer)}
 						{computer.sessions.map((s) => row(s))}
 					</View>

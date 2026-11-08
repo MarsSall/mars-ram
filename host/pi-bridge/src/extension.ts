@@ -17,6 +17,7 @@ import { BridgeSession } from "./core/bridge-session.ts";
 import { summarize } from "./core/message-summary.ts";
 import { publishesSession } from "./core/publish-policy.ts";
 import type { PiSessionPort } from "./core/ports.ts";
+import { RunOutcome } from "./core/run-outcome.ts";
 
 const EVENT_CAPACITY = 1000;
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -28,6 +29,7 @@ export default function bridge(pi: ExtensionAPI) {
 	// Session replacement invalidates older contexts, so keep the newest one.
 	let ctx: ExtensionContext | undefined;
 	let running: Running | undefined;
+	const outcome = new RunOutcome();
 
 	const live = (): ExtensionContext => {
 		if (!ctx) throw new Error("The bridge has no active Pi session.");
@@ -87,6 +89,7 @@ export default function bridge(pi: ExtensionAPI) {
 	async function stop() {
 		const current = running;
 		running = undefined;
+		outcome.reset();
 		if (current) await stopInstance(current);
 	}
 
@@ -106,15 +109,18 @@ export default function bridge(pi: ExtensionAPI) {
 
 	pi.on("agent_start", async (_e, c) => {
 		ctx = c;
+		outcome.reset();
 		running?.session.record({ type: "agent_start" });
 	});
-	pi.on("agent_end", async (_e, c) => {
+	pi.on("agent_end", async (e, c) => {
 		ctx = c;
+		outcome.ended(e.messages);
 		running?.session.record({ type: "agent_end", pendingMessages: c.hasPendingMessages() });
 	});
 	pi.on("agent_settled", async (e, c) => {
 		ctx = c;
-		running?.session.record({ type: "agent_settled", aborted: e.aborted, pendingMessages: c.hasPendingMessages() });
+		const result = outcome.settled(e.aborted);
+		running?.session.record({ type: "agent_settled", aborted: e.aborted, pendingMessages: c.hasPendingMessages(), ...(result === undefined ? {} : { outcome: result }) });
 	});
 	pi.on("turn_start", async (e) => {
 		running?.session.record({ type: "turn_start", turnIndex: e.turnIndex });

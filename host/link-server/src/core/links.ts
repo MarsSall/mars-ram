@@ -28,7 +28,8 @@ export function contentType(data: Uint8Array): { contentKind: "image" | "downloa
 export class LinkService {
 	readonly ports: Ports;
 	readonly port: number;
-	constructor(ports: Ports, port = DEFAULT_PORT) { this.ports = ports; this.port = port; }
+	private readonly notificationsEnabled: () => Promise<boolean>;
+ constructor(ports: Ports, port = DEFAULT_PORT, notificationsEnabled: () => Promise<boolean> = async () => false) { this.ports = ports; this.port = port; this.notificationsEnabled = notificationsEnabled; }
 	async active(): Promise<Link[]> {
 		const active: Link[] = [];
 		for (const link of await this.ports.store.all(this.ports.clock() - ORPHAN_GRACE_MS)) {
@@ -46,7 +47,7 @@ export class LinkService {
 		try { serving = await this.ports.launcher.isRunning(this.port, await this.ports.tailscale.address()); } catch { /* offline is not serving */ }
 		return { serving, links: links.filter(link => Date.parse(link.expiresAt) > this.ports.clock()).length, invalid };
 	}
-	async shouldExit(): Promise<boolean> { return (await this.active()).length === 0; }
+	async shouldExit(): Promise<boolean> { return (await this.active()).length === 0 && !await this.notificationsEnabled(); }
 	async create(name: string) {
 		if (!validName(name)) throw new Error("Invalid staged name.");
 		const address = await this.ports.tailscale.address();

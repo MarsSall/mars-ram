@@ -1,21 +1,36 @@
 // Dependency-free installed package: fingerprints cover exactly src/ and package.json.
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export const linkSource = resolve(import.meta.dirname, "../../../link-server");
-export function linkFingerprint(folder: string): string {
- const hash = createHash("sha256");
+// Materialize the two dependency-free canonical wire modules inside the installed copy.
+// This keeps standalone Node execution independent of the checkout and node_modules.
+export function linkRuntimeFiles(folder: string): Map<string, string> {
+ const files = new Map<string, string>();
  const visit = (relative: string) => {
   const path = join(folder, relative);
   const stat = lstatSync(path);
   if (stat.isSymbolicLink()) throw new Error("Linked link-server source or installed file.");
   if (stat.isDirectory()) for (const name of readdirSync(path).sort()) visit(`${relative}/${name}`);
-  else if (stat.isFile()) { hash.update(relative); hash.update("\0"); hash.update(readFileSync(path)); hash.update("\0"); }
+  else if (stat.isFile()) files.set(relative, readFileSync(path, 'utf8'));
   else throw new Error("Invalid link-server file.");
  };
  visit("package.json"); visit("src");
- return hash.digest("hex");
+ if (resolve(folder) === linkSource && !existsSync(join(folder, 'src/wire/session-notice.ts'))) {
+  for (const module of ['session-notice', 'notice-bridge']) {
+   const wire = resolve(linkSource, '../../packages/protocol/src', `${module}.ts`);
+   if (!lstatSync(wire).isFile() || lstatSync(wire).isSymbolicLink()) throw Error('Linked notice contract.');
+   files.set(`src/wire/${module}.ts`, readFileSync(wire, 'utf8'));
+  }
+  for (const [path, source] of files) if (path.startsWith('src/adapters/') || path.startsWith('src/core/')) files.set(path, source.replaceAll('../../../../packages/protocol/src/', '../wire/'));
+ }
+ return files;
+}
+export function linkFingerprint(folder: string): string {
+ const hash = createHash('sha256');
+ for (const [path, data] of [...linkRuntimeFiles(folder)].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) { hash.update(path); hash.update('\0'); hash.update(data); hash.update('\0'); }
+ return hash.digest('hex');
 }
 export function linkCopyIsCurrent(copy: string): boolean {
  try { return linkFingerprint(copy) === linkFingerprint(linkSource); } catch { return false; }
@@ -27,7 +42,7 @@ export function buildLinkCopy(root: string): void {
  mkdirSync(staging);
  let moved = false;
  try {
-  for (const name of ["src", "package.json"]) cpSync(join(linkSource, name), join(staging, name), { recursive: true });
+  for (const [path, data] of linkRuntimeFiles(linkSource)) { mkdirSync(dirname(join(staging, path)), { recursive: true }); writeFileSync(join(staging, path), data); }
   if (linkFingerprint(staging) !== fingerprint) throw new Error("Link-server source changed during installation.");
   // Fingerprint is part of the swap, never an independently published version marker.
   writeFileSync(join(staging, "fingerprint.sha256"), `${fingerprint}\n`, { mode: 0o600 });

@@ -8,6 +8,7 @@ import { formatDateTime } from "../../ui/format";
 import { Card, Screen } from "../../ui/components";
 import { usePreferences } from "../../ui/preferences";
 import { TerminalLauncher } from "../../ui/terminal-launcher";
+import { notificationCopy } from "../../ui/notification-copy";
 
 function CopyValue({ label, value, copyValue = value }: { label: string; value: string; copyValue?: string }) {
  const { theme, t } = usePreferences();
@@ -42,7 +43,7 @@ function CopyValue({ label, value, copyValue = value }: { label: string; value: 
 export default function ComputerScreen() {
 	const router = useRouter();
 	const { id } = useLocalSearchParams<{ id: string }>();
-	const { theme, t } = usePreferences();
+	const { theme, t, locale } = usePreferences();
 	const [host, setHost] = useState<SavedHost | null>(null);
 	useEffect(() => {
 		void catalog.list().then((hosts) => setHost(hosts.find((h) => h.id === id) ?? null));
@@ -54,7 +55,7 @@ export default function ComputerScreen() {
 			{
 				text: t.computer.forget,
 				style: "destructive",
-				onPress: () => void catalog.remove(id).then(() => router.back()),
+				onPress: () => void catalog.remove(id).then(() => router.back()).catch(() => Alert.alert(notificationCopy[locale].deleteFailed)),
 			},
 		]);
 
