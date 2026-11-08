@@ -47,6 +47,14 @@ describe("decodeResponse", () => {
 		lastActivityAt: 1000,
 	};
 
+	it("preserves the optional captured pane and accepts older snapshots", () => {
+		expect(PROTOCOL_VERSION).toBe("1.5");
+		const snapshot = { ...state, terminal: true, terminalPane: "w2G:p2" };
+		expect(decodeResponse(StateResponse, snapshot)).toEqual({ ok: true, value: snapshot });
+		expect(decodeResponse(StateResponse, { ...state, protocolVersion: "1.4" }).ok).toBe(true);
+		expect(decodeResponse(StateResponse, { ...state, terminalPane: 42 }).ok).toBe(false);
+	});
+
 	it.each([null, "exploring", "future-phase", "a".repeat(32)])("accepts activity %s", (activity) => {
 		const snapshot = { ...state, activity };
 		expect(decodeResponse(StateResponse, snapshot)).toEqual({ ok: true, value: snapshot });

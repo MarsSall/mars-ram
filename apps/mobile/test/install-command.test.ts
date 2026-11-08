@@ -12,6 +12,18 @@ describe("install commands", () => {
  });
 });
 
+describe("shared welcome instructions", () => {
+ it("includes the Windows instruction in Spanish", () => {
+  expect(es.home).toHaveProperty("windowsPair", "En Windows, ejecutá mars-ram pair en una ventana de administrador.");
+ });
+ it("includes the Windows instruction in English", () => {
+  expect(en.home).toHaveProperty("windowsPair", "On Windows, run mars-ram pair in an administrator window.");
+ });
+ it("removes the collapsible installation help from both languages", () => {
+  for (const t of [en, es]) expect(t.add).not.toHaveProperty("installHelp");
+ });
+});
+
 describe("welcome install step texts", () => {
  it("says where and how to run the command in Spanish", () => {
   expect(es.home.install).toBe("En tu computadora, abrí una terminal y ejecutá:");

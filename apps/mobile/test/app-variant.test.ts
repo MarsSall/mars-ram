@@ -54,3 +54,14 @@ it("builds the store bundle without a variant and the preview APK with one", () 
 	expect(development.developmentClient).toBe(true);
 	expect(eas.cli.appVersionSource).toBe("remote");
 });
+
+it("submits to the internal track, published for testers only", () => {
+	// Internal testing reaches only the testers' list; production stays a manual decision.
+	expect(eas.submit.production.android).toEqual({ track: "internal", releaseStatus: "completed" });
+});
+
+it("has a closed-testing submit profile on the alpha track", () => {
+	// Play requires a closed test with testers before production. Until the app is published,
+	// Play only accepts draft releases there; the owner sends them to review in the console.
+	expect(eas.submit.closed.android).toEqual({ track: "alpha", releaseStatus: "draft" });
+});

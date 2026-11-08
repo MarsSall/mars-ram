@@ -18,6 +18,12 @@ function setup() {
  return { service, commands, respond: (value: typeof response) => { response = value; } };
 }
 describe("Herdr switcher", () => {
+ it("preserves optional panes and rejects unsafe, duplicate and cross-workspace ids", () => {
+  const panes = [{ id: "w2G:p2", focused: true }];
+  const payload = (value: unknown) => JSON.stringify({ version: 1, workspaces: [{ ...workspace, tabs: [{ ...tab, panes: value }] }] });
+  expect(parseHerdrList(payload(panes)).workspaces[0].tabs[0].panes).toEqual(panes);
+  for (const value of [null, [{ id: "wOther:p2", focused: true }], [...panes, ...panes], [{ id: "w2G:p2;id", focused: true }], [{ id: "w2G:p2", focused: 1 }], Array(129).fill(panes[0])]) expect(() => parseHerdrList(payload(value))).toThrow();
+ });
  it("drops Pi's own \"π - \" title prefix from agent tabs: the icon already says it", () => {
   const tabs = [{ ...tab, id: "w2G:t2", label: "π - lnedev", kind: "pi" }, { ...tab, id: "w2G:t3", label: "π - gentle-shell", kind: "gentle-shell" }, { ...tab, id: "w2G:t4", label: "π - notes", kind: "shell" }, { ...tab, id: "w2G:t5", label: "π - ", kind: "pi" }];
   expect(parseHerdrList(output([{ ...workspace, tabs }])).workspaces[0]!.tabs.map(t => t.label)).toEqual(["lnedev", "gentle-shell", "π - notes", "π - "]);

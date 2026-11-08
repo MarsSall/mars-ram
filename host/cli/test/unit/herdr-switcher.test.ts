@@ -25,6 +25,27 @@ const execute = (f: FakeRunner, args = ['list']) => runHerdr(args, { run: f.run,
 const processInfo = (argv: unknown[][]) => JSON.stringify({ result: { process_info: { foreground_processes: argv.map(argv => ({ argv, cmdline: 'ignored', name: 'ignored' })) } } });
 const processCalls = (f: FakeRunner) => f.calls.filter(c => c.args[1] === 'process-info');
 
+ describe('Herdr pane identities', () => {
+ it('deduplicates and caps panes per tab, reporting truncation', async () => {
+  const f = new FakeRunner();
+  f.panes = Array.from({ length: 130 }, (_, i) => ({ pane_id: `w2G:p${i}`, tab_id: 'w2G:t2', focused: false }));
+  f.panes.push(f.panes[0]);
+  const result = await execute(f);
+  if (!('workspaces' in result)) throw Error('not list');
+  expect(result.truncated).toBe(true);
+  expect(result.workspaces[0]!.tabs[0]!.panes).toHaveLength(128);
+ });
+ it('exposes validated bounded pane ids and focus without new calls', async () => {
+  const f = new FakeRunner(); f.panes = [
+   { pane_id: 'w2G:p2', tab_id: 'w2G:t2', focused: true },
+   { pane_id: 'wOther:p2', tab_id: 'w2G:t2', focused: true },
+   { pane_id: 'w2G:p3', tab_id: 'w2G:t3', focused: true },
+  ];
+  expect(await execute(f)).toMatchObject({ version: 1, workspaces: [{ tabs: [{ panes: [{ id: 'w2G:p2', focused: true }] }] }] });
+  expect(f.calls.filter(c => c.args[0] === 'pane')).toHaveLength(1);
+ });
+});
+
  describe('Herdr foreground process kind fallback', () => {
  it.each([
   [['C:\\nodejs\\node.exe', 'C:\\tools\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js', '-e', 'C:\\Users\\test\\.pnpm\\store\\v11\\links\\@\\gentle-pi\\4.3.0-main\\node_modules\\gentle-pi']],

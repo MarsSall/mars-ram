@@ -8,7 +8,7 @@ import type { UploadProgress } from "../core/attachment-uploads";
 import { sessions } from "../services";
 
 export function useLiveSession(key: string | undefined): { view: LiveView | null; send: (text: string, attachments?: readonly Attachment[], progress?: UploadProgress) => Promise<ActionResult>; stop: () => Promise<ActionResult> } {
-	const [view, setView] = useState<LiveView | null>(null);
+	const [snapshot, setSnapshot] = useState<{ key: string; view: LiveView } | null>(null);
 	const live = useRef<LiveSession | null>(null);
 
 	// Chat and terminal release their stream on blur, so stacked screens never
@@ -18,11 +18,11 @@ export function useLiveSession(key: string | undefined): { view: LiveView | null
 			if (!active) {
 				live.current?.dispose();
 				live.current = null;
-				setView(null);
+				setSnapshot(null);
 			} else if (key && !live.current) {
 				const session = sessions.follow(key);
 				live.current = session;
-				session.subscribe(setView);
+				session.subscribe(view => { if (live.current === session) setSnapshot({ key, view }); });
 				session.start();
 			}
 		};
@@ -33,7 +33,7 @@ export function useLiveSession(key: string | undefined): { view: LiveView | null
 
 	const notReady: ActionResult = { ok: false, message: "The session is not connected." };
 	return {
-		view,
+		view: snapshot && snapshot.key === key ? snapshot.view : null,
 		send: (text, attachments, progress) => live.current?.send(text, attachments, progress) ?? Promise.resolve(notReady),
 		stop: () => live.current?.requestStop() ?? Promise.resolve(notReady),
 	};

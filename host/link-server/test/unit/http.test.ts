@@ -8,7 +8,7 @@ import type { Link, Ports } from "../../src/core/ports.ts";
 const token = "a".repeat(43);
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanups.splice(0)) await close(); });
-async function fixture(data = Buffer.from("<html>hello</html>"), expireDuringRead = false) {
+async function fixture(data = Buffer.from("<html>hello</html>"), expireDuringRead = false, sweepMs = 10) {
 	let now = 0;
 	let links: Link[] = [{ id: "abcdefghijkl", token, fileName: "file.html", size: data.length, ...contentType(data), createdAt: new Date(0).toISOString(), expiresAt: new Date(86400000).toISOString() }];
 	const logs: string[] = [];
@@ -18,7 +18,7 @@ async function fixture(data = Buffer.from("<html>hello</html>"), expireDuringRea
 		tailscale: { address: async () => ({ ip: "100.64.1.2", dnsName: "pc.ts.net" }) },
 		launcher: { start: async () => {}, isRunning: async () => false },
 	};
-	const server = await startHttp(new LinkService(ports), { ip: "127.0.0.1", port: 0, log: message => logs.push(message), sweepMs: 10 });
+	const server = await startHttp(new LinkService(ports), { ip: "127.0.0.1", port: 0, log: message => logs.push(message), sweepMs });
 	cleanups.push(server.close);
 	function get(path: string, method = "GET") {
 		return new Promise<{ status: number; headers: import("node:http").IncomingHttpHeaders; body: string }>((resolve, reject) => {
@@ -63,7 +63,8 @@ describe("tailnet HTTP adapter (loopback injected only by tests)", () => {
 		expect((await f.get(`/l/${token}`)).headers["content-type"]).toBe("application/octet-stream");
 	});
 	it("expired token returns 404 and deletes its copy then exits", async () => {
-		const f = await fixture(); f.expire();
+		// A slow sweep so the request, not the sweep, finds the expired link (10 ms raced it under load).
+		const f = await fixture(undefined, false, 1000); f.expire();
 		expect((await f.get(`/l/${token}`)).status).toBe(404); expect(f.remaining()).toBe(0);
 		await f.server.closed;
 	});

@@ -282,7 +282,9 @@ describe('project hardening, second round (verify mvwxivu7-9-ous5)', () => {
   expect(tracked).toMatchObject({ truncated: true }); expect(Buffer.byteLength(tracked.diff)).toBeLessThanOrEqual(256 * 1024);
  });
  it('caps branches at 500 with the current one first and a truncated flag', async () => {
-  for (let i = 0; i < 501; i++) git('branch', `a${String(i).padStart(3, '0')}`);
+  // One git process for all 501 branches: a loop of `git branch` timed out under load.
+  const head = git('rev-parse', 'HEAD').trim();
+  execFileSync('git', ['-C', repo, 'update-ref', '--stdin'], { input: Array.from({ length: 501 }, (_, i) => `create refs/heads/a${String(i).padStart(3, '0')} ${head}\n`).join('') });
   const result = await run(['branches']) as any;
   expect(result.branches).toHaveLength(500); expect(result.truncated).toBe(true);
   expect(result.branches[0]).toMatchObject({ name: 'main', current: true });

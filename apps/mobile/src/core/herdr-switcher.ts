@@ -6,7 +6,7 @@ import type { HostConnection } from "./ports";
 import type { KeyCommandConfig } from "./key-security";
 
 export type HerdrStatus = "working" | "blocked" | "done" | "idle" | "unknown";
-export type HerdrTab = { id: string; label: string; focused: boolean; status: HerdrStatus; kind: "pi" | "gentle-shell" | "shell" | "agent" };
+export type HerdrTab = { id: string; label: string; focused: boolean; status: HerdrStatus; kind: "pi" | "gentle-shell" | "shell" | "agent"; panes?: { id: string; focused: boolean }[] };
 export type HerdrWorkspace = { id: string; label: string; focused: boolean; status: HerdrStatus; branch: string | null; tabs: HerdrTab[] };
 export type HerdrSnapshot = { workspaces: HerdrWorkspace[]; truncated: boolean };
 export type SwitcherError = "CLI_MISSING" | "HERDR_NOT_FOUND" | "HERDR_FAILED";
@@ -66,7 +66,16 @@ export function parseHerdrList(stdout: string): HerdrSnapshot {
    const kind = ["pi", "gentle-shell", "shell"].includes(t.kind) ? t.kind as HerdrTab["kind"] : "agent";
    // Pi titles its terminal "π - <folder>"; the tab icon already says Pi.
    const label = kind === "pi" || kind === "gentle-shell" ? tab.label.replace(/^π\s*-\s*/u, "") || tab.label : tab.label;
-   return { ...tab, label, kind };
+   let panes: HerdrTab["panes"];
+   if (t.panes !== undefined) {
+    if (!Array.isArray(t.panes) || t.panes.length > 128) throw Error("Invalid Herdr panes");
+    panes = t.panes.map((p: unknown) => {
+     if (!object(p) || typeof p.id !== "string" || !/^w[A-Za-z0-9]{1,63}:p[A-Za-z0-9]{1,63}$/.test(p.id) || p.id.split(":")[0] !== row.id || ids.has(p.id) || typeof p.focused !== "boolean") throw Error("Invalid Herdr pane");
+     ids.add(p.id);
+     return { id: p.id, focused: p.focused };
+    });
+   }
+   return { ...tab, label, kind, ...(panes === undefined ? {} : { panes }) };
   });
   return { ...row, branch: w.branch as string | null, tabs };
  });

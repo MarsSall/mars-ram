@@ -115,6 +115,16 @@ const summary = (id: string, hostId: string, status: SessionSummary["status"], l
 });
 const initialOrder = { computers: [], needsYou: [], groupOrder: {} };
 
+describe("pane discovery", () => {
+ it("refreshes captured pane metadata and accepts older bridge snapshots", async () => {
+  host.registry(linux.address, entry("a", 1234, "/work/a"));
+  http.states.set(1234, state("a", { terminal: true, terminalPane: "w2G:p2" }));
+  expect((await lister.list([linux]))[0].sessions[0].terminalPane).toBe("w2G:p2");
+  http.states.set(1234, state("a", { protocolVersion: "1.4" }));
+  expect((await lister.list([linux]))[0].sessions[0]).not.toHaveProperty("terminalPane");
+ });
+});
+
 describe("attention-first session groups", () => {
 	it("collects attention across computers oldest-first, removes duplicates, and retains empty groups and notices without mutating input", () => {
 		const a = summary("a", "linux", "attention", 30);

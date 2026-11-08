@@ -39,7 +39,7 @@ Builds run on this machine with `eas build --local`; Expo keeps the signing cred
 | `preview` | Release APK for phone checks | `com.marssall.marsram.preview` («Mars-RAM Prueba»), installs next to the other builds |
 | `production` | Play AAB; `versionCode` incremented on EAS | `com.marssall.marsram` |
 
-Example: `pnpm exec eas build --local --platform android --profile preview --output /tmp/mars-ram-preview.apk`. `APP_VARIANT` (set by the profile) selects the identity in `app.config.ts`. Submitting to Play (`eas submit`) is the owner's decision.
+Example: `pnpm exec eas build --local --platform android --profile preview --output /tmp/mars-ram-preview.apk`. `APP_VARIANT` (set by the profile) selects the identity in `app.config.ts`. `pnpm exec eas submit --platform android --profile production --path <aab>` uploads to the **internal** track and publishes it for the testers' list only (service account `play-submit@marsjs-apps`, key stored in Expo, never in the repo). Add `--profile closed` to send it to the closed-testing track (`alpha`) instead, as a draft: until the app is published Play accepts only drafts there, and the owner sends them to review in the Play Console. Promoting to production is the owner's decision in the Play Console.
 Docs: https://docs.expo.dev/eas/index.md
 
 ## Rules

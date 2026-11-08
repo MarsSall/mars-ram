@@ -1,4 +1,4 @@
-import { router, useFocusEffect, type Href } from "expo-router";
+import { useRouter, useFocusEffect, type Href } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import type { SavedHost } from "../core/host-catalog";
@@ -17,6 +17,7 @@ export function ShortcutErrorView({ code, computer, program }: { code: string; c
 }
 
 export function ShortcutsSection({ hosts }: { hosts: SavedHost[] }) {
+ const router = useRouter();
  const { theme, t: { shortcuts: s } } = usePreferences(); const c = theme.colors;
  const [items, setItems] = useState<Shortcut[]>([]); const [busy, setBusy] = useState<string | null>(null);
  const lock = useRef(false); const [error, setError] = useState<{ code: string; computer: string; program?: Program } | null>(null);

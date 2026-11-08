@@ -82,7 +82,7 @@ describe('phone key rotation', () => {
   result = run(['key', 'remove', '--key', old, '--keep', next]); expect(result.status).toBe(0); expect(result.stdout).toBe('{"removed":1}\n');
   result = run(['key', 'add', '--key', 'restrict ' + next, '--like', old]); expect(result.status).toBe(1); expect(result.stdout).toBe(''); expect(result.stderr).toContain('Invalid public key'); expect(result.stderr).not.toContain(next);
   result = run(['key', 'add']); expect(result.status).toBe(2); expect(result.stdout).toBe(''); expect(result.stderr).toContain('--like');
- });
+ }, 30_000); // five real CLI starts; the 5 s default timed out under load
  it('copies trusted options verbatim, backs up, appends a dated comment, and is idempotent by material', () => {
   const initial = `# trusted\r\nReStRiCt,port-forwarding,pty ${old} phone\r\n`;
   const f = fixture(initial);

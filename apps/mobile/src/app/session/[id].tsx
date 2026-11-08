@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { appendDictation } from "../../core/dictation";
 import { DictationMic, DictationModelSheet, DictationStatus, dictationVisible, useDictation } from "../../ui/dictation";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, PanResponder, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,6 +29,7 @@ export default function SessionScreen() {
 }
 
 function ChatScreen() {
+	const router = useRouter();
 	const params = useLocalSearchParams<{ id: string; project?: string; cwd?: string; computer?: string; notHerdr?: string; fromTerminal?: string }>();
 	const { theme, t } = usePreferences();
 	const insets = useSafeAreaInsets();
@@ -37,7 +38,7 @@ function ChatScreen() {
 	const headerSwipe = useMemo(() => PanResponder.create({
 		onMoveShouldSetPanResponder: (_event, g) => fromTerminal && g.dy > 8 && g.dy > Math.abs(g.dx),
 		onPanResponderRelease: (_event, g) => { if (fromTerminal && g.dy >= 48) router.back(); },
-	}), [fromTerminal]);
+	}), [fromTerminal, router]);
 	const [terminalAvailable, setTerminalAvailable] = useState(false);
 	useFocusEffect(useCallback(() => {
 		let active = true;

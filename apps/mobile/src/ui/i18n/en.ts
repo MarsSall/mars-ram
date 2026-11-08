@@ -76,6 +76,7 @@ export const en = {
 		location: "Stored in ~/.mars-ram/uploads on each computer.", preferenceFailed: "Could not save this preference. Try again.",
 	},
 	home: {
+		windowsPair: "On Windows, run mars-ram pair in an administrator window.",
 		title: "Home", brand: "Mars-RAM", tagline: "Your computer and your sessions, from your phone.",
 		install: "On your computer, open a terminal and run:", run: "Run", scanStep: "Scan the code",
 		recommended: "Recommended", usingNpm: "Using npm?", copy: "Copy", copied: "Copied", copyCommand: "Copy the command", copyFailed: "Could not copy. Try again.",
@@ -270,9 +271,6 @@ export const en = {
 		system: "System",
 		security: "Security",
 		unlock: "Unlock to use the SSH key",
-		on: "On",
-		notifications: "Notifications",
-		backgroundNotices: "Notices while the app is in the background",
 		prototype: "Prototype",
 		showEmpty: "Show empty states",
 		developer: "Developer",

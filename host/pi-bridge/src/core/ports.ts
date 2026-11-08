@@ -6,6 +6,8 @@ export type TerminalResult<T> = { ok: true; value: T } | { ok: false; message: s
 
 /** Visible screen and input of this session's own terminal only. */
 export interface TerminalPort {
+	/** Immutable identity captured at session start; reading it performs no I/O. */
+	readonly paneId?: string;
 	screen(): Promise<TerminalResult<string>>;
 	/** Focus only the inherited pane's workspace and tab (shared between Herdr clients). */
 	focus(): Promise<TerminalResult<void>>;

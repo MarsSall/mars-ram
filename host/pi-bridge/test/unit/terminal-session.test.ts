@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { decodeResponse, TerminalFocusResponse, PROTOCOL_VERSION } from "@workspace/protocol";
+import { decodeResponse, StateResponse, TerminalFocusResponse, PROTOCOL_VERSION } from "@workspace/protocol";
 import { BridgeSession } from "../../src/core/bridge-session.ts";
 import { startHttpServer, type HttpBridgeServer } from "../../src/adapters/http-server.ts";
 import { FakeTerminal } from "../fakes/terminal.ts";
@@ -18,6 +18,13 @@ let session: BridgeSession;
 beforeEach(() => { terminal = new FakeTerminal(); session = makeSession(terminal); });
 
 describe("terminal session", () => {
+	it("reports the adapter's captured pane without invoking Herdr", () => {
+		const captured = Object.assign(terminal, { paneId: "w2G:p2" });
+		expect(makeSession(captured).state()).toMatchObject({ terminal: true, terminalPane: "w2G:p2" });
+		expect(makeSession().state()).not.toHaveProperty("terminalPane");
+		expect(makeSession(new FakeTerminal()).state()).not.toHaveProperty("terminalPane");
+		expect(terminal.calls).toEqual([]);
+	});
 	it("advertises availability true or false", () => {
 		expect(session.state().terminal).toBe(true);
 		expect(makeSession().state().terminal).toBe(false);
@@ -58,6 +65,15 @@ describe("terminal HTTP", () => {
 	});
 	afterEach(() => server.close());
 	const input = (body: unknown) => fetch(`${base}/terminal/input`, { method: "POST", headers, body: JSON.stringify(body) });
+	it.each([undefined, "w2G:p2"])("serves the shared state contract with captured pane %s", async paneId => {
+		if (paneId) Object.assign(terminal, { paneId });
+		const response = await fetch(`${base}/state`, { headers });
+		const body = await response.json();
+		expect(decodeResponse(StateResponse, body)).toMatchObject({ ok: true });
+		expect(body.terminal).toBe(true);
+		expect(body.terminalPane).toBe(paneId);
+		expect(terminal.calls).toEqual([]);
+	});
 	it("focuses only its inherited target and returns the shared response contract", async () => {
 		const response = await fetch(`${base}/terminal/focus`, { method: "POST", headers });
 		expect(response.status).toBe(200);

@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { type ManualHostDetails, type ManualHostInput, validateManualHost } from "../../core/manual-host";
@@ -16,6 +16,7 @@ type Phase =
 	| { kind: "rejected" };
 
 export default function ManualAddScreen() {
+	const router = useRouter();
 	const { theme, t } = usePreferences();
 	const c = theme.colors;
 	const [publicKey, setPublicKey] = useState("");

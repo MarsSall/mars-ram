@@ -41,6 +41,7 @@ export function createHerdrTerminal(
 		return result.ok ? { ok: true, value: undefined } : result;
 	};
 	return {
+		paneId: pane,
 		screen: () => command(["pane", "read", pane, "--source", "visible", "--format", "ansi"]),
 		text: async (text, enter) => {
 			// `pane run` sends the text and Enter together and wraps the text in bracketed paste when the

@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { BackHandler, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { SavedHost } from "../../core/host-catalog";
@@ -12,6 +12,7 @@ import { ShortcutErrorView } from "../../ui/shortcuts";
 type Step = "computer" | "repo" | "program";
 type RepoState = { state: "loading" } | { state: "error"; code: string } | { state: "ready"; value: Extract<ReposResponse, { ok: true }> };
 export default function AddShortcutScreen() {
+ const router = useRouter();
  const { theme, t: { shortcuts: s } } = usePreferences(); const c = theme.colors;
  const [hosts, setHosts] = useState<SavedHost[] | null>(null); const [catalogError, setCatalogError] = useState(false);
  const [computer, setComputer] = useState<SavedHost | null>(null); const [step, setStep] = useState<Step>("computer");
@@ -25,7 +26,7 @@ export default function AddShortcutScreen() {
   void shortcutHost.repos(computer).then(result => { if (active) setRepos(result.ok ? { state: "ready", value: result.value } : { state: "error", code: result.code }); }).catch(() => { if (active) setRepos({ state: "error", code: "FAILED" }); });
   return () => { active = false; };
  }, [computer, step, attempt]);
- const back = useCallback(() => { if (saving) return; if (step === "program") setStep("repo"); else if (step === "repo" && (hosts?.length ?? 0) > 1) { setStep("computer"); setComputer(null); setQuery(""); } else router.back(); }, [step, hosts, saving]);
+ const back = useCallback(() => { if (saving) return; if (step === "program") setStep("repo"); else if (step === "repo" && (hosts?.length ?? 0) > 1) { setStep("computer"); setComputer(null); setQuery(""); } else router.back(); }, [step, hosts, saving, router]);
  useEffect(() => { const subscription = BackHandler.addEventListener("hardwareBackPress", () => { back(); return true; }); return () => subscription.remove(); }, [back]);
  async function save() {
   if (!computer || !repo || !program || saving) return;

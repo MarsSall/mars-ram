@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { groupSessions, type ComputerSessions, type SessionGroups, type SessionSummary } from "../../core/session-list";
@@ -12,6 +12,7 @@ import { useSessions } from "../../ui/use-sessions";
 import { ShortcutsSection } from "../../ui/shortcuts";
 
 export default function HomeScreen() {
+	const router = useRouter();
 	const { theme, t } = usePreferences();
 	const { data, refreshing, refresh } = useSessions();
 	const [ordered, setOrdered] = useState<SessionGroups>({ computers: [], needsYou: [], groupOrder: {} });

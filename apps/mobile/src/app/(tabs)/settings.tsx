@@ -3,7 +3,7 @@ import Constants from "expo-constants";
 import { getLocales } from "expo-localization";
 import { privacyUrl, SOURCE_URL } from "../../core/about";
 import type { AttachmentRetention } from "../../core/attachment-retention";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { securityRow } from "../../ui/key-security";
 import { DictationSettings } from "../../ui/dictation-settings";
@@ -13,6 +13,7 @@ import { type LanguageChoice, usePreferences } from "../../ui/preferences";
 import type { ThemeName } from "../../ui/theme";
 
 export default function SettingsScreen() {
+	const router = useRouter();
 	const { theme, setTheme, language, setLanguage, t, showEmpty, setShowEmpty, retention, setRetention } = usePreferences();
 	const [preferenceError, setPreferenceError] = useState(false);
 	const security = useKeySecurity();
@@ -75,8 +76,6 @@ export default function SettingsScreen() {
 						<Text style={{ color: theme.colors.text }}>{t.keySecurity.retry}</Text>
 					</Pressable> : null}
 				</Card>
-				<SectionTitle>{t.settings.notifications}</SectionTitle>
-				<Card>{row(t.settings.backgroundNotices, t.settings.on)}</Card>
 				<SectionTitle>{t.settings.about}</SectionTitle>
 				<Card>
 					{row(t.settings.version, Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? t.settings.unknownVersion)}

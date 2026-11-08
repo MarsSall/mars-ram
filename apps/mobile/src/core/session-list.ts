@@ -15,6 +15,7 @@ export type SessionSummary = {
 	key: string;
 	hostId: string;
 	bridgeInstanceId: string;
+	terminalPane?: string;
 	project: string;
 	cwd: string;
 	status: SessionStatus;
@@ -136,6 +137,7 @@ export class SessionLister {
 			key,
 			hostId,
 			bridgeInstanceId: entry.bridgeInstanceId,
+			...(state.value.terminalPane === undefined ? {} : { terminalPane: state.value.terminalPane }),
 			project: projectName(entry.cwd),
 			cwd: entry.cwd,
 			status: statusOf(state.value),

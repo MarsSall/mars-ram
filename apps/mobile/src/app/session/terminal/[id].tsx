@@ -1,4 +1,4 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppState, Keyboard, KeyboardAvoidingView, PanResponder, Pressable, StatusBar, Text, View, useWindowDimensions } from "react-native";
 import { WebView } from "react-native-webview";
@@ -17,6 +17,8 @@ import { ChatHandle } from "../../../ui/chat-handle";
 import { usePreferences } from "../../../ui/preferences";
 import { herdrKeyBytes, parseHerdrKeys, type HerdrKeys } from "../../../core/herdr-keys";
 
+import { fullChatMetadata } from "../../../core/pane-chat";
+import { usePaneChat } from "../../../ui/use-pane-chat";
 import { useLiveSession } from "../../../ui/use-live-session";
 import { terminalActivityStatus } from "../../../ui/terminal-status";
 import { TerminalActivity } from "../../../ui/terminal-activity";
@@ -30,6 +32,7 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 
 const page = { html: terminalHtml, baseUrl: "about:blank" };
 export default function TerminalScreen() {
+ const router = useRouter();
  const params = useLocalSearchParams<{ id: string; standalone?: string; project?: string; cwd?: string; computer?: string; focusWorkspace?: string; focusTab?: string }>();
  const { id } = params;
  const { theme, t } = usePreferences(); const s = t.terminal; const c = theme.colors;
@@ -48,8 +51,9 @@ export default function TerminalScreen() {
   bottom: Math.max(insets.bottom, previous?.bottom ?? 0, initialMatches ? initial.insets.bottom : 0),
  };
  safe.current[orientation] = stableInsets;
- const sessionKey = params.standalone === "1" ? undefined : id;
+ const routeSessionKey = params.standalone === "1" ? undefined : id;
  const hostId = params.standalone === "1" ? id : id.split("/")[0];
+ const { sessionKey, session: chatSession, refresh: refreshPaneChat } = usePaneChat(hostId, routeSessionKey);
  const live = useLiveSession(sessionKey);
  const web = useRef<WebView<{}>>(null); const focused = useRef(true);
  const [terminal, setTerminal] = useState<HerdrTerminal | null>(null);
@@ -87,7 +91,8 @@ export default function TerminalScreen() {
   onPanResponderRelease: (_event, gesture) => { if (gesture.dx > 40) openSwitcher(); },
  })).current;
  const [chatOpen, setChatOpen] = useState(false);
- function fullChat() { blurTerminal(); setChatOpen(false); router.push({ pathname: "/session/[id]", params: { id, chat: "1", fromTerminal: "1", project: params.project, cwd: params.cwd, computer: computerName } }); }
+ useEffect(() => { if (!sessionKey) setChatOpen(false); }, [sessionKey]);
+ function fullChat() { if (!sessionKey) return; blurTerminal(); setChatOpen(false); router.push({ pathname: "/session/[id]", params: { id: sessionKey, chat: "1", fromTerminal: "1", computer: computerName, ...fullChatMetadata(sessionKey, routeSessionKey, chatSession, params) } }); }
  const mode = useRef(false); const [keyboard, setKeyboard] = useState(() => Keyboard.isVisible());
  const busy = useRef(false); const [sending, setSending] = useState(false);
  const [progress, setProgress] = useState<[number, number] | null>(null);
@@ -119,12 +124,12 @@ export default function TerminalScreen() {
    const computer = hosts.find(host => host.id === hostId);
    if (!computer) { setState({ status: "closed", reason: s.missingComputer }); return; }
    setComputerName(computer.name);
-   current = createHerdrTerminal(computer, { cols: 80, rows: 24, sessionKey });
+   current = createHerdrTerminal(computer, { cols: 80, rows: 24, sessionKey: routeSessionKey });
    current.setActive(focused.current && AppState.currentState === "active");
    unsubscribe = current.subscribe(setState); setTerminal(current);
   }).catch(() => { if (alive) setState({ status: "closed", reason: s.error }); });
   return () => { alive = false; unsubscribe?.(); void current?.close(); };
- }, [hostId, sessionKey, attempt, s.missingComputer, s.error]);
+ }, [hostId, routeSessionKey, attempt, s.missingComputer, s.error]);
 
  // Each visible/ready emulator owns output. Subscribe before the first PTY open;
  // later attachments reset the page and ask the core for a debounced full redraw.
@@ -264,7 +269,7 @@ export default function TerminalScreen() {
    {bounds.height > 0 ? <FloatingTerminalPad bounds={bounds} press={press} disabled={!open || sending} open={padOpen} onOpenChange={setPadOpen} /> : null}
    {prefixNotice ? <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, padding: 10, borderRadius: 10, backgroundColor: c.surface }}><Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{s.prefixSent}</Text></View> : null}
   </View>
-  {chatOpen && sessionKey ? <FloatingSessionChat sessionKey={sessionKey} live={live} expand={fullChat} close={() => { setChatOpen(false); Keyboard.dismiss(); }} /> : null}
+  {chatOpen && sessionKey ? <FloatingSessionChat key={sessionKey} sessionKey={sessionKey} live={live} expand={fullChat} close={() => { setChatOpen(false); Keyboard.dismiss(); }} /> : null}
   {selection ? <View style={{ flexDirection: "row", gap: 4 }}>{button(s.copy, () => { void clipboard.writeText(selection).then(() => setSelection("")).catch(() => setError(s.keyFailed)); })}{button(s.close, () => setSelection(""), "×")}</View> : null}
   {error ? <Text accessibilityRole="alert" style={{ color: c.danger, paddingHorizontal: 8 }}>{error}</Text> : null}
   {detail ? <View>{button(s.details, () => setDetails(value => !value))}{details ? <Text selectable style={{ color: c.textMuted }}>{detail}</Text> : null}</View> : null}
@@ -303,7 +308,11 @@ export default function TerminalScreen() {
  </View>
  <View {...edgeSwipe.panHandlers} style={{ position: "absolute", left: 0, top: chrome.stripHeight, bottom: 80, width: 18 }} />
  <HerdrSwitcherDrawer visible={switcherOpen} hostId={hostId} close={closeSwitcher} chooseServer={(computer, server) => { blurTerminal(); setServerSelection({ computer, server }); }} choose={async (computer, workspace, tab) => {
-  if (computer.id === hostId) return herdrSwitcher.focus(computer, workspace, tab);
+  if (computer.id === hostId) {
+   const result = await herdrSwitcher.focus(computer, workspace, tab);
+   if (result.ok) refreshPaneChat();
+   return result;
+  }
   router.push({ pathname: "/session/terminal/[id]", params: { id: computer.id, standalone: "1", computer: computer.name, focusWorkspace: workspace, ...(tab ? { focusTab: tab } : {}) } });
   return { ok: true, value: undefined };
  }} />

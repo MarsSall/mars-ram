@@ -98,6 +98,7 @@ sh install.sh
 
 ## Si algo sale mal
 
+- **pnpm dice `No matching version found for mars-ram@latest`** justo después de una versión nueva: tu configuración de pnpm tiene una regla `minimumReleaseAge` que saltea versiones con pocos días. Exceptuá mars-ram en `~/.config/pnpm/config.yaml` con `minimumReleaseAgeExclude:` y, si también usás `trustPolicy: no-downgrade`, `trustPolicyExclude:`, cada una con la lista `- mars-ram`, esperá unos días o instalá con `npm i -g mars-ram`.
 - **«mars-ram: command not found»**: abrí una terminal nueva. Con pnpm, ejecutá `pnpm setup` una vez si dice que la carpeta global de binarios no está configurada. En Linux y macOS con el script, agregá `~/.local/bin` al PATH si te lo indicó.
 - **Node.js es muy viejo**: instalá Node.js 24 o más nuevo y ejecutá de nuevo el comando de instalación.
 - **Windows dice que la terminal se ejecuta como administrador**: abrí una terminal normal y ejecutá el comando de nuevo.

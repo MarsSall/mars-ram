@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import type { SavedHost } from "../../core/host-catalog";
@@ -40,6 +40,7 @@ function CopyValue({ label, value, copyValue = value }: { label: string; value: 
 }
 
 export default function ComputerScreen() {
+	const router = useRouter();
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const { theme, t } = usePreferences();
 	const [host, setHost] = useState<SavedHost | null>(null);

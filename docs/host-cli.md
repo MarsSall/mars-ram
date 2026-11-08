@@ -46,6 +46,12 @@ The reuse response has the same shape with `reused: true`. Root edits return the
 
 Codes: `BAD_ARGUMENT`, `PROGRAM_NOT_ALLOWED`, `PROGRAM_NOT_FOUND`, `REPO_NOT_ALLOWED`, `HERDR_UNAVAILABLE`, `CONFIG_FAILED`, `LOCAL_ONLY`. Errors never include child output, process argv or config contents.
 
+### Herdr list pane metadata
+
+`mars-ram herdr list` retains its version **1** envelope and all existing workspace/tab fields. Each tab may additionally include `panes: [{ "id": "w2G:p2", "focused": true }]`, taken from the pane list already fetched (no extra subprocess). This optional additive metadata does not change the envelope version; older consumers ignore it and newer consumers accept its absence from older CLIs.
+
+Pane IDs must match the existing scoped pane grammar and the containing workspace; only panes belonging to that tab are emitted, with duplicates removed. Each tab is capped at 128 panes (like tabs); exceeding the cap sets the envelope's `truncated`. Missing focus metadata yields `focused: false`, not invented focus. The app can use an unambiguous singleton in a focused tab; it does not guess among split panes without focus evidence. Pane metadata contains no process arguments, session paths, or terminal output.
+
 ## Security and operational limits
 
 - All Herdr subprocesses use argument arrays and `shell: false`, 5-second child deadlines and 1 MiB response limits. Workspace/tab/pane IDs are validated and scoped. No user-supplied path, label, option or program text becomes shell command text: `pane run` gets only one of three hard-coded literals.

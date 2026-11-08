@@ -3,7 +3,7 @@ export type RunOptions = { shell: false; encoding: 'utf8'; timeout: number; maxB
 /** Injection seam for the shell-free Terminal adapter, shared by all switcher tests. */
 export type ProcessRunner = (file: string, args: readonly string[], options: RunOptions) => Promise<string>;
 type Status = 'working' | 'blocked' | 'done' | 'idle' | 'unknown';
-type Tab = { id: string; label: string; focused: boolean; status: Status; kind: 'pi' | 'gentle-shell' | 'shell' | 'agent' };
+type Tab = { id: string; label: string; focused: boolean; status: Status; kind: 'pi' | 'gentle-shell' | 'shell' | 'agent'; panes?: { id: string; focused: boolean }[] };
 type Workspace = { id: string; label: string; focused: boolean; status: Status; branch: string | null; tabs: Tab[] };
 type ErrorCode = 'HERDR_NOT_FOUND' | 'HERDR_FAILED' | 'BAD_ID' | 'NOT_FOUND';
 export type HerdrResult = { version: 1; truncated: boolean; workspaces: Workspace[] } | { version: 1; ok: true } | { version: 1; ok: false; code: ErrorCode; message: string };
@@ -102,6 +102,11 @@ export async function runHerdr(args: string[], deps: { run: ProcessRunner; binar
     const session = record(pane?.agent_session).value;
     const gentle = typeof session === 'string' && session.length <= 4096 && /(?:^|[\\/])\.gentle-shell[\\/]/.test(session);
     const result: Tab = { id: t.tab_id as string, label: tabLabel, focused: t.focused as boolean, status: status(t.agent_status), kind: agent === 'pi' ? gentle ? 'gentle-shell' : 'pi' : typeof agent === 'string' && agent.length > 0 ? 'agent' : 'shell' };
+    const paneSeen = new Set<string>();
+    const tabPanes = panes.filter(p => p.tab_id === t.tab_id && paneId(p.pane_id, id) && !paneSeen.has(p.pane_id) && (paneSeen.add(p.pane_id), true));
+    if (tabPanes.length > MAX_ENTRIES) truncated = true;
+    // Missing focus metadata is not evidence of focus. The app can use a singleton tab.
+    if (tabPanes.length) result.panes = tabPanes.slice(0, MAX_ENTRIES).map(p => ({ id: p.pane_id as string, focused: p.focused === true }));
     if (result.kind === 'pi' && paneId(pane?.pane_id, id) && probes.length < MAX_ENTRIES) probes.push({ pane: pane.pane_id, tab: result });
     return result;
    }) };

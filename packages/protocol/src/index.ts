@@ -4,7 +4,7 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const PROTOCOL_VERSION = "1.4";
+export const PROTOCOL_VERSION = "1.5";
 
 /** The one value that names the product; change it when the final name is chosen. */
 export const APP_ID = "mars-ram";
@@ -148,6 +148,8 @@ export const StateResponse = Type.Object({
 	lastActivityAt: Type.Union([Type.Number(), Type.Null()]),
 	/** Since 1.1: true when the session runs in a terminal pane the app can drive. Absent means false. */
 	terminal: Type.Optional(Type.Boolean()),
+	/** Captured inherited Herdr pane; absent on older bridges or outside Herdr. */
+	terminalPane: Type.Optional(Type.String({ minLength: 1, maxLength: 129, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}(:[a-zA-Z0-9][a-zA-Z0-9_-]{0,63})?$" })),
 	/** Since 1.4: latest activity phase; absence is equivalent to null. */
 	activity: Type.Optional(Activity),
 });

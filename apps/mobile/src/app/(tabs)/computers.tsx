@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { TerminalLauncher } from "../../ui/terminal-launcher";
 import { Card, EmptyState, Screen } from "../../ui/components";
@@ -6,6 +6,7 @@ import { usePreferences } from "../../ui/preferences";
 import { useHosts } from "../../ui/use-hosts";
 
 export default function ComputersScreen() {
+	const router = useRouter();
 	const { theme, t } = usePreferences();
 	const { rows } = useHosts();
 	const statusText = { reachable: t.computers.reachable, unreachable: t.computers.unreachable, checking: t.computers.checking };

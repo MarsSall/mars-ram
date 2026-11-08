@@ -1,14 +1,15 @@
 // `<scheme>://pair?p=…` from `mars-ram pair`: any app or page can open it, so ask before sending the key (PRD R1).
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { readPairLink } from "../core/pair-link";
 import { PrimaryButton, Screen } from "../ui/components";
 import { usePreferences } from "../ui/preferences";
-import { PairingProgress, usePairingRunner } from "./add-computer";
+import { PairingProgress, usePairingRunner } from "./add-computer/scan";
 
 export default function PairScreen() {
+	const router = useRouter();
 	const { theme, t } = usePreferences();
 	const { p } = useLocalSearchParams<{ p?: string | string[] }>();
 	const [openedAt] = useState(Date.now);
@@ -34,7 +35,7 @@ export default function PairScreen() {
 			<Text style={{ color: c.textMuted, fontSize: 14, textAlign: "center" }}>{message}</Text>
 		</View>
 	);
-	const scanFooter = <PrimaryButton label={t.pair.scan} onPress={() => router.replace("/add-computer")} />;
+	const scanFooter = <PrimaryButton label={t.pair.scan} onPress={() => router.replace("/add-computer/scan")} />;
 	const detail = (label: string, value: string) => (
 		<View style={{ gap: theme.spacing(1) }}>
 			<Text style={{ color: c.textMuted, fontSize: 13 }}>{label}</Text>

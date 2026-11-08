@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { type ComponentRef, useRef, useState } from "react";
 import { Image, Modal, Pressable, Text, View } from "react-native";
 import { terminalLauncherOptions } from "../core/terminal-launcher";
@@ -8,6 +8,7 @@ import { usePreferences } from "./preferences";
 const icon = require("../../assets/brand/herdr.png");
 
 export function TerminalLauncher({ host, compact = false }: { host: { id: string; name: string }; compact?: boolean }) {
+ const router = useRouter();
  const { theme, t } = usePreferences();
  const [open, setOpen] = useState(false);
  const toggle = useRef<ComponentRef<typeof View>>(null);

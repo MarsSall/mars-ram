@@ -51,7 +51,11 @@ describe("Herdr terminal adapter", () => {
 		expect(f.calls).toEqual([]);
 	});
 	it.each(["w2G:p2", "w12:p104", "pane-123"])("creates a port for a real Herdr pane id %j", (pane) => {
-		expect(fixture({ HERDR_PANE_ID: pane }).port).toBeDefined();
+		const env = { HERDR_PANE_ID: pane };
+		const f = fixture(env);
+		env.HERDR_PANE_ID = "wOther:p9";
+		expect(f.port?.paneId).toBe(pane);
+		expect(f.calls).toEqual([]);
 	});
 	it("reads only its own visible pane with ANSI and bounded shell-free execution", async () => {
 		const env = { HERDR_PANE_ID: "own-pane", HERDR_BIN_PATH: "C:\\Program Files\\Herdr\\herdr.exe", HERDR_SOCKET_PATH: "socket" };

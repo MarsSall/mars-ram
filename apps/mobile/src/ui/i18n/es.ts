@@ -78,6 +78,7 @@ export const es: Strings = {
 		location: "Se guardan en ~/.mars-ram/uploads en cada computadora.", preferenceFailed: "No se pudo guardar esta preferencia. Intentá de nuevo.",
 	},
 	home: {
+		windowsPair: "En Windows, ejecutá mars-ram pair en una ventana de administrador.",
 		title: "Inicio", brand: "Mars-RAM", tagline: "Tu computadora y tus sesiones, desde el teléfono.",
 		install: "En tu computadora, abrí una terminal y ejecutá:", run: "Ejecutá", scanStep: "Escaneá el código",
 		recommended: "Recomendado", usingNpm: "¿Usás npm?", copy: "Copiar", copied: "Copiado", copyCommand: "Copiar el comando", copyFailed: "No se pudo copiar. Probá de nuevo.",
@@ -272,9 +273,6 @@ export const es: Strings = {
 		system: "Sistema",
 		security: "Seguridad",
 		unlock: "Desbloqueo para usar la clave SSH",
-		on: "Activado",
-		notifications: "Notificaciones",
-		backgroundNotices: "Avisos con la app en segundo plano",
 		prototype: "Prototipo",
 		showEmpty: "Ver estados vacíos",
 		developer: "Desarrollo",

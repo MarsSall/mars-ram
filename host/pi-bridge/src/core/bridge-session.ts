@@ -138,6 +138,7 @@ export class BridgeSession {
 		return {
 			...this.envelope(),
 			terminal: this.terminal !== undefined,
+			...(this.terminal?.paneId === undefined ? {} : { terminalPane: this.terminal.paneId }),
 			activity: this.activity,
 			idle: this.pi.isIdle(),
 			pendingMessages: this.pi.hasPendingMessages(),
