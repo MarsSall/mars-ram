@@ -107,13 +107,50 @@ describe("notification help behind a question mark", () => {
   expect(texts(inline)).toContain(notificationCopy.es.denied);
   expect(inline.some(n => n.type === "Pressable" && n.props.accessibilityLabel === notificationCopy.es.settings)).toBe(true);
  });
- it("says Siempre atento is only for Tailscale on a ZeroTier computer", () => {
-  expect(notificationCopy.es.tailscaleOnly).toBe("Disponible solo con Tailscale");
-  expect(notificationCopy.en.tailscaleOnly).toBe("Available only with Tailscale");
-  f.state = { ...f.state, mode: "always", busy: false, error: "TAILSCALE_ONLY", computers: [{ hostId: "zt", name: "ZT", result: "TAILSCALE_ONLY" }] };
-  const { inline } = split(NotificationSettingsCard());
-  expect(texts(inline)).toContain(`ZT: ${notificationCopy.es.tailscaleOnly}`);
-  expect(texts(inline)).not.toContain(notificationCopy.es.generic);
-  expect(texts(inline)).not.toContain(notificationCopy.es.failed);
+ it("explains a missing private network and keeps the old Tailscale code", () => {
+  expect(notificationCopy.es.privateNetwork).toBe("No hay Tailscale ni ZeroTier encendido para escuchar avisos. Encendé uno y reintentá con la app abierta.");
+  expect(notificationCopy.en.privateNetwork).toBe("Neither Tailscale nor ZeroTier is on to listen for notices. Turn one on, then retry with the app open.");
+  expect(texts(render("always", "PRIVATE_NETWORK_REQUIRED").inline)).toContain(notificationCopy.es.privateNetwork);
+  expect(texts(render("always", "TAILSCALE_REQUIRED").inline)).toContain(notificationCopy.es.tailscale);
+ });
+ it("shows each computer's network and when its VPN is off (zerotier-phase2 S5)", () => {
+  const t = notificationCopy.es;
+  expect([t.viaTailscale, t.viaZeroTier, t.tailscaleOff, t.zeroTierOff]).toEqual(["Por Tailscale", "Por ZeroTier", "No llega mientras Tailscale esté apagado", "No llega mientras ZeroTier esté apagado"]);
+  const e = notificationCopy.en;
+  expect([e.viaTailscale, e.viaZeroTier, e.tailscaleOff, e.zeroTierOff]).toEqual(["Over Tailscale", "Over ZeroTier", "Does not arrive while Tailscale is off", "Does not arrive while ZeroTier is off"]);
+  f.state = { ...f.state, mode: "always", busy: false, error: null, status: { state: "running", hosts: {}, networks: [{ kind: "tailscale", address: "100.101.102.103", prefix: 32 }] } as never, computers: [
+   { hostId: "pc", name: "PC", result: "ok", network: "tailscale", address: "100.64.0.2" },
+   { hostId: "zt", name: "ZT", result: "ok", network: "zerotier", address: "10.147.17.5" },
+  ] };
+  const shown = texts(split(NotificationSettingsCard()).inline);
+  expect(shown).toContain(`PC: ${t.registered}`); expect(shown).toContain(`ZT: ${t.registered}`);
+  expect(shown).toContain(t.viaTailscale); expect(shown).not.toContain(t.tailscaleOff);
+  expect(shown).toContain(`${t.viaZeroTier} · ${t.zeroTierOff}`);
+ });
+ it("adds no off warning without fresh listening evidence", () => {
+  const t = notificationCopy.es;
+  f.state = { ...f.state, mode: "always", busy: false, error: null, status: { state: "running", hosts: {} } as never, computers: [{ hostId: "zt", name: "ZT", result: "ok", network: "zerotier", address: "10.147.17.5" }] };
+  const shown = texts(split(NotificationSettingsCard()).inline);
+  expect(shown).toContain(t.viaZeroTier); expect(shown).not.toContain(t.zeroTierOff);
+ });
+ it("warns from the phone's VPN state for computers not tried now, registered earlier or not (zerotier-phase2 S5)", () => {
+  for (const locale of ["es", "en"] as const) for (const key of ["networkOff", "noNetworkOn"] as const) expect(notificationCopy[locale][key].length).toBeGreaterThan(0);
+  const t = notificationCopy.es;
+  f.state = { ...f.state, mode: "always", busy: false, error: null, status: { state: "stopped", hosts: {} } as never, computers: [
+   { hostId: "zt", name: "ZT", result: "ok", network: "zerotier", address: "10.147.17.5", networkOff: true },
+   { hostId: "pc", name: "PC", result: "NETWORK_OFF", network: "tailscale", address: "100.64.0.2", networkOff: true },
+  ] };
+  const shown = texts(split(NotificationSettingsCard()).inline);
+  expect(shown).toContain(`ZT: ${t.registered}`); expect(shown).toContain(`${t.viaZeroTier} · ${t.zeroTierOff}`);
+  expect(shown).toContain(`PC: ${t.networkOff}`); expect(shown).toContain(`${t.viaTailscale} · ${t.tailscaleOff}`);
+  // Fresh evidence from the running watch wins over the phone state read before it started.
+  f.state = { ...f.state, status: { state: "running", hosts: {}, networks: [{ kind: "vpn", address: "10.147.17.9", prefix: 24 }] } as never, computers: [
+   { hostId: "zt", name: "ZT", result: "ok", network: "zerotier", address: "10.147.17.5", networkOff: true },
+  ] };
+  expect(texts(split(NotificationSettingsCard()).inline)).not.toContain(t.zeroTierOff);
+  expect(texts(render("always", "NETWORK_OFF").inline)).toContain(t.noNetworkOn);
+ });
+ it("no longer says Siempre atento is only for Tailscale", () => {
+  expect(JSON.stringify(notificationCopy)).not.toMatch(/solo con Tailscale|only with Tailscale/);
  });
 });

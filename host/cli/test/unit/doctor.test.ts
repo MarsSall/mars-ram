@@ -61,6 +61,27 @@ describe("read-only doctor policy with fake ports", () => {
 		expect(report.results.every((r) => r.status === "ok")).toBe(true);
 		expect((await checkLinkServer(fake())).map(r => r.finding).join(" ")).toContain("0 valid links");
 	});
+ it("checks Siempre atento listeners per network, not any listener for every registration (zerotier-phase2 S4)", async () => {
+  const state = (listeners: { tailscale: boolean; zerotier: string[] }, notify: { tailscale: boolean; zerotier: string[] }) => async () => ({ present: true, current: true, configured: true, validLinks: 0, listener: listeners.tailscale || listeners.zerotier.length > 0, notificationsRegistered: true, listeners, notifyNetworks: notify });
+  const warnings = async (overrides: Partial<DoctorPorts>) => (await checkLinkServer(fake(overrides))).filter(r => r.status === "warning");
+  // A ZeroTier listener does not serve Tailscale phones.
+  const tailscale = await warnings({ linkServer: state({ tailscale: false, zerotier: ["10.147.20.49"] }, { tailscale: true, zerotier: ["10.147.20.49"] }), zerotier: async () => ["10.147.20.49"] });
+  expect(tailscale.map(r => r.finding)).toEqual(["Always-attentive notifications over Tailscale need the Tailscale link server running."]);
+  expect(tailscale[0]?.fix).toMatch(/Tailscale on/);
+  // The Tailscale listener does not serve ZeroTier phones; the fix depends on whether the address is still here.
+  const zeroTier = await warnings({ linkServer: state({ tailscale: true, zerotier: [] }, { tailscale: true, zerotier: ["10.147.20.49", "10.9.9.9"] }), zerotier: async () => ["10.147.20.49"] });
+  expect(zeroTier.map(r => r.finding)).toEqual([
+   "Always-attentive notifications over ZeroTier (10.147.20.49) need the link server on that address running.",
+   "Always-attentive notifications over ZeroTier (10.9.9.9) cannot be sent: that address is no longer on this computer's ZeroTier interfaces.",
+  ]);
+  expect(zeroTier[0]?.fix).toMatch(/ZeroTier on/); expect(zeroTier[1]?.fix).toMatch(/Rejoin|register/);
+  expect(await warnings({ linkServer: state({ tailscale: true, zerotier: ["10.147.20.49"] }, { tailscale: true, zerotier: ["10.147.20.49"] }), zerotier: async () => ["10.147.20.49"] })).toEqual([]);
+  const spanish = await checkLinkServer(fake({ spanish: true, linkServer: state({ tailscale: true, zerotier: [] }, { tailscale: false, zerotier: ["10.147.20.49"] }), zerotier: async () => ["10.147.20.49"] }));
+  expect(spanish.find(r => r.status === "warning")?.finding).toBe("Los avisos de Siempre atento por ZeroTier (10.147.20.49) necesitan el servidor de enlaces en esa dirección en ejecución.");
+  // Without per-network facts (older copy), the overall check stays as before.
+  const old = await warnings({ linkServer: async () => ({ present: true, current: true, configured: true, validLinks: 0, listener: false, notificationsRegistered: true }) });
+  expect(old.map(r => r.finding)).toEqual(["Always-attentive notifications need the link server running."]);
+ });
  it("reports missing/outdated link copies, bad config and identity-confirmed serving without repairs", async () => {
   const missing = await checkLinkServer(fake({ linkServer: async () => ({ present: false, current: false, configured: false, validLinks: 2, listener: false }) }));
   expect(missing.filter(r => r.status === "warning")).toHaveLength(3);
@@ -129,12 +150,11 @@ describe("read-only doctor policy with fake ports", () => {
 		expect(report.results.filter((r) => /Tailscale/.test(r.finding))).toEqual([{ status: "problem", finding: "Tailscale IPv4 unavailable.", fix: "Install Tailscale, sign in and connect; verify tailscale ip -4." }]);
 		expect(report.results.some((r) => /ZeroTier/.test(r.finding))).toBe(false);
 	});
-	it("with ZeroTier connected, reports missing Tailscale as a warning about private links and Siempre atento", async () => {
+	it("with ZeroTier connected, a computer without Tailscale is complete: private links and Siempre atento work over ZeroTier", async () => {
 		const ports = fake({ tailscale: async () => { throw Error("offline"); }, zerotier: async () => ["10.147.17.5"] });
 		expect(await checkTailscale(ports)).toEqual([{
-			status: "warning",
-			finding: "Tailscale IPv4 unavailable; this computer pairs over ZeroTier, but private links and Siempre atento need Tailscale.",
-			fix: "To use them, install Tailscale, sign in and connect; verify tailscale ip -4.",
+			status: "ok",
+			finding: "Tailscale not connected; this computer works over ZeroTier, including private links and Siempre atento.",
 		}]);
 		const report = await diagnose(ports);
 		expect(report.code).toBe(0);
@@ -151,32 +171,31 @@ describe("read-only doctor policy with fake ports", () => {
 		expect(statuses(await checkTailscale(ports))).toEqual(["problem"]);
 		expect(await checkZeroTier(ports)).toEqual([]);
 	});
-	it("explains the ZeroTier warning in Spanish", async () => {
+	it("explains the ZeroTier-only state in Spanish", async () => {
 		const [finding] = await checkTailscale(fake({ spanish: true, tailscale: async () => { throw Error("offline"); }, zerotier: async () => ["10.147.17.5"] }));
 		expect(finding).toEqual({
-			status: "warning",
-			finding: "IPv4 de Tailscale no disponible; esta computadora se empareja por ZeroTier, pero los enlaces privados y Siempre atento necesitan Tailscale.",
-			fix: "Para usarlos, instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4.",
+			status: "ok",
+			finding: "Tailscale no conectado; esta computadora funciona por ZeroTier, también con enlaces privados y Siempre atento.",
 		});
 	});
 	it("warns that an active ufw may block ZeroTier and names the exact interface fix", async () => {
 		const ports = fake({ zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => ({ ufw: "active", firewalld: "inactive" }) });
 		expect(await checkFirewall(ports)).toEqual([{
 			status: "warning",
-			finding: "Firewall (ufw) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected).",
+			finding: "Firewall (ufw) is on; it may block pairing, SSH and private links over ZeroTier (Tailscale is not affected).",
 			fix: "If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'",
 		}]);
 		const report = await diagnose(ports);
 		expect(report.code).toBe(0);
 		const lines: string[] = [];
 		await doctorCommand(ports, (line) => lines.push(line));
-		expect(lines).toContain("warning: Firewall (ufw) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected). If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'");
+		expect(lines).toContain("warning: Firewall (ufw) is on; it may block pairing, SSH and private links over ZeroTier (Tailscale is not affected). If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'");
 	});
 	it("warns about firewalld in Spanish with its fix", async () => {
 		const ports = fake({ spanish: true, zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => ({ ufw: "inactive", firewalld: "active" }) });
 		expect(await checkFirewall(ports)).toEqual([{
 			status: "warning",
-			finding: "Firewall (firewalld) activo; puede bloquear el emparejamiento y SSH por ZeroTier (Tailscale no se ve afectado).",
+			finding: "Firewall (firewalld) activo; puede bloquear el emparejamiento, SSH y los enlaces privados por ZeroTier (Tailscale no se ve afectado).",
 			fix: "Si el teléfono no conecta por ZeroTier, ejecutá: sudo firewall-cmd --permanent --zone=trusted --add-interface=ztexample0 && sudo firewall-cmd --reload",
 		}]);
 	});

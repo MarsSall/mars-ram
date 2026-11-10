@@ -6,6 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { noticeBridge, noticeEnvelope, noticeSnapshot, noticeEvent, type NoticeBridge as RegistryEntry } from '../../../../packages/protocol/src/notice-bridge.ts';
 import { signNotice } from '../../../../packages/protocol/src/session-notice.ts';
 import { NoticeRules, deliverNotice } from '../core/notifier.ts';
+import { notifiedBy, type NotifyListener } from '../core/notify-registration.ts';
 import { readRegular } from './file-store.ts';
 import { createNotifyStore } from './notify-store.ts';
 
@@ -40,8 +41,9 @@ export async function* boundedLines(body: ReadableStream<Uint8Array>, signal: Ab
   if (line) yield line;
  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
-export function startNotifier(root: string) {
- const registrations = createNotifyStore(join(root, 'notify'));
+export function startNotifier(root: string, listener: NotifyListener = {}) {
+ const store = createNotifyStore(join(root, 'notify'));
+ const registrations = { all: async () => (await store.all()).filter(row => notifiedBy(row, listener)) };
  const rules = new NoticeRules();
  const controller = new AbortController();
  const jobs = new Map<string, { abort: AbortController; done: Promise<void>; identity: string }>();

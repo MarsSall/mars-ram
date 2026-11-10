@@ -1,10 +1,12 @@
 import { APP_ID } from "@workspace/protocol";
-import { connectTarget, hasTailscaleFeatures, LEGACY_KEY_ALIAS, type SavedHost } from "./host-catalog";
+import { inSubnet } from "@workspace/protocol/private-network";
+import { connectTarget, hostNetwork, LEGACY_KEY_ALIAS, type HostNetwork, type SavedHost } from "./host-catalog";
 import { buildHerdrCommand } from "./herdr-switcher";
 import type { KeyCommandConfig } from "./key-security";
 import type { HostConnection, HostTarget } from "./ports";
 import type { HostConnections } from "./host-connections";
 import { readHostRecord } from "./host-record";
+import type { PhoneNetworkState } from "./phone-network";
 
 export const NOTIFICATION_OPERATION_TIMEOUT_MS = 30_000;
 class WatchTimeout extends Error {}
@@ -30,7 +32,8 @@ export class NotificationRegistration {
  async register(host: SavedHost, signal?: AbortSignal): Promise<RegistrationResult> {
   try {
    if (signal?.aborted) return "REGISTRATION_FAILED";
-   const connection = await this.deps.connections.connection(host); if (!connection.ok) return "REGISTRATION_FAILED";
+   // Not reaching the computer is not a refusal: an earlier registration stays valid.
+   const connection = await this.deps.connections.connection(host); if (!connection.ok) return "CONNECTION_FAILED";
    if (signal?.aborted) return "REGISTRATION_FAILED";
    const record = await readHostRecord(this.deps.host, connection.connectionId);
    if (signal?.aborted) return "REGISTRATION_FAILED";
@@ -39,12 +42,14 @@ export class NotificationRegistration {
    const registration = await this.deps.local.register(host.id);
    if (signal?.aborted) return "REGISTRATION_FAILED";
    const result = await this.deps.host.execWithInput(connection.connectionId, command, `${JSON.stringify(registration)}\n`);
-   if (!result.ok) return "REGISTRATION_FAILED";
+   if (!result.ok) return "CONNECTION_FAILED";
    if (result.exitStatus !== 0) {
     // Old CLIs do not know notify; their help output is not a versioned response.
-    return result.exitStatus === 127 || result.exitStatus === 9009 || !result.stdout.trim().startsWith("{") ? "UPDATE_REQUIRED" : "REGISTRATION_FAILED";
+    if (result.exitStatus === 127 || result.exitStatus === 9009 || !result.stdout.trim().startsWith("{")) return "UPDATE_REQUIRED";
+    // Hosts before ZeroTier notices refuse every phone outside Tailscale with this fixed answer.
+    return hostNetwork(host) === "zerotier" && notifyFailed(result.stdout) ? "UPDATE_REQUIRED" : "REGISTRATION_FAILED";
    }
-   return parseNotifyRegistration(result.stdout, host.hostKey, registration.port) ? "ok" : "REGISTRATION_FAILED";
+   return parseNotifyRegistration(result.stdout, host.hostKey, registration.port, hostNetwork(host)) ? "ok" : "REGISTRATION_FAILED";
   } catch { return "REGISTRATION_FAILED"; }
  }
  async unregister(host: SavedHost): Promise<void> {
@@ -58,8 +63,17 @@ export type NotificationMode = "off" | "while-working" | "always";
 export type WatchConfig = { appId: string; language: "es" | "en" } & (
  { mode: "while-working"; hosts: { hostId: string; connection: HostTarget & { expectedFingerprint: string } }[] } |
  { mode: "always"; hosts: { hostId: string; hostKeyId: string }[] });
-export type WatchStatus = { state: "stopped" | "starting" | "running" | "error"; hosts: Record<string, string>; code?: string };
-export type RegistrationResult = "ok" | "UPDATE_REQUIRED" | "REGISTRATION_FAILED";
+/** Where the phone listens for «Siempre atento» notices: Tailscale, or another VPN (ZeroTier) and its subnet. */
+export type ListeningNetwork = { kind: "tailscale" | "vpn"; address: string; prefix: number };
+/** networks: mode "always" while running, empty with no VPN on; missing in builds before ZeroTier notices. */
+export type WatchStatus = { state: "stopped" | "starting" | "running" | "error"; hosts: Record<string, string>; code?: string; networks?: ListeningNetwork[] };
+/** CONNECTION_FAILED: the computer was not reached; UPDATE_REQUIRED and REGISTRATION_FAILED: it answered and refused. */
+export type RegistrationResult = "ok" | "UPDATE_REQUIRED" | "REGISTRATION_FAILED" | "CONNECTION_FAILED";
+/**
+ * The last «Siempre atento» registration a computer accepted. Names the host and its network only: the notice secret
+ * stays in the native encrypted vault, keyed by host id, until the computer is forgotten.
+ */
+export type AlwaysRegistration = { hostId: string; hostKeyId: string; network: HostNetwork; address: string };
 export interface NotificationPorts {
  read(): unknown;
  write(mode: NotificationMode): Promise<void>;
@@ -74,9 +88,47 @@ export interface NotificationPorts {
  register(host: SavedHost, signal?: AbortSignal): Promise<RegistrationResult>;
  unregister(host: SavedHost): Promise<void>;
  forget(hostId: string): Promise<void>;
+ /** The phone's VPN state now; null when it cannot be read. */
+ phone(): Promise<PhoneNetworkState | null>;
+ /** Durable AlwaysRegistration records; anything unreadable counts as none. */
+ registrations(): Promise<unknown>;
+ saveRegistrations(records: AlwaysRegistration[]): Promise<void>;
 }
-export type NotificationSnapshot = { mode: NotificationMode; busy: boolean; error?: string; status: WatchStatus; computers: { hostId: string; name: string; result: RegistrationResult | "CONNECTION_FAILED" | "PREPARATION_TIMEOUT" | "TAILSCALE_ONLY" }[] };
+/**
+ * network/address are set in mode "always", where notices need that network's VPN on the phone. networkOff: the phone
+ * reported that VPN off, so the computer was not tried now (NETWORK_OFF without an earlier registration, else kept).
+ */
+export type NotificationSnapshot = { mode: NotificationMode; busy: boolean; error?: string; status: WatchStatus; computers: { hostId: string; name: string; result: RegistrationResult | "PREPARATION_TIMEOUT" | "NETWORK_OFF"; network?: HostNetwork; address?: string; networkOff?: true }[] };
 export const notificationMode = (value: unknown): NotificationMode => value === "while-working" || value === "always" ? value : "off";
+/**
+ * Android runs one VPN at a time (zerotier-phase2 S5). "off": the phone is not listening on this computer's network now;
+ * "listening" claims no delivery; "unknown" without a running watch or in builds that do not report networks.
+ */
+export function alwaysReachability(computer: { network: HostNetwork; address: string }, status: WatchStatus): "listening" | "off" | "unknown" {
+ if (status.state !== "running" || !Array.isArray(status.networks)) return "unknown";
+ const listening = computer.network === "tailscale" ? status.networks.some(n => n.kind === "tailscale")
+  : status.networks.some(n => n.kind === "vpn" && inSubnet(computer.address, n.address, n.prefix));
+ return listening ? "listening" : "off";
+}
+
+/**
+ * Whether the phone's VPN for this network is on: Tailscale with a Tailscale address, ZeroTier as another VPN (Android
+ * runs one at a time). null when the phone could not tell, and then the computer is tried as before.
+ */
+export function phoneOnNetwork(network: HostNetwork, phone: PhoneNetworkState | null): boolean | null {
+ if (!phone) return null;
+ if (network === "tailscale") return phone.tailscaleOn;
+ // Without vpnOn the read may be the non-blocking fallback, which always claims Tailscale: try the computer.
+ return phone.vpnOn === undefined ? null : phone.vpnOn && !phone.tailscaleOn;
+}
+export function parseAlwaysRegistrations(raw: unknown): AlwaysRegistration[] {
+ if (!Array.isArray(raw)) return [];
+ return raw.flatMap(v => !!v && typeof v === "object" && typeof v.hostId === "string" && typeof v.hostKeyId === "string" && typeof v.address === "string"
+  && (v.network === "tailscale" || v.network === "zerotier") ? [{ hostId: v.hostId, hostKeyId: v.hostKeyId, network: v.network, address: v.address }] : []);
+}
+const registrationOf = (host: SavedHost): AlwaysRegistration => ({ hostId: host.id, hostKeyId: host.hostKey, network: hostNetwork(host), address: host.address });
+/** An earlier registration is valid only for the same saved computer, identity, network and address. */
+const sameRegistration = (a: AlwaysRegistration, b: AlwaysRegistration) => a.hostId === b.hostId && a.hostKeyId === b.hostKeyId && a.network === b.network && a.address === b.address;
 
 /** Serialized opt-in transitions. No permission prompts or remote registrations on import. */
 export class NotificationSettings {
@@ -108,6 +160,8 @@ export class NotificationSettings {
    const previous = this.value.mode;
    await bounded(() => this.ports.stop());
    if (previous === "always" && mode !== "always") await this.revokeAll();
+   // Secrets were forgotten when leaving «Siempre atento»; a leftover record must not outlive them.
+   if (previous !== "always" && mode === "always") await this.saveRegistrations(() => []);
    // Persist intent, not a claim that Android is running the service.
    await bounded(() => this.ports.write(mode)); this.update({ mode, computers: [] });
    if (mode !== "off") await this.start(true);
@@ -121,6 +175,12 @@ export class NotificationSettings {
   const hosts = await bounded(() => this.ports.hosts());
   const deadline = Date.now() + NOTIFICATION_OPERATION_TIMEOUT_MS;
   for (const host of hosts) await this.revoke(host, deadline - Date.now());
+  await this.saveRegistrations(() => []);
+ }
+ /** Best effort: a record left behind is checked again against the saved computers on every start. */
+ private async saveRegistrations(change: (records: AlwaysRegistration[]) => AlwaysRegistration[]) {
+  try { const records = parseAlwaysRegistrations(await bounded(() => this.ports.registrations())); await bounded(() => this.ports.saveRegistrations(change(records))); }
+  catch { /* See above. */ }
  }
  private async revoke(host: SavedHost, remoteBudget = NOTIFICATION_OPERATION_TIMEOUT_MS) {
   try { await bounded(() => this.ports.unregister(host), remoteBudget); } catch { /* Remote cleanup is best effort; local revocation is mandatory. */ }
@@ -129,7 +189,7 @@ export class NotificationSettings {
  async removeComputer(host: SavedHost): Promise<void> {
   let failed = false;
   await this.run(async () => {
-   try { await bounded(() => this.ports.stop()); await this.revoke(host); }
+   try { await bounded(() => this.ports.stop()); await this.revoke(host); await this.saveRegistrations(records => records.filter(r => r.hostId !== host.id)); }
    catch { failed = true; throw Error("Local revocation failed"); }
   });
   if (failed) throw Error("Local revocation failed");
@@ -153,18 +213,33 @@ export class NotificationSettings {
   const prepare = <T,>(operation: (signal: AbortSignal) => Promise<T>) => bounded(operation, preparationDeadline - Date.now());
   let config: WatchConfig;
   if (this.value.mode === "always") {
+   // Android runs one VPN at a time: computers on the VPN that is off are not tried and keep their earlier registration.
+   let phone: PhoneNetworkState | null = null;
+   try { phone = await bounded(() => this.ports.phone()); } catch { /* Unknown: try every computer, as before. */ }
+   let previous: AlwaysRegistration[] = [];
+   try { previous = parseAlwaysRegistrations(await bounded(() => this.ports.registrations())); } catch { /* None. */ }
    const computers: NotificationSnapshot["computers"] = [];
-   for (const host of hosts) {
+   const registered: (AlwaysRegistration | undefined)[] = [];
+   // Each computer gets its own bound, all at once: a slow or unreachable one cannot use up another's time.
+   await Promise.all(hosts.map(async (host, index) => {
+    const current = registrationOf(host);
+    const earlier = previous.find(r => sameRegistration(r, current));
+    const networkOff = phoneOnNetwork(current.network, phone) === false;
     let result: NotificationSnapshot["computers"][number]["result"];
-    // Notices arrive on the Tailscale address; a ZeroTier computer is never registered (zerotier S3).
-    if (!hasTailscaleFeatures(host)) result = "TAILSCALE_ONLY";
-    else try { result = await prepare(signal => this.ports.register(host, signal)); }
-    catch (error) { result = error instanceof WatchTimeout ? "PREPARATION_TIMEOUT" : "REGISTRATION_FAILED"; }
-    computers.push({ hostId: host.id, name: host.name, result }); this.update({ computers: [...computers] });
-   }
-   const accepted = new Set(computers.filter(c => c.result === "ok").map(c => c.hostId));
-   config = { appId: APP_ID, mode: "always", language: this.language, hosts: hosts.filter(h => accepted.has(h.id)).map(h => ({ hostId: h.id, hostKeyId: h.hostKey })) };
-   if (!config.hosts.length) { this.update({ error: computers.some(c => c.result === "PREPARATION_TIMEOUT") ? "WATCH_TIMEOUT" : computers.every(c => c.result === "TAILSCALE_ONLY") ? "TAILSCALE_ONLY" : "REGISTRATION_FAILED" }); return; }
+    if (networkOff) result = earlier ? "ok" : "NETWORK_OFF";
+    else {
+     try { result = await bounded(signal => this.ports.register(host, signal)); }
+     catch (error) { result = error instanceof WatchTimeout ? "PREPARATION_TIMEOUT" : "REGISTRATION_FAILED"; }
+    }
+    // A refusal drops the earlier registration; not reaching the computer keeps it.
+    registered[index] = result === "ok" ? current : result === "CONNECTION_FAILED" || result === "PREPARATION_TIMEOUT" ? earlier : undefined;
+    computers[index] = { hostId: host.id, name: host.name, result, network: current.network, address: host.address, ...(networkOff ? { networkOff: true as const } : {}) };
+    this.update({ computers: computers.filter(Boolean) });
+   }));
+   const records = registered.filter((r): r is AlwaysRegistration => !!r);
+   try { await bounded(() => this.ports.saveRegistrations(records)); } catch { /* Kept only for this start; tried again on the next. */ }
+   config = { appId: APP_ID, mode: "always", language: this.language, hosts: records.map(r => ({ hostId: r.hostId, hostKeyId: r.hostKeyId })) };
+   if (!config.hosts.length) { this.update({ error: computers.some(c => c.result === "PREPARATION_TIMEOUT") ? "WATCH_TIMEOUT" : computers.every(c => c.result === "NETWORK_OFF") ? "NETWORK_OFF" : "REGISTRATION_FAILED" }); return; }
   } else if (this.value.mode === "while-working") {
    // Only the visible UI may prompt. Native start adopts these retained transports.
    const computers: NotificationSnapshot["computers"] = [];
@@ -198,9 +273,16 @@ export function buildNotifyCommand(record: KeyCommandConfig, verb: "register" | 
  if (verb !== "register" && verb !== "unregister") throw Error("Invalid notify verb");
  return buildHerdrCommand(record, "list").replace(/ herdr list$/, ` notify ${verb}${verb === "register" ? " --json" : ""}`);
 }
-export function parseNotifyRegistration(stdout: string, fingerprint: string, port: number): boolean {
+/** A ZeroTier answer names its network; a Tailscale answer has none, as before ZeroTier notices. */
+export function parseNotifyRegistration(stdout: string, fingerprint: string, port: number, network: HostNetwork = "tailscale"): boolean {
  if (stdout.length > 4096) return false;
  try { const v: unknown = JSON.parse(stdout); return !!v && typeof v === "object" && !Array.isArray(v) &&
-  "v" in v && v.v === 1 && "ok" in v && v.ok === true && "hostKeyId" in v && v.hostKeyId === fingerprint && "port" in v && v.port === port;
+  "v" in v && v.v === 1 && "ok" in v && v.ok === true && "hostKeyId" in v && v.hostKeyId === fingerprint && "port" in v && v.port === port
+  && (network === "zerotier" ? "network" in v && v.network === "zerotier" : !("network" in v));
  } catch { return false; }
+}
+function notifyFailed(stdout: string): boolean {
+ if (stdout.length > 4096) return false;
+ try { const v: unknown = JSON.parse(stdout); return !!v && typeof v === "object" && !Array.isArray(v) && "v" in v && v.v === 1 && "ok" in v && v.ok === false && "code" in v && v.code === "NOTIFY_FAILED"; }
+ catch { return false; }
 }

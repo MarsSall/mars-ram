@@ -158,4 +158,18 @@ describe("bundled changelog", () => {
    expect(side.fixes).toHaveLength(5);
   }
  });
+
+ it("build 10 names the custom keys, ZeroTier links and the mars-ram 0.1.6 it needs, in plain words", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 10)!;
+  expect(note).toBeDefined();
+  for (const side of [note.es, note.en]) {
+   const text = [...side.new, ...side.fixes].join("\n");
+   for (const word of ["ZeroTier", "D-pad", "Enter", ".env", "mars-ram 0.1.6"]) expect(text).toContain(word);
+   expect(text).not.toMatch(/SSH|SFTP|bridge|protocol|PTY|stage-link|--network|notify register/i);
+   expect(side.new).toHaveLength(3);
+   expect(side.fixes).toHaveLength(1);
+  }
+  expect(note.es.new.join("\n")).toContain("Mostrar");
+  expect(note.en.new.join("\n")).toContain("Show");
+ });
 });

@@ -2,11 +2,16 @@ import { AppState, Linking, PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import { File, Paths } from "expo-file-system";
 import Ssh from "../../modules/ssh/src/SshModule";
-import type { NotificationMode } from "../core/notifications";
+import type { AlwaysRegistration, NotificationMode } from "../core/notifications";
+import { readDurable, writeDurable } from "./durable-file";
 const file = () => new File(Paths.document, "notification-mode.json");
+/** Host ids, fingerprints, networks and addresses only; the notice secrets stay in the native encrypted vault. */
+const registrationsFile = () => new File(Paths.document, "notification-registrations.json");
 export const nativeNotifications = {
  read: (): unknown => { try { const f = file(); return f.exists ? JSON.parse(f.textSync()) : "off"; } catch { return "off"; } },
  write: async (mode: NotificationMode) => { const f = file(); if (!f.exists) f.create(); await f.write(JSON.stringify(mode)); },
+ registrations: async (): Promise<unknown> => await readDurable(registrationsFile(), JSON.parse) ?? [],
+ saveRegistrations: (records: AlwaysRegistration[]) => writeDurable(registrationsFile(), JSON.stringify(records)),
  visible: () => AppState.currentState === "active",
  permission: async () => Platform.OS !== "android" || Number(Platform.Version) < 33 ||
   await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS) === PermissionsAndroid.RESULTS.GRANTED,

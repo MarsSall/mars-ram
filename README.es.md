@@ -98,7 +98,7 @@ mars-ram pair
 
 Escaneá el código QR desde la app o abrí en el teléfono el link de vinculación que aparece en la terminal. En la app, **Agregar computadora** te guía paso a paso por Tailscale o ZeroTier: revisa la app de red del teléfono (y el DNS privado, con Tailscale), te da estos comandos para cada sistema y te explica por qué falló un escaneo. La instalación es para tu usuario, sin permisos de administrador; en Windows, usá una terminal normal para `mars-ram install`, y una terminal de administrador para `mars-ram pair` si tu usuario es administrador.
 
-**¿ZeroTier en vez de Tailscale?** Ejecutá `mars-ram pair-zt` (agregá `--address <ipv4>` si la computadora está en varias redes de ZeroTier). Necesita una versión de la app compatible con ZeroTier; por ZeroTier funcionan las sesiones por SSH, la terminal y los archivos, mientras que los links privados y Siempre atento siguen necesitando Tailscale. `mars-ram pair` sigue usando Tailscale. En Linux con un firewall (ufw o firewalld) activo, `pair-zt` y `mars-ram doctor` muestran el comando exacto para dejar pasar ZeroTier, como `sudo ufw allow in on <interfaz de ZeroTier> comment 'ZeroTier'`; Tailscale no lo necesita.
+**¿ZeroTier en vez de Tailscale?** Ejecutá `mars-ram pair-zt` (agregá `--address <ipv4>` si la computadora está en varias redes de ZeroTier). Necesita una versión de la app compatible con ZeroTier; por ZeroTier funcionan las sesiones por SSH, la terminal y los archivos, y con la app y la computadora actualizadas (`mars-ram install`) también los links privados (servidos solo en la dirección de ZeroTier de la computadora) y Siempre atento. Android usa una sola VPN a la vez: los avisos de una computadora con ZeroTier llegan solo mientras ZeroTier está encendido, y los de una con Tailscale, solo mientras Tailscale está encendido. `mars-ram pair` sigue usando Tailscale. En Linux con un firewall (ufw o firewalld) activo, `pair-zt` y `mars-ram doctor` muestran el comando exacto para dejar pasar ZeroTier, como `sudo ufw allow in on <interfaz de ZeroTier> comment 'ZeroTier'`, que también deja pasar los links privados (puerto 47811); Tailscale no lo necesita.
 
 ¿Preferís npm? Reemplazá el primer comando por `npm i -g mars-ram`.
 
@@ -158,13 +158,13 @@ Una vez vinculado el teléfono:
 | Función | Qué podés hacer |
 | --- | --- |
 | **Conexión guiada** | Agregá una computadora paso a paso por Tailscale o ZeroTier; si el escaneo falla, la app te dice qué revisar. |
-| **ZeroTier como alternativa** | Vinculá con `mars-ram pair-zt` para las sesiones, la terminal y los archivos; los links privados y Siempre atento siguen necesitando Tailscale. |
+| **ZeroTier como alternativa** | Vinculá con `mars-ram pair-zt` para las sesiones, la terminal, los archivos, los links privados y Siempre atento. |
 | **Sesiones de agentes en vivo** | Leé, respondé y frená una sesión desde el teléfono. |
 | **Terminal completa** | Usá cualquier agente o programa en Herdr, con una barra de teclas pensada para una mano y sin sugerencias del teclado. Recuerda el tamaño de letra; cambialo pellizcando o en Ajustes. |
 | **Atajos guiados** | Abrí Gentle Shell, Pi u OpenCode en un repositorio. |
 | **Archivos del proyecto** | Explorá archivos con su estado en git, diffs e historial. |
 | **Dictado en el dispositivo** | Convertí voz en texto en tu teléfono; el audio no se envía por la red. El modelo de voz se descarga en segundo plano, aunque cierres la app. |
-| **Fotos y archivos** | Adjuntalos a una sesión (quedan en una carpeta temporal privada de tu usuario en la computadora) o compartí una copia con un link privado en tu tailnet. |
+| **Fotos y archivos** | Adjuntalos a una sesión (quedan en una carpeta temporal privada de tu usuario en la computadora) o compartí una copia con un link privado en tu red de Tailscale o ZeroTier. |
 | **Vinculación por QR o link** | La clave privada SSH queda en el Keystore de Android y, por defecto, requiere desbloquear el dispositivo. |
 
 <p align="center"><img src="./docs/assets/brand/divider.svg" width="480" alt="" /></p>
@@ -178,7 +178,7 @@ Una vez vinculado el teléfono:
 | [`apps/mobile`](./apps/mobile/) | Cliente Android: interfaz en React Native / Expo y módulo SSH nativo en Kotlin |
 | [`host/cli`](./host/cli/) | Instalación, vinculación, diagnóstico y herramientas de archivos y Git en la computadora |
 | [`host/pi-bridge`](./host/pi-bridge/) | Extensión de Pi que expone cada sesión en vivo por HTTP local y eventos |
-| [`host/link-server`](./host/link-server/) | Sirve copias privadas de archivos con vencimiento en la dirección de Tailscale de la computadora |
+| [`host/link-server`](./host/link-server/) | Sirve copias privadas de archivos con vencimiento en la dirección de Tailscale de la computadora y, en las vinculadas por ZeroTier, en su dirección de ZeroTier; también envía los avisos de Siempre atento |
 | [`packages/protocol`](./packages/protocol/) | Esquemas compartidos y versionados de solicitudes, respuestas y eventos, con pruebas de contrato |
 | [`docs/`](./docs/) | Instalación, arquitectura, privacidad y documentación técnica |
 
@@ -194,7 +194,7 @@ La app, los componentes de la computadora y el protocolo siguen límites hexagon
 - **Sin analítica, publicidad ni rastreo.** Mars-RAM no opera un backend. Tailscale y los agentes o proveedores de modelos que uses tienen sus propias políticas; el contenido que enviás a una sesión llega a esos programas en tu computadora.
 - **Datos en el teléfono.** Las computadoras guardadas, sus identidades verificadas, los ajustes y el modelo de voz descargado quedan en el almacenamiento de la app; la clave privada SSH queda en el Keystore de Android. Los borradores y el audio del dictado se mantienen en memoria. Las fotos y los archivos elegidos pueden quedar en caché.
 - **Voz.** La transcripción corre en el dispositivo. Descargar el modelo de voz opcional contacta a Hugging Face y a los servidores de descarga a los que redirija; pueden ver información habitual de la solicitud, incluida tu dirección IP.
-- **Datos en la computadora.** Los adjuntos van a una carpeta privada de tu usuario dentro de la carpeta temporal del sistema (`/tmp/mars-ram-<uid>/uploads` en Linux y macOS, `%TEMP%\mars-ram\uploads` en Windows), nunca a tu carpeta personal, con limpieza al conectar cuando sea posible (1, 7 o 30 días, o nunca) y lo que borre la limpieza de temporales del sistema. `mars-ram install` borra la carpeta anterior `~/.mars-ram/uploads`. Los links privados sirven copias de `~/.mars-ram/links` durante un día; cualquier persona de la tailnet que tenga el link puede abrirlo hasta que venza o lo borres.
+- **Datos en la computadora.** Los adjuntos van a una carpeta privada de tu usuario dentro de la carpeta temporal del sistema (`/tmp/mars-ram-<uid>/uploads` en Linux y macOS, `%TEMP%\mars-ram\uploads` en Windows), nunca a tu carpeta personal, con limpieza al conectar cuando sea posible (1, 7 o 30 días, o nunca) y lo que borre la limpieza de temporales del sistema. `mars-ram install` borra la carpeta anterior `~/.mars-ram/uploads`. Los links privados sirven copias de `~/.mars-ram/links` durante un día; cualquier persona de la tailnet (o de la red de ZeroTier, en una computadora con ZeroTier) que tenga el link puede abrirlo hasta que venza o lo borres.
 - **Borrado.** Desinstalar la app de Android elimina sus datos y su clave, no las copias en tus computadoras. Olvidar una computadora no revoca su clave pública autorizada. `mars-ram uninstall` conserva archivos compartidos, datos de links, claves de autorización del teléfono y el registro de sesiones; borrá por separado las copias y claves que ya no quieras.
 
 Leé la [política de privacidad completa](./docs/privacy.es.md).

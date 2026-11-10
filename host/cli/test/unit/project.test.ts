@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, realpathSync, renameSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -108,6 +108,42 @@ describe('project tree and file (S2, L7)', () => {
   expect(await run(['file', '--path', 'cfg'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
   expect(await run(['stage-link', '--path', 'out.txt'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
   expect(await run(['file', '--path', 'pkg'])).toMatchObject({ kind: 'text', content: '{"name":"mars-ram"}\n' });
+ });
+ it('refuses a hard link in file, diff and stage-link, like uploads do (issue #1)', async () => {
+  writeFileSync(join(base, 'secret.txt'), 'secret\n');
+  linkSync(join(base, 'secret.txt'), join(repo, 'twin.txt'));
+  expect((await run(['tree']) as any).entries.map((e: any) => e.name)).toContain('twin.txt');
+  expect(await run(['file', '--path', 'twin.txt'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  expect(await run(['diff', '--path', 'twin.txt'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  expect(await run(['stage-link', '--path', 'twin.txt'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  expect(readdirSync(staging)).toEqual([]);
+  // A tracked file swapped for a hard link: git would read it, so the diff is refused too.
+  rmSync(join(repo, 'old.md')); linkSync(join(base, 'secret.txt'), join(repo, 'old.md'));
+  expect(await run(['diff', '--path', 'old.md'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  expect(await run(['file', '--path', 'old.md'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  // Deleted tracked files still diff; single-link files are unaffected.
+  rmSync(join(repo, 'gone.md'));
+  expect((await run(['diff', '--path', 'gone.md']) as any).diff).toContain('-gone');
+  expect(await run(['file', '--path', 'package.json'])).toMatchObject({ kind: 'text' });
+ });
+ it('refuses a working-tree diff of a folder, which would let Git read hard-linked files inside it', async () => {
+  writeFileSync(join(base, 'secret.txt'), 'secret\n');
+  rmSync(join(repo, 'host', 'cli', 'main.ts')); linkSync(join(base, 'secret.txt'), join(repo, 'host', 'cli', 'main.ts'));
+  expect(await run(['diff', '--path', 'host'])).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  const hash = git('rev-parse', '--short', 'HEAD').trim();
+  expect(await run(['diff', '--path', 'host', '--commit', hash])).toMatchObject({ diff: expect.stringContaining('export const a = 1;') });
+ });
+ it('refuses a tracked diff when the file becomes a hard link while Git runs', async () => {
+  writeFileSync(join(base, 'secret.txt'), 'secret\n');
+  const swap = deps(repo, {});
+  const inner = swap.run;
+  swap.run = async (file, args, options) => {
+   if (file === 'git' && args.includes('rev-parse') && args.includes('HEAD')) { rmSync(join(repo, 'old.md')); linkSync(join(base, 'secret.txt'), join(repo, 'old.md')); }
+   return inner(file, args, options);
+  };
+  const result = await run(['diff', '--path', 'old.md'], swap);
+  expect(result).toMatchObject({ ok: false, code: 'BAD_ARGUMENT' });
+  expect(JSON.stringify(result)).not.toContain('secret');
  });
  it('returns text with its language, truncating at 256 KiB', async () => {
   expect(await run(['file', '--path', 'host/cli/main.ts'])).toEqual({ version: 1, path: 'host/cli/main.ts', size: 40, mtime: expect.any(Number), kind: 'text', language: 'typescript', content: 'export const a = 1;\nexport const b = 2;\n', truncated: false });

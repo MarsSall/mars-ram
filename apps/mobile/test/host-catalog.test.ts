@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectTarget, hasTailscaleFeatures, hostNetwork, parseSavedHosts, serializeSavedHosts, type SavedHost } from "../src/core/host-catalog";
+import { connectTarget, hostNetwork, parseSavedHosts, serializeSavedHosts, type SavedHost } from "../src/core/host-catalog";
 
 const host: SavedHost = {
 	id: "h1",
@@ -40,12 +40,6 @@ describe("parseSavedHosts", () => {
 		expect(hosts.map(hostNetwork)).toEqual(["tailscale", "zerotier"]);
 		expect(hosts[0]).not.toHaveProperty("network");
 		expect(connectTarget(zeroTier, "k")).toMatchObject({ host: "10.147.17.5", fallbackHost: null });
-	});
-
-	it("offers private links and Siempre atento only for Tailscale computers", () => {
-		expect(hasTailscaleFeatures(host)).toBe(true);
-		expect(hasTailscaleFeatures({ ...host, network: "tailscale" })).toBe(true);
-		expect(hasTailscaleFeatures({ ...host, network: "zerotier" })).toBe(false);
 	});
 
 	it("drops a computer with an unknown network", () => {

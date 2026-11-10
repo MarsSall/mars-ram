@@ -1,28 +1,21 @@
 // Reads this computer's ZeroTier addresses from its network interfaces, without the ZeroTier CLI, which needs root.
+// The name and address rules are shared with the link server (@workspace/protocol/private-network).
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
+import { zeroTierEntries } from "@workspace/protocol/private-network";
 
 export type InterfaceReader = () => NodeJS.Dict<NetworkInterfaceInfo[]>;
 
-/** ZeroTier names its interfaces zt… on Linux and feth… on macOS; Windows adapters are named "ZeroTier One [<network id>]". */
-function isZeroTierInterface(name: string, platform: NodeJS.Platform): boolean {
-	if (platform === "win32") return /zerotier/i.test(name);
-	if (platform === "darwin") return /^(feth|zt)/.test(name);
-	return name.startsWith("zt");
-}
-
-/** IPv4 addresses on ZeroTier interfaces with the interface holding each, each address once; link-local addresses mean the network has not assigned one yet. */
+/** IPv4 addresses on ZeroTier interfaces with the interface holding each, each address once. */
 export function zeroTierInterfaces(read: InterfaceReader = networkInterfaces, platform: NodeJS.Platform = process.platform): { name: string; address: string }[] {
-	const found = new Map<string, string>();
-	for (const [name, entries] of Object.entries(read())) {
-		if (!isZeroTierInterface(name, platform)) continue;
-		for (const entry of entries ?? []) {
-			if (entry.family === "IPv4" && !entry.internal && !entry.address.startsWith("169.254.") && !found.has(entry.address)) found.set(entry.address, name);
-		}
-	}
-	return [...found].map(([address, name]) => ({ name, address }));
+	return zeroTierEntries(read(), platform).map(({ name, address }) => ({ name, address }));
 }
 
 /** IPv4 addresses on ZeroTier interfaces, each once. */
 export function zeroTierAddresses(read: InterfaceReader = networkInterfaces, platform: NodeJS.Platform = process.platform): string[] {
 	return zeroTierInterfaces(read, platform).map((entry) => entry.address);
+}
+
+/** ZeroTier addresses with their subnet prefix, for checking where a Siempre atento registration comes from. */
+export function zeroTierNetworks(read: InterfaceReader = networkInterfaces, platform: NodeJS.Platform = process.platform): { address: string; prefix: number | null }[] {
+	return zeroTierEntries(read(), platform).map(({ address, prefix }) => ({ address, prefix }));
 }

@@ -1,7 +1,8 @@
 import { APP_ID, ATTACHMENT_MAX_BYTES, UploadName } from "@workspace/protocol";
+import { isIpv4 } from "@workspace/protocol/private-network";
 import { Value } from "typebox/value";
 import { uploadName, type Attachment } from "./attachment-draft";
-import { hasTailscaleFeatures, type SavedHost } from "./host-catalog";
+import { hostNetwork, type SavedHost } from "./host-catalog";
 import type { HostConnections } from "./host-connections";
 import type { Failure, HostConnection } from "./ports";
 import { readHostRecord } from "./host-record";
@@ -18,7 +19,9 @@ export interface LinkHistoryStore {
  save(entry: LinkHistoryEntry): Promise<void>;
  remove(computerId: string, id: string): Promise<void>;
 }
-export type LinkFailure = { ok: false; code: Failure["code"] | "LINK_NOT_INSTALLED" | "LINK_FAILED" | "TAILSCALE_ONLY"; message: string };
+export type LinkFailure = { ok: false; code: Failure["code"] | "LINK_NOT_INSTALLED" | "LINK_FAILED" | "ZEROTIER_ADDRESS_NOT_FOUND"; message: string };
+/** A ZeroTier computer serves links on the address the phone paired with; Tailscale computers pass none. */
+export type LinkNetwork = { network: "zerotier"; address: string };
 export type LinkResult<T> = { ok: true; value: T } | LinkFailure;
 export type LinkDeps = {
  host: HostConnection;
@@ -31,8 +34,9 @@ type Command = "create" | "list" | "delete" | "ensure";
 const staging = `.${APP_ID}/links/.staging`;
 const failed = (): LinkFailure => ({ ok: false, code: "LINK_FAILED", message: "The link operation could not be completed. Please try again." });
 const notInstalled = (): LinkFailure => ({ ok: false, code: "LINK_NOT_INSTALLED", message: "Link server not installed. Run mars-ram install on the computer." });
-// The link server listens only on the Tailscale address (zerotier S3: ZeroTier links are phase 2).
-const tailscaleOnly = (): LinkFailure => ({ ok: false, code: "TAILSCALE_ONLY", message: "Private links are available only with Tailscale." });
+// Hosts before ZeroTier links reject the extra flags; the paired address can also leave the computer.
+const updateRequired = (): LinkFailure => ({ ok: false, code: "UPDATE_REQUIRED", message: "Update mars-ram on the computer to use links over ZeroTier." });
+const addressNotFound = (): LinkFailure => ({ ok: false, code: "ZEROTIER_ADDRESS_NOT_FOUND", message: "The computer does not have that ZeroTier address. Check ZeroTier on the computer and pair it again if it changed." });
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 const validId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{12}$/.test(v);
@@ -48,11 +52,12 @@ function isConfig(v: unknown): v is LinkConfig {
   && v.node.startsWith("/") === v.linkServer.startsWith("/") && typeof v.linkPort === "number" && Number.isInteger(v.linkPort) && v.linkPort >= 1024 && v.linkPort <= 65535;
 }
 /** Only allow-listed arguments cross the default-shell boundary. No URL, token or user text. */
-export function buildLinkCommand(config: LinkConfig, command: Command, argument?: string): string {
+export function buildLinkCommand(config: LinkConfig, command: Command, argument?: string, network?: LinkNetwork): string {
  if (!isConfig(config) || !["create", "list", "delete", "ensure"].includes(command)
-  || (command === "create" ? !validName(argument) : command === "delete" ? !validId(argument) : argument !== undefined)) throw new Error("Invalid link command.");
+  || (command === "create" ? !validName(argument) : command === "delete" ? !validId(argument) : argument !== undefined)
+  || (network !== undefined && (network.network !== "zerotier" || typeof network.address !== "string" || !isIpv4(network.address)))) throw new Error("Invalid link command.");
  const quote = config.node.startsWith("/") ? "'" : '"';
- return `${quote}${config.node}${quote} ${quote}${config.linkServer}${quote} ${command}${command === "create" ? ` --staged ${argument}` : command === "delete" ? ` ${argument}` : ""} --port ${config.linkPort}`;
+ return `${quote}${config.node}${quote} ${quote}${config.linkServer}${quote} ${command}${command === "create" ? ` --staged ${argument}` : command === "delete" ? ` ${argument}` : ""} --port ${config.linkPort}${network ? ` --network zerotier --address ${network.address}` : ""}`;
 }
 const iso = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v;
 function validUrl(v: unknown): v is string {
@@ -83,10 +88,19 @@ const listed = (v: unknown): v is { serving: boolean; links: RemoteLink[] } => o
 /** One saved computer. URLs stay in private history and return values, never diagnostics. */
 export class LinkService {
  constructor(private readonly deps: LinkDeps, private readonly computer: SavedHost) {}
+ private network(): LinkNetwork | undefined {
+  return hostNetwork(this.computer) === "zerotier" ? { network: "zerotier", address: this.computer.address } : undefined;
+ }
  private async run<T>(connectionId: string, config: LinkConfig, command: Command, validate: (value: unknown) => value is T, argument?: string): Promise<LinkResult<T>> {
   try {
-   const result = await this.deps.host.exec(connectionId, buildLinkCommand(config, command, argument));
-   if (!result.ok || result.exitStatus !== 0) return failed();
+   const network = this.network();
+   const result = await this.deps.host.exec(connectionId, buildLinkCommand(config, command, argument, network));
+   if (!result.ok) return failed();
+   if (result.exitStatus !== 0) {
+    // Only fixed host diagnostics are matched; stderr itself is never shown.
+    const error = network ? result.stderr.replace(/\r?\n$/, "") : "";
+    return error === "Invalid option." ? updateRequired() : error.startsWith("ZeroTier address not found") ? addressNotFound() : failed();
+   }
    // One JSON line only, with an optional final line ending; never echo stdout/stderr.
    const text = result.stdout.replace(/\r?\n$/, "");
    if (!text || /[\r\n]/.test(text)) return failed();
@@ -111,7 +125,6 @@ export class LinkService {
  /** Low-level remote delete; Files UI should use remove() to update phone history too. */
  delete(id: string): Promise<LinkResult<{ ok: true }>> { return validId(id) ? this.command("delete", deleted, id) : Promise.resolve(failed()); }
  async create(file: Attachment): Promise<LinkResult<LinkHistoryEntry>> {
-  if (!hasTailscaleFeatures(this.computer)) return tailscaleOnly();
   if (file.size !== null && (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > ATTACHMENT_MAX_BYTES)) return { ok: false, code: "TOO_LARGE", message: "Choose a file no larger than 25 MiB." };
   const context = await this.context();
   if (!context.ok) return context;
@@ -148,7 +161,6 @@ export class LinkService {
  /** A link to a file already on the computer: `stage` copies it into the private staging
   * dir (mars-ram project stage-link) after `ensure` created that dir; no phone upload. */
  async createFromHost(stage: () => Promise<{ ok: true; staged: string; size: number } | { ok: false }>): Promise<LinkResult<LinkHistoryEntry>> {
-  if (!hasTailscaleFeatures(this.computer)) return tailscaleOnly();
   const context = await this.context();
   if (!context.ok) return context;
   try {
@@ -191,7 +203,6 @@ export class LinkService {
  }
  /** Called by the first-connect hook with the established connection; never reconnect recursively. */
  async restore(connectionId: string): Promise<void> {
-  if (!hasTailscaleFeatures(this.computer)) return;
   try {
    if (!(await this.deps.history.list(this.computer.id)).some(e => Date.parse(e.expiresAt) > this.deps.clock())) return;
    const config = await readHostRecord(this.deps.host, connectionId);

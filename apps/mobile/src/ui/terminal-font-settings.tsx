@@ -1,12 +1,13 @@
-import { useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { TERMINAL_FONT, stepTerminalFontSize } from "../core/terminal-font";
 import { terminalFont } from "../services";
 import { Card, SectionTitle } from "./components";
 import { usePreferences } from "./preferences";
 
-/** Settings › Terminal: the one font size every terminal starts with; pinch zoom changes the same value. */
-export function TerminalFontSettings() {
+/** Settings › Terminal: the one font size every terminal starts with; pinch zoom changes the same value.
+ * `children` go at the end of the same card («Personalizar teclas»). */
+export function TerminalFontSettings({ children }: { children?: ReactNode } = {}) {
  const { theme, t: { terminalFont: s } } = usePreferences(); const c = theme.colors;
  const size = useSyncExternalStore(terminalFont.subscribe, terminalFont.get);
  const [failed, setFailed] = useState(false);
@@ -33,6 +34,7 @@ export function TerminalFontSettings() {
    </View>
    <Text style={{ color: c.textMuted, marginTop: theme.spacing(2) }}>{s.hint}</Text>
    {failed ? <Text accessibilityRole="alert" style={{ color: c.danger }}>{s.failed}</Text> : null}
+   {children}
   </Card>
  </>;
 }

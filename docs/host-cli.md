@@ -4,17 +4,17 @@ The paired phone can list repositories and open **Gentle Shell, Pi or OpenCode**
 
 ## Read the installed host release
 
-`mars-ram version` prints a release such as `0.1.5`; `mars-ram version --json` prints exactly one bounded line:
+`mars-ram version` prints a release such as `0.1.6`; `mars-ram version --json` prints exactly one bounded line:
 
 ```json
-{"version":1,"release":"0.1.5"}
+{"version":1,"release":"0.1.6"}
 ```
 
 Both exit 0, without prompts, network or changes. Only the optional `--json` flag is accepted; other/duplicate arguments exit 2 with usage. The envelope `version: 1` is separate from both the release and the bridge protocol. A checkout with no valid release metadata prints `dev` (or `{"version":1,"release":"dev"}`), not an error.
 
 `host/cli/scripts/build-release.ts` embeds `cli/VERSION` in the archive; `buildCliCopy` carries it through installation and subsequent reinstalls into `~/.mars-ram/cli/VERSION`. The phone invokes the absolute recorded Node and `cli/src/main.ts` paths, with the same conservative POSIX/cmd quoting as the Herdr switcher, so the result does not depend on SSH PATH or npm launcher variables. The bridge source fingerprint in `install.json` is unchanged.
 
-The phone warns prominently below its `MINIMUM_HOST_VERSION` (`apps/mobile/src/core/host-update.ts`, now **0.1.5**: it was 0.1.4, the first release with `version --json`, and became 0.1.5 because attachments need `mars-ram uploads-dir` and ZeroTier pairing needs `mars-ram pair-zt`, both first shipped in 0.1.5; bump only when newly required host functionality needs it). A CLI without `version --json` (0.1.3 or older) always counts as below the minimum. An older CLI's nonzero/usage response is treated as legacy, without breaking sessions; transport failures and malformed successful responses are unknown, not evidence of an old release. `dev` never warns. A validated newer npm release gives only a subtle optional notice. The copyable remedy is `pnpm add -g mars-ram@<target>` followed by `mars-ram install`, run in the **computer's terminal**, on Linux or Windows. A still-running session with an older compatible bridge protocol minor gets a separate `/reload` hint.
+The phone warns prominently below its `MINIMUM_HOST_VERSION` (`apps/mobile/src/core/host-update.ts`, now **0.1.6**: it was 0.1.4, the first release with `version --json`, became 0.1.5 because attachments need `mars-ram uploads-dir` and ZeroTier pairing needs `mars-ram pair-zt`, and became 0.1.6 because private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, first shipped in 0.1.6; bump only when newly required host functionality needs it). A CLI without `version --json` (0.1.3 or older) always counts as below the minimum. An older CLI's nonzero/usage response is treated as legacy, without breaking sessions; transport failures and malformed successful responses are unknown, not evidence of an old release. `dev` never warns. A validated newer npm release gives only a subtle optional notice. The copyable remedy is `pnpm add -g mars-ram@<target>` followed by `mars-ram install`, run in the **computer's terminal**, on Linux or Windows. A still-running session with an older compatible bridge protocol minor gets a separate `/reload` hint.
 
 ## Always-attentive notification registration (host foundation)
 

@@ -8,15 +8,15 @@ Run `node <absolute-main.ts> <command>` over SSH. Install records the absolute N
 
 | Command | Output |
 | --- | --- |
-| `create --staged <name> [--port N]` | `{ "id": "…", "url": "http://<tailscale-dns>:<port>/l/<token>", "expiresAt": "<ISO UTC>" }` |
-| `list [--port N]` | `{ "serving": true, "links": [{ "id": "…", "fileName": "…", "size": 123, "createdAt": "<ISO UTC>", "expiresAt": "<ISO UTC>", "url": "…" }] }` |
-| `delete <id> [--port N]` | `{ "ok": true }`, including when the id is already gone |
-| `ensure [--port N]` | `{ "serving": true }` if valid links exist and a server is confirmed running, otherwise `{ "serving": false }` |
-| `status [--port N]` | `{ "serving": false, "links": 0, "invalid": 0 }`; counts of validated unexpired links and invalid/incomplete id entries, confirmed serving identity; read-only, including when storage is absent |
-| `stop [--port N]` | `{ "stopped": true }` after a confirmed boot stops; `false` when no boot can be confirmed (never signals an unconfirmed PID) |
-| `serve [--port N]` | Internal detached entry point; no stdout output |
+| `create --staged <name> [--port N] [--network zerotier --address <ipv4>]` | `{ "id": "…", "url": "http://<tailscale-dns>:<port>/l/<token>", "expiresAt": "<ISO UTC>" }`; over ZeroTier the URL host is the ZeroTier IPv4: `http://<zerotier-ipv4>:<port>/l/<token>` |
+| `list [--port N] [--network zerotier --address <ipv4>]` | `{ "serving": true, "links": [{ "id": "…", "fileName": "…", "size": 123, "createdAt": "<ISO UTC>", "expiresAt": "<ISO UTC>", "url": "…" }] }`; URLs and `serving` are for the network asked |
+| `delete <id> [--port N] [--network zerotier --address <ipv4>]` | `{ "ok": true }`, including when the id is already gone; the network options are accepted and not needed |
+| `ensure [--port N] [--network zerotier --address <ipv4>]` | `{ "serving": true }` if valid links or Siempre atento phones of that network exist and the listener for the network asked is confirmed running, otherwise `{ "serving": false }` |
+| `status [--port N]` | `{ "serving": false, "links": 0, "invalid": 0 }`; counts of validated unexpired links and invalid/incomplete id entries, confirmed serving identity (the Tailscale listener or any recorded ZeroTier listener); read-only, including when storage is absent |
+| `stop [--port N]` | `{ "stopped": true }` after a confirmed boot stops (the Tailscale listener, then every recorded ZeroTier listener); `false` when no boot can be confirmed (never signals an unconfirmed PID) |
+| `serve [--port N] [--network zerotier --address <ipv4>]` | Internal detached entry point; no stdout output |
 
-The default port is **47811**. An override must be an integer from 1 through 65535; use the same configured port for every command. Unknown/duplicate options are rejected. `list` deletes expired links rather than listing them. With no links, `list` is `{ "serving": false, "links": [] }` and `ensure` never launches anything. With links, `list` requires usable Tailscale status to construct current DNS URLs; unavailable Tailscale returns an error, not an availability claim. A failed launch leaves the registered copy available for `list`, retry with `ensure`, or deletion.
+The default port is **47811**. An override must be an integer from 1 through 65535; use the same configured port for every command. Unknown/duplicate options are rejected. `--network` and `--address` go together: `--network` accepts only `zerotier`, `--address` only a literal IPv4, and `status`/`stop` accept neither. Without them every command behaves, and prints, exactly as before ZeroTier support. `list` deletes expired links rather than listing them. With no links, `list` is `{ "serving": false, "links": [] }` and `ensure` never launches anything. With links, `list` requires usable Tailscale status to construct current DNS URLs; unavailable Tailscale returns an error, not an availability claim. A failed launch leaves the registered copy available for `list`, retry with `ensure`, or deletion.
 
 ### Storage and SFTP staging
 
@@ -29,7 +29,8 @@ All paths belong to the host user, independent of attachment uploads:
   <id>/
     content                # the uploaded copy's bytes (fixed internal filename)
     link.json              # metadata below
-  server.pid.json          # private PID / boot identity / endpoint record
+  server.pid.json          # private PID / boot identity / endpoint record (Tailscale listener)
+  server-zerotier-<ipv4>.pid.json  # the same, one per ZeroTier listener
 ```
 
 The phone finishes its existing private `.part` + rename upload in `.staging`, then calls `create --staged <name>`. `list` or `ensure` can initialize storage before that first SFTP upload. Directories use 0700 and files 0600 on POSIX; Windows replaces ACLs with a single current-user SID rule, dropping inherited and explicit permissions for others. SFTP must create private files as it already does for attachments. Linked storage directories are refused.
@@ -54,6 +55,8 @@ Ids are **12 base64url characters**, generated from 9 random bytes, non-secret a
 
 Production obtains `Self.TailscaleIPs` and `Self.DNSName` from `tailscale status --json` (on macOS, when `tailscale` is not on PATH, from the CLI inside `/Applications/Tailscale.app`), requires `BackendState: Running`, selects a Tailscale IPv4 (100.64.0.0/10), and strips the trailing DNS dot. It binds **only that IP**, never wildcard, LAN or loopback. Unavailable Tailscale or a failed bind exits nonzero. There is no bind flag or environment override; tests inject loopback into the HTTP adapter directly.
 
+**ZeroTier.** With `--network zerotier --address <ipv4>` (the address the phone paired with), `create`, `list`, `ensure` and `serve` first check that the address is currently on one of this computer's ZeroTier interfaces, read from `os.networkInterfaces()` with the same rules as `mars-ram pair-zt` (`zt…` on Linux, `feth…`/`zt…` on macOS, `ZeroTier One […]` on Windows, no link-local; shared in `packages/protocol/src/private-network.ts`). Any other address — LAN, loopback, wildcard, another computer's — fails with a `ZeroTier …` diagnostic before storing a copy or starting anything. The listener binds **only that ZeroTier IP** and URLs use it as the host, since ZeroTier has no MagicDNS. Links are not tied to a network: a token works on every listener that is running, and each listener is reachable only inside its own private network.
+
 Only GET/HEAD with an exact raw `/l/<43-character-token>` target can serve a copy. Tokens are indexed by SHA-256 then compared with `timingSafeEqual`. Unknown, expired, path-like, encoded, query-bearing, or other routes return the same `404` / `Not found\n`; other methods also return 404. Invalid methods/routes are rejected before any storage access. HEAD uses registered size/type metadata without opening or reading content, and has no body. Every response includes:
 
 - `X-Content-Type-Options: nosniff`
@@ -69,6 +72,8 @@ Valid link requests sweep expiry; a minute timer also deletes expired copies. In
 
 ## On-demand lifecycle
 
+**One process per address.** The Tailscale listener keeps its original arguments, `server.pid.json`, Windows task `mars-ram-links` and behavior. Each ZeroTier address gets its own detached process (`serve --port N --network zerotier --address <ipv4>`), its own `server-zerotier-<ipv4>.pid.json` and its own Windows task `mars-ram-links-zerotier-<a-b-c-d>`. This is the smallest safe design: starting a ZeroTier listener never restarts the Tailscale one (no interrupted downloads, no change to its identity record), and stopping or crashing one leaves the others serving. Each process keeps running while valid links exist or while Siempre atento phones of its own network are registered, and notifies only those phones (see Siempre atento notices), so a notice never goes out twice.
+
 `create` registers a copy then calls `ensure`. `ensure` starts only with valid links, and waits for readiness rather than assuming spawn succeeded. It verifies a live PID plus a private PID record's public random boot identity returned by HEAD `/` (still a fixed-body 404). The record includes process start time, IP and port. A stale or reused PID alone cannot count as serving. No token is used in readiness probes. Successful binding precedes PID publication; shutdown removes only its own boot's record.
 
 - **Linux:** Node `spawn(process.execPath, [main, "serve", "--port", port], { detached: true, stdio: "ignore" })`, then `unref()`. POSIX detached spawn creates a new session via setsid; no shell and no inherited SSH descriptors.
@@ -80,11 +85,15 @@ After the last link expires or is deleted the server closes and exits. Deletion 
 
 `status` never initializes storage, changes ACLs, deletes expired metadata/copies, starts the server or changes tasks. It counts validated unexpired metadata as `links` and invalid/incomplete id entries as `invalid`, and uses the boot-identity HEAD probe (which does no store access). Offline/unconfirmed identity means `serving: false`. Invalid individual entries do not hide remaining valid links; an unsafe or unreadable storage root still fails rather than returning a misleading count. Unlike `list`, its output contains no URLs or tokens.
 
-`stop` does not initialize or prune storage and can use the private record's validated Tailscale endpoint even when the Tailscale CLI is unavailable. It checks the live PID **and** the existing boot-identity endpoint immediately before stopping. On POSIX it sends SIGTERM only to that confirmed PID, then polls for endpoint disappearance (5-second polling budget, 100 ms between attempts; each probe has an absolute 1-second timeout, so the final probe can extend the budget by up to 1 second). No unchecked PID, process-name kill or forced-kill escalation is used. On Windows it ends the `mars-ram-links` scheduled task only after boot confirmation, and deletes that task. An unconfirmed boot is not terminated, but the named task registration is still removed without ending its process. Missing task is a no-op; task enumeration/removal errors fail the command. PowerShell invokes shell-free, fixed task commands; no URL or token is passed. Storage and existing link copies remain available for a later `ensure` until expiry.
+`stop` does not initialize or prune storage and can use the private record's validated Tailscale endpoint even when the Tailscale CLI is unavailable; it then stops every recorded ZeroTier listener the same way, using the address in its record file name. It checks the live PID **and** the existing boot-identity endpoint immediately before stopping. On POSIX it sends SIGTERM only to that confirmed PID, then polls for endpoint disappearance (5-second polling budget, 100 ms between attempts; each probe has an absolute 1-second timeout, so the final probe can extend the budget by up to 1 second). No unchecked PID, process-name kill or forced-kill escalation is used. On Windows it ends the `mars-ram-links` scheduled task only after boot confirmation, and deletes that task. An unconfirmed boot is not terminated, but the named task registration is still removed without ending its process. Missing task is a no-op; task enumeration/removal errors fail the command. PowerShell invokes shell-free, fixed task commands; no URL or token is passed. Storage and existing link copies remain available for a later `ensure` until expiry.
+
+## Siempre atento notices
+
+`mars-ram notify register --json` (host CLI, over the phone's SSH session) stores one private record per phone address in `~/.mars-ram/notify/` and runs `ensure` for the phone's network. A record without a `network` field is Tailscale, as every record written before ZeroTier support; a ZeroTier record adds `"network": "zerotier"` and `"hostAddress"`, the computer's ZeroTier IPv4 the phone registered through. Each listener process watches the local bridges and signs notices only for its own phones: the Tailscale process for records without a network, a ZeroTier process for records whose `hostAddress` is its address. Delivery is the same either way: one HMAC-signed line over TCP to the phone's stored address and port, three attempts with 250/500 ms pauses, then dropped. Android runs one VPN at a time, so a phone receives notices from Tailscale computers only while Tailscale is on, and from ZeroTier computers only while ZeroTier is on.
 
 ## Layers, verification and limits
 
-`src/core` owns create/list/delete/ensure, names, ids, expiry and content classification. Ports: LinkStore (copies and metadata), ServerLauncher (readiness and detached launch), Tailscale (host identity/address), clock and random. `src/adapters` implement private filesystem storage, permissions, HTTP, Tailscale CLI and platform launching; `src/main.ts` composes them. T6 owns the corresponding architecture/skill documentation update outside this package.
+`src/core` owns create/list/delete/ensure, names, ids, expiry and content classification. Ports: LinkStore (copies and metadata), ServerLauncher (readiness and detached launch), Tailscale (host identity/address), ZeroTier (verified ZeroTier address), clock and random. `src/adapters` implement private filesystem storage, permissions, HTTP, Tailscale CLI and platform launching; `src/main.ts` composes them. T6 owns the corresponding architecture/skill documentation update outside this package.
 
 From the repository root: `pnpm test`, `pnpm test:contract`, `pnpm typecheck`. Tests use shared use-case fakes, real loopback HTTP, temporary private file stores and real Node CLI commands without links (so no detached process is launched). Windows task argv and path quoting are tested with fake execution. No test-only production bind escape exists.
 

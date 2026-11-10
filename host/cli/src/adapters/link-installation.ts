@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync
 import { dirname, join, resolve } from "node:path";
 
 export const linkSource = resolve(import.meta.dirname, "../../../link-server");
-// Materialize the two dependency-free canonical wire modules inside the installed copy.
+// Materialize the dependency-free canonical wire modules inside the installed copy.
 // This keeps standalone Node execution independent of the checkout and node_modules.
 export function linkRuntimeFiles(folder: string): Map<string, string> {
  const files = new Map<string, string>();
@@ -18,7 +18,7 @@ export function linkRuntimeFiles(folder: string): Map<string, string> {
  };
  visit("package.json"); visit("src");
  if (resolve(folder) === linkSource && !existsSync(join(folder, 'src/wire/session-notice.ts'))) {
-  for (const module of ['session-notice', 'notice-bridge']) {
+  for (const module of ['session-notice', 'notice-bridge', 'private-network']) {
    const wire = resolve(linkSource, '../../packages/protocol/src', `${module}.ts`);
    if (!lstatSync(wire).isFile() || lstatSync(wire).isSymbolicLink()) throw Error('Linked notice contract.');
    files.set(`src/wire/${module}.ts`, readFileSync(wire, 'utf8'));

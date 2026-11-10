@@ -12,6 +12,8 @@ async function readRegular(path: string, max: number): Promise<{ bytes: Uint8Arr
  try {
   const info = await handle.stat();
   if (!info.isFile()) throw Object.assign(Error('Not a regular file.'), { code: 'EISDIR' });
+  // A hard link may be another name for a file outside the root: refuse it on the handle read.
+  if (info.nlink !== 1) throw Object.assign(Error('Hard-linked file.'), { code: 'EMLINK' });
   const buffer = Buffer.alloc(Math.min(max, info.size)); let size = 0;
   while (size < buffer.length) { const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size); if (!bytesRead) break; size += bytesRead; }
   return { bytes: buffer.subarray(0, size), size: info.size, mtime: info.mtimeMs, id: `${info.dev}:${info.ino}` };
@@ -25,7 +27,7 @@ export function createProjectFiles(staging = linkStaging()): ProjectFiles {
   async lstat(path) {
    const info = await lstat(path);
    const kind: EntryKind = info.isSymbolicLink() ? 'link' : info.isDirectory() ? 'dir' : info.isFile() ? 'file' : 'other';
-   return { kind, size: info.size, mtime: info.mtimeMs, id: `${info.dev}:${info.ino}` };
+   return { kind, size: info.size, mtime: info.mtimeMs, id: `${info.dev}:${info.ino}`, links: info.nlink };
   },
   list: dir => readdir(dir),
   read: readRegular,

@@ -7,8 +7,9 @@ import type { ProcessRunner } from './herdr-switcher.ts';
 export type ProjectErrorCode = 'HERDR_NOT_FOUND' | 'NOT_FOUND' | 'BAD_ARGUMENT' | 'NOT_GIT' | 'TOO_LARGE' | 'PROJECT_FAILED';
 export type ProjectFailure = { version: 1; ok: false; code: ProjectErrorCode; message: string };
 export type EntryKind = 'dir' | 'file' | 'link' | 'other';
-export type FileInfo = { kind: EntryKind; size: number; mtime: number; id: string };
-/** Filesystem port. read/stage refuse anything but a regular file and never follow a final symlink. */
+/** links: hard-link count; a file with more than one name may live outside the root. */
+export type FileInfo = { kind: EntryKind; size: number; mtime: number; id: string; links: number };
+/** Filesystem port. read/stage refuse anything but a single-link regular file and never follow a final symlink. */
 export type ProjectFiles = {
  realpath(path: string): Promise<string>;
  lstat(path: string): Promise<FileInfo>;
@@ -188,7 +189,19 @@ async function sameFile(context: Context, path: string, id: string): Promise<voi
  let info: FileInfo;
  try { info = await context.deps.files.lstat(real); } catch { throw new Failure('BAD_ARGUMENT'); }
  // An unknown identity (inode 0, some Windows file systems) cannot prove the same file: fail closed.
- if (info.id !== id || /(?:^|:)0$/.test(id)) throw new Failure('BAD_ARGUMENT');
+ // A hard link is another name for a file that may sit outside the root, as uploads refuse.
+ if (info.id !== id || /(?:^|:)0$/.test(id) || info.links !== 1) throw new Failure('BAD_ARGUMENT');
+}
+/** Before and after Git reads a working-tree path: it must be one single-link regular file (or
+ * missing, a deletion), never a folder whose files Git would read. The same identity both times
+ * refuses a replacement still in place after Git ran; a swap restored before then is a documented residual. */
+async function workTreeFile(context: Context, path: string): Promise<string | null> {
+ let real: string;
+ try { real = await contained(context, path); } catch (error) { if (error instanceof Failure && error.code === 'NOT_FOUND') return null; throw error; }
+ let info: FileInfo;
+ try { info = await context.deps.files.lstat(real); } catch { throw new Failure('BAD_ARGUMENT'); }
+ if (info.kind !== 'file' || info.links !== 1 || /(?:^|:)0$/.test(info.id)) throw new Failure('BAD_ARGUMENT');
+ return info.id;
 }
 async function branchOf(context: Context): Promise<string | null> {
  if (!context.git) return null;
@@ -287,8 +300,10 @@ async function diff(context: Context, path: string, commit: string | undefined) 
  if (commit) { await requireCommit(context, commit); text = await git(context, ['show', ...NO_PROGRAMS, '--format=', '--no-color', commit, '--', path], true); }
  else {
   // With no commits yet there is no HEAD side: every file is a whole-file addition.
+  const before = await workTreeFile(context, path);
   const born = await git(context, ['rev-parse', '--verify', '-q', 'HEAD']).then(() => true, () => false);
   text = born ? await git(context, ['diff', ...NO_PROGRAMS, 'HEAD', '--no-color', '--', path], true) : '';
+  if (await workTreeFile(context, path) !== before) throw new Failure('BAD_ARGUMENT');
   // Untracked files, and any file before the first commit, have no HEAD side: a whole-file
   // addition built from a checked read.
   if (!text && (!born || (await git(context, ['ls-files', '--others', '--exclude-standard', '--', path])).trim())) text = await untrackedDiff(context, path).catch(error => { if (!born && error instanceof Failure && error.code === 'NOT_FOUND') return ''; throw error; });

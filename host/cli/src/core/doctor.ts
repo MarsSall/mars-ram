@@ -12,7 +12,9 @@ export interface DoctorPorts {
  herdr(): Promise<boolean>;
  /** command: the first mars-ram on PATH (path only). packageMode: install.json records that `mars-ram install` ran from the npm package. */
  cli(): Promise<{ resolved: boolean; command?: string; current: boolean; localBin: boolean; packageMode?: boolean }>;
- linkServer(): Promise<{ present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean }>;
+ /** listeners/notifyNetworks: per network (Tailscale, each ZeroTier address), when the installed copy can tell. */
+ linkServer(): Promise<{ present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean;
+  listeners?: { tailscale: boolean; zerotier: string[] }; notifyNetworks?: { tailscale: boolean; zerotier: string[] } }>;
 	installation(): Promise<{ present: boolean; current: boolean; homes: { path: string; registered: boolean }[] }>;
 	registry(): Promise<RegistryObservation>;
 	alive(pid: number): boolean;
@@ -98,11 +100,30 @@ export async function checkPermissions(p: DoctorPorts): Promise<Finding[]> {
 	const safe = registry.directoryMode === 0o700 && registry.modes.every((mode) => mode === 0o600);
 	return [result(safe ? "ok" : "problem", say(p, `Registry/token permissions: ${safe ? "0700 directory, 0600 entries" : "unsafe or unreadable"}.`, `Permisos de registro/tokens: ${safe ? "directorio 0700, entradas 0600" : "inseguros o ilegibles"}.`), safe ? undefined : say(p, "Set ~/.mars-ram/bridges to mode 0700 and each registry/token file inside to 0600 with chmod.", "Usá chmod para poner ~/.mars-ram/bridges en 0700 y cada archivo de registro/token dentro en 0600."))];
 }
+/** Each registration is notified only by its own network's listener: a ZeroTier listener never serves Tailscale phones, nor the reverse. */
+async function notifyListeners(p: DoctorPorts, state: Awaited<ReturnType<DoctorPorts["linkServer"]>>): Promise<Finding[]> {
+	if (!state.notificationsRegistered) return [];
+	const { listeners, notifyNetworks: notify } = state;
+	if (!listeners || !notify) return state.listener ? [] : [result('warning', say(p, 'Always-attentive notifications need the link server running.', 'Los avisos de Siempre atento necesitan el servidor de enlaces en ejecución.'), say(p, 'Enable the mode again from the phone to ensure the server. No permanent service is installed.', 'Activá de nuevo el modo desde el teléfono para iniciar el servidor. No se instala un servicio permanente.'))];
+	const findings: Finding[] = [];
+	if (notify.tailscale && !listeners.tailscale) findings.push(result("warning", say(p, "Always-attentive notifications over Tailscale need the Tailscale link server running.", "Los avisos de Siempre atento por Tailscale necesitan el servidor de enlaces de Tailscale en ejecución."),
+		say(p, "With Tailscale on in this computer and the phone, enable the mode again from the phone. No permanent service is installed.", "Con Tailscale encendido en esta computadora y en el teléfono, activá de nuevo el modo desde el teléfono. No se instala un servicio permanente.")));
+	const here = notify.zerotier.some(ip => !listeners.zerotier.includes(ip)) ? await zeroTierAddresses(p) : [];
+	for (const ip of notify.zerotier.filter(ip => !listeners.zerotier.includes(ip))) {
+		// The phone can start a listener only on an address that is still on a ZeroTier interface here.
+		findings.push(here.includes(ip)
+			? result("warning", say(p, `Always-attentive notifications over ZeroTier (${ip}) need the link server on that address running.`, `Los avisos de Siempre atento por ZeroTier (${ip}) necesitan el servidor de enlaces en esa dirección en ejecución.`),
+				say(p, "With ZeroTier on in this computer and the phone, enable the mode again from the phone. No permanent service is installed.", "Con ZeroTier encendido en esta computadora y en el teléfono, activá de nuevo el modo desde el teléfono. No se instala un servicio permanente."))
+			: result("warning", say(p, `Always-attentive notifications over ZeroTier (${ip}) cannot be sent: that address is no longer on this computer's ZeroTier interfaces.`, `Los avisos de Siempre atento por ZeroTier (${ip}) no se pueden enviar: esa dirección ya no está en las interfaces ZeroTier de esta computadora.`),
+				say(p, "Rejoin that ZeroTier network here, or pair the phone again and register from it.", "Volvé a unir esta computadora a esa red ZeroTier, o emparejá de nuevo el teléfono y registralo desde ahí.")));
+	}
+	return findings;
+}
 export async function checkLinkServer(p: DoctorPorts): Promise<Finding[]> {
 	const state = await p.linkServer();
  const installed = state.present && state.current;
  return [
-  ...(state.notificationsRegistered && !state.listener ? [result('warning', say(p, 'Always-attentive notifications need the link server running.', 'Los avisos de Siempre atento necesitan el servidor de enlaces en ejecución.'), say(p, 'Enable the mode again from the phone to ensure the server. No permanent service is installed.', 'Activá de nuevo el modo desde el teléfono para iniciar el servidor. No se instala un servicio permanente.'))] : []),
+  ...await notifyListeners(p, state),
   result(installed ? "ok" : "warning", say(p, installed ? "Link-server copy matches current sources." : "Link-server copy missing or outdated.", installed ? "La copia del servidor de enlaces coincide con el código actual." : "Copia del servidor de enlaces ausente o desactualizada."), installed ? undefined : installFix(p)),
   result(state.configured ? "ok" : "warning", say(p, state.configured ? "Link-server host.json paths and port valid." : "Link-server host.json paths or port missing/invalid.", state.configured ? "Rutas y puerto del servidor de enlaces válidos en host.json." : "Rutas o puerto del servidor de enlaces ausentes o inválidos en host.json."), state.configured ? undefined : installFix(p)),
   result(!state.listener && state.validLinks ? "warning" : "ok", say(p,
@@ -114,8 +135,8 @@ export async function checkLinkServer(p: DoctorPorts): Promise<Finding[]> {
 const zeroTierAddresses = async (p: DoctorPorts) => { try { return await p.zerotier(); } catch { return []; } };
 export async function checkTailscale(p: DoctorPorts): Promise<Finding[]> {
 	try { return [result("ok", `Tailscale: ${await p.tailscale()}`)]; } catch {
-		// Pairing, sessions, terminal and files also work over ZeroTier; private links and Siempre atento do not yet.
-		if ((await zeroTierAddresses(p)).length) return [result("warning", say(p, "Tailscale IPv4 unavailable; this computer pairs over ZeroTier, but private links and Siempre atento need Tailscale.", "IPv4 de Tailscale no disponible; esta computadora se empareja por ZeroTier, pero los enlaces privados y Siempre atento necesitan Tailscale."), say(p, "To use them, install Tailscale, sign in and connect; verify tailscale ip -4.", "Para usarlos, instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4."))];
+		// Everything works over ZeroTier too, private links and Siempre atento included: Tailscale is optional then.
+		if ((await zeroTierAddresses(p)).length) return [result("ok", say(p, "Tailscale not connected; this computer works over ZeroTier, including private links and Siempre atento.", "Tailscale no conectado; esta computadora funciona por ZeroTier, también con enlaces privados y Siempre atento."))];
 		return [result("problem", say(p, "Tailscale IPv4 unavailable.", "IPv4 de Tailscale no disponible."), say(p, "Install Tailscale, sign in and connect; verify tailscale ip -4.", "Instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4."))];
 	}
 }
@@ -124,7 +145,8 @@ export async function checkZeroTier(p: DoctorPorts): Promise<Finding[]> {
 	const addresses = await zeroTierAddresses(p);
 	return addresses.length ? [result("ok", `ZeroTier: ${addresses.join(", ")}`)] : [];
 }
-/** Pairing and SSH over ZeroTier time out behind ufw or firewalld until its interface is allowed in. */
+/** Pairing, SSH and private links (port 47811) over ZeroTier time out behind ufw or firewalld until its interface is allowed in;
+ * Siempre atento notices leave the computer, so default outgoing rules let them through. */
 export async function checkFirewall(p: DoctorPorts): Promise<Finding[]> {
 	if (!(await zeroTierAddresses(p)).length) return [];
 	let state: FirewallState;
@@ -137,7 +159,7 @@ export async function checkFirewall(p: DoctorPorts): Promise<Finding[]> {
 	for (const firewall of new Set(fixes.map((fix) => fix.firewall))) {
 		const commands = fixes.filter((fix) => fix.firewall === firewall).map((fix) => fix.command).join("; ");
 		findings.push(result("warning",
-			say(p, `Firewall (${firewall}) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected).`, `Firewall (${firewall}) activo; puede bloquear el emparejamiento y SSH por ZeroTier (Tailscale no se ve afectado).`),
+			say(p, `Firewall (${firewall}) is on; it may block pairing, SSH and private links over ZeroTier (Tailscale is not affected).`, `Firewall (${firewall}) activo; puede bloquear el emparejamiento, SSH y los enlaces privados por ZeroTier (Tailscale no se ve afectado).`),
 			say(p, `If the phone cannot connect over ZeroTier, run: ${commands}`, `Si el teléfono no conecta por ZeroTier, ejecutá: ${commands}`)));
 	}
 	return findings;

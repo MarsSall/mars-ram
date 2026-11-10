@@ -93,4 +93,101 @@ class AlwaysNoticeTest {
     assertFalse(alwaysBindCandidate("tun0", false, v6))
     assertFalse(alwaysBindCandidate("tun0", true, byteArrayOf(0, 0, 0, 0)))
   }
+  private fun ip(text: String) = java.net.InetAddress.getByName(text).address
+  @Test fun tailscaleBindingsKeepTheirRangeCheckAndLimit() {
+    val v4 = ip("100.101.102.103")
+    val v6 = ip("fd7a:115c:a1e0::1")
+    val both = alwaysTailscaleBindings(listOf(v4, v6, v4.copyOf()))
+    assertEquals(listOf("tailscale/100.101.102.103/10"), both.take(1).map { it.key })
+    assertEquals(2, both.size)
+    assertTrue(both[0].admits(ip("100.64.0.9")))
+    assertFalse(both[0].admits(ip("10.147.20.49")))
+    assertTrue(alwaysTailscaleBindings(listOf(v4, v6, ip("100.64.0.2"))).isEmpty())
+  }
+  @Test fun vpnAddressMustBeABoundedNonTailscaleHost() {
+    assertTrue(alwaysVpnBindCandidate(ip("10.147.20.12"), 24))
+    assertTrue(alwaysVpnBindCandidate(ip("10.147.20.12"), 8))
+    assertTrue(alwaysVpnBindCandidate(ip("172.22.0.5"), 30))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.12"), 0))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.12"), 7))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.12"), 31))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.12"), 32))
+    assertFalse(alwaysVpnBindCandidate(ip("100.101.102.103"), 24))
+    assertFalse(alwaysVpnBindCandidate(ip("127.0.0.1"), 8))
+    assertFalse(alwaysVpnBindCandidate(ip("169.254.3.4"), 16))
+    assertFalse(alwaysVpnBindCandidate(ip("224.0.0.5"), 24))
+    assertFalse(alwaysVpnBindCandidate(ip("0.1.2.3"), 8))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.0"), 24))
+    assertFalse(alwaysVpnBindCandidate(ip("10.147.20.255"), 24))
+    assertFalse(alwaysVpnBindCandidate(ip("fd00::1"), 24))
+  }
+  @Test fun vpnPeersOnlyFromTheListeningSubnet() {
+    val own = ip("10.147.20.12")
+    assertTrue(alwaysVpnPeer(own, 24, ip("10.147.20.49")))
+    assertFalse(alwaysVpnPeer(own, 24, ip("10.147.172.49")))
+    assertFalse(alwaysVpnPeer(own, 24, ip("192.168.1.20")))
+    assertFalse(alwaysVpnPeer(own, 24, ip("100.64.0.9")))
+    assertFalse(alwaysVpnPeer(own, 24, own))
+    assertFalse(alwaysVpnPeer(own, 24, ip("10.147.20.0")))
+    assertFalse(alwaysVpnPeer(own, 24, ip("10.147.20.255")))
+    assertFalse(alwaysVpnPeer(own, 24, ip("fd00::1")))
+    assertTrue(alwaysVpnPeer(own, 16, ip("10.147.3.4")))
+    assertFalse(alwaysVpnPeer(own, 0, ip("10.147.20.49")))
+    assertFalse(alwaysVpnPeer(own, 4, ip("10.147.20.49")))
+    val binding = AlwaysBinding(AlwaysNetwork.VPN, own, 24)
+    assertTrue(binding.admits(ip("10.147.20.49")))
+    assertFalse(binding.admits(ip("100.101.102.104")))
+  }
+  @Test fun vpnBindingsComeOnlyFromVpnNetworks() {
+    val zt = AlwaysLinkAddress(true, ip("10.147.20.12"), 24)
+    val wifi = AlwaysLinkAddress(false, ip("192.168.1.20"), 24)
+    val tailscale = AlwaysLinkAddress(true, ip("100.101.102.103"), 32)
+    assertEquals(listOf("vpn/10.147.20.12/24"), alwaysVpnBindings(listOf(wifi, zt, tailscale, zt)).map { it.key })
+    assertTrue(alwaysVpnBindings(listOf(wifi, tailscale)).isEmpty())
+    assertTrue(alwaysVpnBindings(listOf(AlwaysLinkAddress(true, ip("10.1.2.3"), 0))).isEmpty())
+    assertTrue(alwaysVpnBindings(listOf(zt, AlwaysLinkAddress(false, ip("10.147.20.12"), 16))).isEmpty())
+    val many = (1..5).map { AlwaysLinkAddress(true, byteArrayOf(10, it.toByte(), 0, 2), 24) }
+    assertEquals(4, alwaysVpnBindings(many.take(4)).size)
+    assertTrue(alwaysVpnBindings(many).isEmpty())
+  }
+  @Test fun rebindClosesStaleAndOpensNewListeners() {
+    val tailscale = AlwaysBinding(AlwaysNetwork.TAILSCALE, ip("100.101.102.103"), 10)
+    val zt = AlwaysBinding(AlwaysNetwork.VPN, ip("10.147.20.12"), 24)
+    val ztWider = AlwaysBinding(AlwaysNetwork.VPN, ip("10.147.20.12"), 16)
+    val switch = alwaysRebind(listOf(tailscale), listOf(zt))
+    assertEquals(listOf(tailscale), switch.close)
+    assertEquals(listOf(zt), switch.open)
+    val same = alwaysRebind(listOf(zt), listOf(AlwaysBinding(AlwaysNetwork.VPN, ip("10.147.20.12"), 24)))
+    assertTrue(same.close.isEmpty() && same.open.isEmpty())
+    val prefix = alwaysRebind(listOf(zt), listOf(ztWider))
+    assertEquals(listOf(zt), prefix.close)
+    assertEquals(listOf(ztWider), prefix.open)
+    val off = alwaysRebind(listOf(zt), emptyList())
+    assertEquals(listOf(zt), off.close)
+    assertTrue(off.open.isEmpty())
+    assertEquals(listOf(zt), alwaysRebind(emptyList(), listOf(zt, zt)).open)
+  }
+  @Test fun rebindClosesClientsAdmittedByAClosedListener() {
+    val closed = mutableListOf<String>()
+    val clients = AlwaysClients<String, String> { closed += it }
+    clients.listen("tailscale"); clients.listen("zerotier")
+    assertTrue(clients.admit("tailscale", "a")); assertTrue(clients.admit("zerotier", "b"))
+    clients.retire("tailscale")
+    assertEquals(listOf("a"), closed)
+    // A client accepted just before its listener was retired is refused and closed, never read.
+    assertFalse(clients.admit("tailscale", "late")); assertEquals(listOf("a", "late"), closed)
+    // A listener reopened on the same address is a new listener; the old one stays retired.
+    clients.listen("tailscale-again"); assertTrue(clients.admit("tailscale-again", "c"))
+    clients.remove("b"); clients.retire("zerotier"); assertEquals(listOf("a", "late"), closed)
+    assertFalse(clients.admit("unknown", "d")); assertEquals(listOf("a", "late", "d"), closed)
+    clients.closeAll(); assertEquals(listOf("a", "late", "d", "c"), closed)
+    clients.listen("after"); assertFalse(clients.admit("after", "e")); assertEquals("e", closed.last())
+  }
+  @Test fun networksStatusShowsKindAddressAndPrefix() {
+    val status = alwaysNetworksStatus(listOf(AlwaysBinding(AlwaysNetwork.VPN, ip("10.147.20.12"), 24), AlwaysBinding(AlwaysNetwork.TAILSCALE, ip("100.101.102.103"), 10)))
+    assertEquals(listOf(mapOf("kind" to "vpn", "address" to "10.147.20.12", "prefix" to 24), mapOf("kind" to "tailscale", "address" to "100.101.102.103", "prefix" to 10)), status)
+    assertEquals("PRIVATE_NETWORK_REQUIRED", alwaysRunningStatus(emptyList())["code"])
+    assertEquals(emptyList<Any>(), alwaysRunningStatus(emptyList())["networks"])
+    assertFalse(alwaysRunningStatus(listOf(AlwaysBinding(AlwaysNetwork.VPN, ip("10.147.20.12"), 24))).containsKey("code"))
+  }
 }

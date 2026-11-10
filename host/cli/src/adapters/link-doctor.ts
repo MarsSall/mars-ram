@@ -4,9 +4,13 @@ import { promisify } from "node:util";
 import { dirname } from "node:path";
 import { isAbsolute, join } from "node:path";
 import { lstatSync, readFileSync, readdirSync, accessSync, constants, statSync } from "node:fs";
+import { isIpv4 } from "@workspace/protocol/private-network";
 import { linkCopyIsCurrent } from "./link-installation.ts";
 
-export type LinkObservation = { present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean };
+/** Per network: Tailscale, and each ZeroTier address of this computer. */
+export type NetworkSet = { tailscale: boolean; zerotier: string[] };
+/** listeners/notifyNetworks: which listeners answer and which networks have «Siempre atento» registrations, when known. */
+export type LinkObservation = { present: boolean; current: boolean; configured: boolean; validLinks: number; listener: boolean; notificationsRegistered?: boolean; listeners?: NetworkSet; notifyNetworks?: NetworkSet };
 const regular = (path: unknown): path is string => {
  try { return typeof path === "string" && isAbsolute(path) && lstatSync(path).isFile(); } catch { return false; }
 };
@@ -21,7 +25,13 @@ async function status(node: string, main: string, home: string): Promise<{ servi
  if (typeof value.serving !== "boolean" || !Number.isSafeInteger(value.links) || value.links < 0) throw new Error("Invalid link-server status.");
  return value;
 }
-export async function observeLinkServer(root: string, options: { now?: number; status?: typeof status } = {}): Promise<LinkObservation> {
+const networkSet = (value: unknown): value is NetworkSet => !!value && typeof value === "object" && typeof (value as NetworkSet).tailscale === "boolean"
+ && Array.isArray((value as NetworkSet).zerotier) && (value as NetworkSet).zerotier.length <= 64 && (value as NetworkSet).zerotier.every(ip => typeof ip === "string" && isIpv4(ip));
+async function networks(node: string, main: string, home: string): Promise<{ listeners: NetworkSet; notify: NetworkSet }> {
+ const output = await promisify(execFile)(node, [main, "networks"], { timeout: 15000, windowsHide: true, shell: false, env: { ...process.env, HOME: home, USERPROFILE: home } });
+ return JSON.parse(output.stdout);
+}
+export async function observeLinkServer(root: string, options: { now?: number; status?: typeof status; networks?: typeof networks } = {}): Promise<LinkObservation> {
  const copy = join(root, "link-server"), main = join(copy, "src/main.ts"), store = join(root, "links");
  const result: LinkObservation = { present: regular(main), current: linkCopyIsCurrent(copy), configured: false, validLinks: 0, listener: false };
  // Presence is diagnostic only, never authorization to read secrets or deliver a notice.
@@ -39,7 +49,17 @@ export async function observeLinkServer(root: string, options: { now?: number; s
  if (result.configured && result.current) {
   const value = read(join(root, "host.json")) as Record<string, unknown>;
   const observed = await (options.status ?? status)(value.node as string, main, dirname(root));
-  return { ...result, validLinks: observed.links, listener: observed.serving };
+  const found: LinkObservation = { ...result, validLinks: observed.links, listener: observed.serving };
+  if (!result.notificationsRegistered) return found;
+  // Unknown (and the overall check used) when the copy cannot tell or answers anything unexpected.
+  try {
+   const facts: unknown = await (options.networks ?? networks)(value.node as string, main, dirname(root));
+   if (facts && typeof facts === "object" && networkSet((facts as { listeners?: unknown }).listeners) && networkSet((facts as { notify?: unknown }).notify)) {
+    const { listeners, notify } = facts as { listeners: NetworkSet; notify: NetworkSet };
+    return { ...found, listeners: { tailscale: listeners.tailscale, zerotier: [...listeners.zerotier] }, notifyNetworks: { tailscale: notify.tailscale, zerotier: [...notify.zerotier] } };
+   }
+  } catch { /* See above. */ }
+  return found;
  }
  let names: string[];
  try {

@@ -5,6 +5,7 @@
 	"exports": {
 		".": "./src/index.ts",
         "./session-notice": "./src/session-notice.ts",
+        "./private-network": "./src/private-network.ts",
         "./uploads-folder": "./src/uploads-folder.ts"
 	},
 	"scripts": {

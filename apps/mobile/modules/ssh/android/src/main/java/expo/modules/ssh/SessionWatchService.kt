@@ -61,6 +61,16 @@ internal fun noticeTap(packageName: String, host: String, bridge: String): Notic
   return NoticeTap("android.intent.action.VIEW", "$scheme://notice?h=$host&b=$bridge&encoding=utf16-hex")
 }
 
+/** No eligible Tailscale or other VPN address; replaces TAILSCALE_REQUIRED (odd/tasks/zerotier-phase2.md S4). */
+internal const val ALWAYS_NO_NETWORK_CODE = "PRIVATE_NETWORK_REQUIRED"
+
+/** «Siempre atento» keeps running while the VPN is off or switching, listening again when an address returns. */
+internal fun alwaysRunningStatus(bound: List<AlwaysBinding>): Map<String, Any?> {
+  val status = mutableMapOf<String, Any?>("state" to "running", "mode" to "always", "hosts" to emptyMap<String, String>(), "networks" to alwaysNetworksStatus(bound))
+  if (bound.isEmpty()) status["code"] = ALWAYS_NO_NETWORK_CODE
+  return status
+}
+
 internal object SessionWatchControl {
   private var pending: Pair<String, WatchConfiguration>? = null
   @Volatile var language: String = "en"
@@ -257,15 +267,16 @@ class SessionWatchService : Service() {
     try {
       SessionWatchControl.status = mapOf("state" to "starting", "mode" to "always", "hosts" to emptyMap<String, String>())
       val vault = withContext(Dispatchers.IO) { AlwaysNotifySecrets.get(this@SessionWatchService) }
-      val listener = TcpAlwaysNoticeSource(vault, config.alwaysHosts) {
-        SessionWatchControl.status = mapOf("state" to "running", "mode" to "always", "hosts" to emptyMap<String, String>())
+      val context = applicationContext
+      val listener = TcpAlwaysNoticeSource(vault, config.alwaysHosts, { readAlwaysBindings(context) }, alwaysNetworkChanges(context)) { bound ->
+        SessionWatchControl.status = alwaysRunningStatus(bound)
       }
       source = listener
       alwaysSource = listener
       listener.events().collect { sessionAlert(it) }
     } catch (e: CancellationException) { throw e
     } catch (e: Exception) {
-      SessionWatchControl.status = mapOf("state" to "error", "mode" to "always", "code" to if (e is AlwaysListenerUnavailable) "TAILSCALE_REQUIRED" else "WATCH_FAILED", "hosts" to emptyMap<String, String>())
+      SessionWatchControl.status = mapOf("state" to "error", "mode" to "always", "code" to if (e is AlwaysListenerUnavailable) ALWAYS_NO_NETWORK_CODE else "WATCH_FAILED", "hosts" to emptyMap<String, String>())
       stopSelf(startId)
     } finally {
       source?.close()

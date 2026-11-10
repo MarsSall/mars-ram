@@ -180,8 +180,12 @@ export async function excludedPorts(signal: AbortSignal, home = homedir(), io: F
   try { const decoded = decodeRegistryEntry(JSON.parse(await io.read(join(directory, name)))); if (decoded.ok) ports.push(decoded.value.port); }
   catch { /* Stale, invalid or concurrently removed registry entry. */ }
  }
- try {
-  const record: unknown = JSON.parse(await io.read(join(home, `.${APP_ID}`, 'links', 'server.pid.json')));
+ // The Tailscale link server's record, then one per ZeroTier listener (host/link-server launcher).
+ let links: string[];
+ try { links = (await io.list(join(home, `.${APP_ID}`, 'links'))).filter(name => /^server-zerotier-\d{1,3}(?:\.\d{1,3}){3}\.pid\.json$/.test(name)).slice(0, 16); }
+ catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; links = []; }
+ for (const name of ['server.pid.json', ...links]) try {
+  const record: unknown = JSON.parse(await io.read(join(home, `.${APP_ID}`, 'links', name)));
   if (record && typeof record === 'object' && 'port' in record && typeof record.port === 'number' && Number.isInteger(record.port) && record.port > 0 && record.port <= 65535) ports.push(record.port);
  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
  return ports;

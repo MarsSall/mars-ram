@@ -87,11 +87,19 @@ export type SessionWatchConfig =
 	| { appId: string; language?: "es" | "en"; mode?: "while-working"; hosts: { hostId: string; connection: ConnectOptions & { expectedFingerprint: string } }[] }
 	| { appId: string; language?: "es" | "en"; mode: "always"; hosts: AlwaysWatchHost[] };
 export type SessionWatchStartResult = { ok: true } | { ok: false; code: "APP_NOT_VISIBLE" | "INVALID_CONFIG" | "NOTIFICATIONS_DENIED" | "START_NOT_ALLOWED" | "PERMISSION_DENIED" };
+/** A phone address «Siempre atento» listens on: Tailscale, or another VPN (ZeroTier) admitting only its own subnet. */
+export type AlwaysListeningNetwork = { kind: "tailscale" | "vpn"; address: string; prefix: number };
 export type SessionWatchStatus = {
 	state: "stopped" | "starting" | "running" | "error";
 	hosts: Record<string, "connecting" | "connected" | "connection-lost" | "unlock-required">;
 	mode?: "while-working" | "always";
-	code?: "START_NOT_ALLOWED" | "PERMISSION_DENIED" | "WATCH_FAILED" | "TAILSCALE_REQUIRED";
+	/**
+	 * PRIVATE_NETWORK_REQUIRED: no Tailscale or other VPN address to listen on. As an error it ended the start; with
+	 * state "running" the watch waits for a VPN to come back. TAILSCALE_REQUIRED is only from older builds.
+	 */
+	code?: "START_NOT_ALLOWED" | "PERMISSION_DENIED" | "WATCH_FAILED" | "PRIVATE_NETWORK_REQUIRED" | "TAILSCALE_REQUIRED";
+	/** Mode "always" while running: where the phone listens now; empty while no VPN is on. Missing in older builds. */
+	networks?: AlwaysListeningNetwork[];
 };
 
 /** Future notification adapters can use a relay; no SSH capability is part of this consumer port. */

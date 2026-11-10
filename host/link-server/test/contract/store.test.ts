@@ -251,6 +251,11 @@ describe("real Node CLI (no bind override or detached child)", () => {
 		expect(await readFile(path, "utf8")).toBe(before);
 		expect(await readFile(join(root, ".mars-ram/links", metadata.id, "content"), "utf8")).toBe("hello");
 	});
+	it("networks reports listeners and registration networks for the doctor without creating storage", async () => {
+		expect(JSON.parse((await cli(["networks"])).stdout)).toEqual({ listeners: { tailscale: false, zerotier: [] }, notify: { tailscale: false, zerotier: [] } });
+		await expect(lstat(join(root, ".mars-ram"))).rejects.toMatchObject({ code: "ENOENT" });
+		for (const args of [["networks", "--network", "zerotier", "--address", "10.147.20.49"], ["networks", "--address", "10.147.20.49"]]) await expect(cli(args)).rejects.toMatchObject({ code: 1 });
+	});
 	it("list/ensure with no links and idempotent delete have exact JSON outputs", async () => {
 		expect(JSON.parse((await cli(["list"])).stdout)).toEqual({ serving: false, links: [] });
 		expect(JSON.parse((await cli(["ensure"])).stdout)).toEqual({ serving: false });

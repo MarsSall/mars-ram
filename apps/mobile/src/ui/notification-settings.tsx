@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppState, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { notifications, notificationSystem } from "../services";
-import type { NotificationMode } from "../core/notifications";
+import { alwaysReachability, type NotificationMode, type NotificationSnapshot } from "../core/notifications";
 import { Card, SectionTitle, Segmented } from "./components";
 import { usePreferences } from "./preferences";
 import { notificationCopy } from "./notification-copy";
@@ -18,10 +18,19 @@ export function NotificationSettingsCard() {
   const subscription = AppState.addEventListener("change", s => { if (s === "active") refresh(); });
   return () => { clearInterval(timer); subscription.remove(); };
  }, []);
- const error = state.error === "WATCH_TIMEOUT" ? copy.timeout : state.error === "NOTIFICATIONS_DENIED" ? copy.denied : state.error === "TAILSCALE_REQUIRED" ? copy.tailscale : state.error === "APP_NOT_VISIBLE" || state.error === "START_NOT_ALLOWED" ? copy.visible : state.error === "NO_COMPUTERS" ? copy.empty : state.error === "TAILSCALE_ONLY" ? null : state.error ? copy.generic : null;
+ const error = state.error === "WATCH_TIMEOUT" ? copy.timeout : state.error === "NOTIFICATIONS_DENIED" ? copy.denied : state.error === "PRIVATE_NETWORK_REQUIRED" ? copy.privateNetwork : state.error === "TAILSCALE_REQUIRED" ? copy.tailscale : state.error === "APP_NOT_VISIBLE" || state.error === "START_NOT_ALLOWED" ? copy.visible : state.error === "NO_COMPUTERS" ? copy.empty : state.error === "NETWORK_OFF" ? copy.noNetworkOn : state.error ? copy.generic : null;
  const text = { color: theme.colors.textMuted, marginTop: 8 };
  const button = (label: string, action: () => Promise<unknown>, changesMode = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={changesMode && state.busy} onPress={() => { setSettingsError(false); void action().catch(() => setSettingsError(true)); }} style={{ minHeight: 48, justifyContent: "center", opacity: changesMode && state.busy ? 0.5 : 1 }}><Text style={{ color: theme.colors.accentText }}>{label}</Text></Pressable>;
  const c = theme.colors;
+ // «Registro confirmado» is not «reachable»: each computer needs its own network's VPN on (zerotier-phase2 S5).
+ const via = (computer: NotificationSnapshot["computers"][number]) => {
+  if (state.mode !== "always" || !computer.network || computer.address === undefined) return null;
+  // The running watch's networks are fresh evidence; before that, the phone's VPN state read at preparation.
+  const reachability = alwaysReachability({ network: computer.network, address: computer.address }, state.status);
+  const off = (computer.result === "ok" || computer.result === "NETWORK_OFF") && (reachability === "off" || reachability === "unknown" && !!computer.networkOff);
+  const network = computer.network === "zerotier" ? copy.viaZeroTier : copy.viaTailscale;
+  return <Text key={`${computer.hostId}-network`} style={{ ...text, marginTop: 2, color: off ? c.attention : c.textMuted }}>{off ? `${network} · ${computer.network === "zerotier" ? copy.zeroTierOff : copy.tailscaleOff}` : network}</Text>;
+ };
  const helpButton = <Pressable accessibilityRole="button" accessibilityLabel={copy.help} onPress={() => setHelp(true)} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}><View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: c.textMuted, alignItems: "center", justifyContent: "center" }}><Text style={{ color: c.textMuted, fontSize: 14, fontWeight: "700" }}>?</Text></View></Pressable>;
  const paragraph = { color: c.textMuted, fontSize: 14, lineHeight: 21, marginTop: 12 };
  return <><SectionTitle right={helpButton}>{copy.title}</SectionTitle><Card>
@@ -30,7 +39,7 @@ export function NotificationSettingsCard() {
   {state.busy ? <Text accessibilityLiveRegion="polite" style={text}>{copy.loading}</Text> : null}
   {state.mode !== "off" ? <Text accessibilityLiveRegion="polite" style={text}>{state.status.state === "running" ? copy.running : state.status.state === "starting" ? copy.starting : copy.stopped}</Text> : null}
   {error ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger, marginTop: 8 }}>{error}</Text> : null}
-  {state.computers.map(c => <Text key={c.hostId} accessibilityLiveRegion="polite" style={{ ...text, color: c.result === "ok" || c.result === "TAILSCALE_ONLY" ? theme.colors.textMuted : theme.colors.danger }}>{c.name}: {c.result === "ok" ? (state.mode === "while-working" ? copy.connected : copy.registered) : c.result === "PREPARATION_TIMEOUT" ? copy.timeout : c.result === "CONNECTION_FAILED" ? copy.connectionFailed : c.result === "UPDATE_REQUIRED" ? copy.update : c.result === "TAILSCALE_ONLY" ? copy.tailscaleOnly : copy.failed}</Text>)}
+  {state.computers.map(c => [<Text key={c.hostId} accessibilityLiveRegion="polite" style={{ ...text, color: c.result === "ok" ? theme.colors.textMuted : theme.colors.danger }}>{c.name}: {c.result === "ok" ? (state.mode === "while-working" ? copy.connected : copy.registered) : c.result === "PREPARATION_TIMEOUT" ? copy.timeout : c.result === "CONNECTION_FAILED" ? copy.connectionFailed : c.result === "UPDATE_REQUIRED" ? copy.update : c.result === "NETWORK_OFF" ? copy.networkOff : copy.failed}</Text>, via(c)])}
   {state.error === "NOTIFICATIONS_DENIED" ? button(copy.settings, notificationSystem.openSettings) : null}
   {state.mode !== "off" ? button(copy.retry, () => notifications.choose(state.mode), true) : null}
   {state.mode === "always" ? <>

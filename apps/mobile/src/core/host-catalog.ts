@@ -37,11 +37,6 @@ export function hostNetwork(host: Pick<SavedHost, "network">): HostNetwork {
 	return host.network ?? "tailscale";
 }
 
-/** Private links and Siempre atento listen on the Tailscale address; over ZeroTier they wait for phase 2. */
-export function hasTailscaleFeatures(host: Pick<SavedHost, "network">): boolean {
-	return hostNetwork(host) === "tailscale";
-}
-
 /** Name first, falling back to the address, as the app connects to it. */
 export function connectTarget(host: SavedHost, keyAlias: string) {
 	return {

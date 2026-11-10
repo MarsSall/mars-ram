@@ -39,6 +39,11 @@ export function terminalToolbarKeys(moment: { keyboard: boolean; prefixPanel: bo
 export function terminalToolbarWidth(key: TerminalToolbarKey): number {
  return { attach: 24, ctrl: 30, prefix: 44, esc: 24, tab: 24, enter: 22, paste: 24, mic: 24, up: 20, down: 20, left: 20, right: 20, dpad: 24, backspace: 24, keyboard: 26 }[key];
 }
+/** The narrowest phone: 20dp edge margins plus 14dp pill padding/borders, 2dp between keys. */
+export const TOOLBAR_BUDGET = { screen: 360, chrome: 20 + 14, gap: 2 } as const;
+export function terminalToolbarRowWidth(widths: readonly number[]): number {
+ return widths.reduce((sum, width) => sum + width, TOOLBAR_BUDGET.chrome + Math.max(0, widths.length - 1) * TOOLBAR_BUDGET.gap);
+}
 export function terminalChromeInsets(insets: { top: number; bottom: number }, keyboard: boolean) {
  const stripHeight = Math.max(32, insets.top);
  // Keep both halves clear of a centre punch-hole, even with long/scaled text.

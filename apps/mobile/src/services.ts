@@ -52,6 +52,10 @@ import type { AttachmentRetention } from "./core/attachment-retention";
 import type { AttachmentSource } from "./core/media-source";
 import { fileTerminalFont } from "./adapters/file-terminal-font";
 import { TerminalFontPreference } from "./core/terminal-font";
+import { fileTerminalKeys } from "./adapters/file-terminal-keys";
+import { TerminalKeysPreference } from "./core/terminal-keys";
+import { fileSecretFiles } from "./adapters/file-secret-files";
+import { SecretFilesPreference } from "./core/secret-files";
 
 export const chooseAttachments = (source: AttachmentSource) => expoMediaSource.select(source);
 let retention = readRetention();
@@ -63,6 +67,10 @@ export const attachmentPreference = {
 };
 /** The one terminal font size: Settings and pinch zoom; read before any terminal opens. */
 export const terminalFont = new TerminalFontPreference(fileTerminalFont);
+/** The one global bar + D-pad layout and custom buttons; read before any terminal opens, updates live. */
+export const terminalKeys = new TerminalKeysPreference(fileTerminalKeys);
+/** Project browser: hide .env files, private keys and credential files until «Mostrar» (default on). */
+export const secretFiles = new SecretFilesPreference(fileSecretFiles);
 
 /** The installed build, read once: Android versionCode first, Expo's values as fallback. */
 export const appBuild = readAppBuild();
@@ -180,7 +188,7 @@ const notificationRegistration = new NotificationRegistration({
  local: { register: nativeNotifications.register },
 });
 export const notifications = new NotificationSettings({
- ...nativeNotifications, hosts: () => catalog.list(),
+ ...nativeNotifications, hosts: () => catalog.list(), phone: () => nativePhoneNetwork.read(),
  connect: host => connections.connection(host),
  register: (host, signal) => notificationRegistration.register(host, signal),
  unregister: host => notificationRegistration.unregister(host),

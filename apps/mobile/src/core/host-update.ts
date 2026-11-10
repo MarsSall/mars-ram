@@ -2,8 +2,8 @@
 import { APP_ID } from '@workspace/protocol';
 import { hostCliPrefix } from './herdr-switcher';
 
-/** 0.1.5: attachments need `uploads-dir`, ZeroTier needs `pair-zt`. Bump only when the app requires newer host capabilities. */
-export const MINIMUM_HOST_VERSION = '0.1.5';
+/** 0.1.6: private links and Siempre atento over ZeroTier, and the project browser refuses hard links. Bump only when the app requires newer host capabilities. */
+export const MINIMUM_HOST_VERSION = '0.1.6';
 export type HostRelease = string; // semver | missing (legacy CLI) | dev | unknown (no evidence)
 export type HostUpdateStatus = 'ok' | 'soft' | 'required';
 function semver(value: unknown): { numbers: number[]; pre: string[] } | null {

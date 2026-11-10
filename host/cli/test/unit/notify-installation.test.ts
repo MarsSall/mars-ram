@@ -5,6 +5,7 @@ it('ships a dependency-free link server with canonical notice contracts inside t
  const files = linkRuntimeFiles(linkSource);
  expect(files.has('src/wire/session-notice.ts')).toBe(true);
  expect(files.has('src/wire/notice-bridge.ts')).toBe(true);
+ expect(files.has('src/wire/private-network.ts')).toBe(true);
  for (const [path, source] of files) {
   if (!path.endsWith('.ts')) continue;
   for (const match of source.matchAll(/(?:from\s*|import\s*\()\s*["']([^"']+)["']/g)) {

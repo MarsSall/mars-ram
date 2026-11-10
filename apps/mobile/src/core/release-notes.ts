@@ -7,6 +7,30 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 10,
+  version: "1.0.0",
+  es: {
+   new: [
+    "Podés personalizar las teclas de la terminal, la barra de abajo y el D-pad flotante: las ordenás arrastrando, elegís de una lista y creás tus propios botones. Un botón que termina con Enter se manda manteniéndolo apretado. Está en Ajustes › Personalizar teclas.",
+    "Los enlaces privados y Siempre atento ahora funcionan también con ZeroTier. Necesita mars-ram 0.1.6 en la compu: la app te da los comandos para actualizar.",
+    "El explorador del proyecto oculta los archivos secretos, como .env y claves privadas, hasta que tocás Mostrar. Lo podés apagar en Ajustes.",
+   ],
+   fixes: [
+    "El explorador del proyecto ya no abre archivos con enlaces duros, que podían mostrar archivos de fuera del proyecto. Necesita mars-ram 0.1.6 en la compu.",
+   ],
+  },
+  en: {
+   new: [
+    "You can customize the terminal keys, the bar at the bottom and the floating D-pad: reorder them by dragging, pick from a list and create your own buttons. A button that ends with Enter is sent by holding it. It's in Settings › Customize keys.",
+    "Private links and Always attentive now work with ZeroTier too. This needs mars-ram 0.1.6 on the computer: the app gives you the commands to update.",
+    "The project browser hides secret files, like .env and private keys, until you tap Show. You can turn this off in Settings.",
+   ],
+   fixes: [
+    "The project browser no longer opens hard-linked files, which could show files from outside the project. This needs mars-ram 0.1.6 on the computer.",
+   ],
+  },
+ },
+ {
   build: 9,
   version: "1.0.0",
   es: {

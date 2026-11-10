@@ -17,9 +17,9 @@ export const newestLinks = (items: readonly LinkHistoryItem[]): LinkHistoryItem[
 /** Display only: keep the stamped upload name for storage and host operations. */
 export const linkDisplayName = (name: string): string => name.replace(/^\d{8}-\d{6}-[a-z0-9]{6}-(?=.)/, "");
 export const linkSize = (bytes: number): string => bytes < 1024 ? `${bytes} B` : bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
-export type FilesError = { key: "tailscaleOnly" | "failed" | "notInstalled" | "tooLarge" | "unlockRequired" | "loadFailed" | "removeFailed" | "copyFailed" | "noImage" | "cameraDenied" | "sourceFailed"; detail?: string };
+export type FilesError = { key: "updateRequired" | "zeroTierAddress" | "failed" | "notInstalled" | "tooLarge" | "unlockRequired" | "loadFailed" | "removeFailed" | "copyFailed" | "noImage" | "cameraDenied" | "sourceFailed"; detail?: string };
 export const linkOperationError = (failure: LinkFailure, fallback: "failed" | "removeFailed"): FilesError => ({
- key: failure.code === "TAILSCALE_ONLY" ? "tailscaleOnly" : failure.code === "UNLOCK_REQUIRED" ? "unlockRequired" : failure.code === "LINK_NOT_INSTALLED" ? "notInstalled" : failure.code === "TOO_LARGE" ? "tooLarge" : fallback,
+ key: failure.code === "UPDATE_REQUIRED" ? "updateRequired" : failure.code === "ZEROTIER_ADDRESS_NOT_FOUND" ? "zeroTierAddress" : failure.code === "UNLOCK_REQUIRED" ? "unlockRequired" : failure.code === "LINK_NOT_INSTALLED" ? "notInstalled" : failure.code === "TOO_LARGE" ? "tooLarge" : fallback,
  detail: `${failure.code}: ${failure.message}`,
 });
 export const selectComputer = (ids: readonly string[], remembered: string | null): string | null => remembered && ids.includes(remembered) ? remembered : ids[0] ?? null;

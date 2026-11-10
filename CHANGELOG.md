@@ -2,6 +2,28 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.1.6
+
+Released together with Android build 10 of the app. That app build needs mars-ram 0.1.6 (`MINIMUM_HOST_VERSION`) and asks older computers to update.
+
+Update in the computer's terminal (Linux, macOS or Windows):
+
+```text
+pnpm add -g mars-ram@0.1.6
+mars-ram install
+```
+
+The session bridge still speaks protocol **1.7**, so Pi sessions that are already running need no `/reload`.
+
+### New
+
+- Private links and Siempre atento work over ZeroTier. The link commands take `--network zerotier --address <ipv4>` (the ZeroTier address the phone paired with); the link server then runs a separate listener bound only to that ZeroTier address, on the same port 47811, next to the Tailscale one. `mars-ram notify register` accepts a phone that connects over ZeroTier from inside that ZeroTier subnet, and `mars-ram doctor` warns per network, Tailscale and ZeroTier.
+- Limitation: a computer paired with the same phone over both Tailscale and ZeroTier keeps one Siempre atento registration, the last one, so its notices go over that network.
+
+### Fixes
+
+- Security: the project browser refuses hard links in `file`, `diff` and `stage-link`, and a working-tree diff takes only a single file, never a folder. Reported in MarsSall/mars-ram#1.
+
 ## mars-ram 0.1.5
 
 Released together with Android build 9 of the app. That app build needs mars-ram 0.1.5 (`MINIMUM_HOST_VERSION`) and asks older computers to update.

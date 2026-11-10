@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, Image, PanResponder, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { projectFileState, projectTreeEntries, type ProjectFileState, type ProjectTreeEntry } from "../core/project-file-state";
-import { hasTailscaleFeatures, type SavedHost } from "../core/host-catalog";
+import type { SavedHost } from "../core/host-catalog";
+import { hideSecrets } from "../core/secret-files";
 import { formatAge, formatSize, highlightLine, textLines, hostFilePath, summarizeChanges, type Change, type Commit, type ProjectErrorCode, type ProjectFile, type ProjectOptions, type ProjectResult, type ProjectStatus, type ProjectTree, type ProjectValue, type ProjectVerb } from "../core/project";
-import { catalog, clipboard, createLinkService, projectBrowser } from "../services";
+import { catalog, clipboard, createLinkService, projectBrowser, secretFiles } from "../services";
 import { usePreferences } from "./preferences";
 import type { Theme } from "./theme";
 import type { Strings } from "./i18n/en";
@@ -36,6 +37,8 @@ const stateTokens = { modified: "fileModified", deleted: "fileDeleted", uncommit
 const stateMarks: Record<ProjectFileState, string> = { modified: "M", deleted: "D", uncommitted: "?", "last-commit": "●" };
 type Ctx = {
  lastFiles: Change[]; colorNotice: string | null;
+ // Secret files (core/secret-files) stay out of every list until «Mostrar»; no host read is made for them.
+ hide: boolean; hiddenRow(count: number): ReactNode;
  c: Theme["colors"]; theme: Theme; p: Strings["project"]; live: SavedHost | null; attempt: number; ws: string | null; root: ProjectTree["root"] | null; changes: Change[]; mode: SheetMode;
  setView(view: View_): void; setDir(dir: string): void; icon(name: keyof typeof Ionicons.glyphMap, color?: string, size?: number): ReactNode;
  header(title: string, subtitle: string, splitButton: boolean): ReactNode; failure(code: ProjectErrorCode): ReactNode; loading(): ReactNode;
@@ -49,7 +52,8 @@ function Files({ x, tree, dir }: { x: Ctx; tree: Load<ProjectTree>; dir: string 
  if (tree.state === "error" && !deletedFolder) return failure(tree.code);
  const now = Date.now(); const value: ProjectTree = tree.state === "ok" ? tree.value : { version: 1, root: x.root!, path: dir, entries: [], truncated: false };
  const crumbs = value.path ? value.path.split("/") : [];
- const entries = projectTreeEntries(value.path, value.entries, x.changes);
+ const listed = hideSecrets(projectTreeEntries(value.path, value.entries, x.changes), entry => entry.kind === "dir" ? null : value.path ? `${value.path}/${entry.name}` : entry.name, x.hide);
+ const entries = listed.shown;
  const row = (entry: ProjectTreeEntry) => {
   const path = value.path ? `${value.path}/${entry.name}` : entry.name; const age = entry.missing ? "" : formatAge(entry.mtime, now);
   const state = projectFileState(path, x.changes, x.lastFiles, entry.kind === "dir");
@@ -69,7 +73,8 @@ function Files({ x, tree, dir }: { x: Ctx; tree: Load<ProjectTree>; dir: string 
   </ScrollView>
   {value.root.git ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingHorizontal: 10, paddingBottom: 8 }}>{(Object.keys(stateTokens) as ProjectFileState[]).map(state => <Text key={state} style={{ color: c[stateTokens[state]], fontSize: 11 }}>{stateMarks[state]} {p.fileStates[state]}</Text>)}</ScrollView> : null}
   {value.root.git && x.colorNotice ? <Text accessibilityLiveRegion="polite" style={{ color: c.textMuted, paddingHorizontal: 10, fontSize: 12 }}>{x.colorNotice}</Text> : null}
-  {entries.length ? entries.map(row) : <Text style={{ color: c.textMuted, padding: 12 }}>{p.empty}</Text>}
+  {entries.length ? entries.map(row) : listed.hidden ? null : <Text style={{ color: c.textMuted, padding: 12 }}>{p.empty}</Text>}
+  {x.hiddenRow(listed.hidden)}
   {value.truncated ? <Text style={{ color: c.attention, padding: 12, fontSize: 12 }}>{p.truncated}</Text> : null}
  </ScrollView>;
 }
@@ -127,7 +132,8 @@ function Changes({ x, status }: { x: Ctx; status: Load<ProjectStatus> }) {
  const { c, theme, p, setView, icon, loading, failure, changeRow } = x;
  if (status.state === "loading") return loading();
  if (status.state === "error") return failure(status.code);
- const value = status.value; const sum = summarizeChanges(value.changes); const list = value.changes.map(ch => ch.path);
+ const value = status.value; const sum = summarizeChanges(value.changes);
+ const listed = hideSecrets(value.changes, ch => ch.path, x.hide); const list = listed.shown.map(ch => ch.path);
  return <ScrollView>
   <View style={{ margin: 10, padding: 12, borderRadius: theme.radius.medium, backgroundColor: c.surfaceRaised }}>
    <Text style={{ color: c.text, fontSize: 15, fontWeight: "700" }}>{sum.count ? p.changed(sum.count) : p.clean} {sum.count ? <Text style={{ fontFamily: theme.font.mono, fontSize: 12, fontWeight: "400" }}><Text style={{ color: c.done }}>+{sum.added}</Text> <Text style={{ color: c.danger }}>−{sum.removed}</Text></Text> : null}</Text>
@@ -137,7 +143,8 @@ function Changes({ x, status }: { x: Ctx; status: Load<ProjectStatus> }) {
     <View style={{ flex: 1 }}><Text style={{ color: c.textMuted, fontFamily: theme.font.mono, fontSize: 12 }}>{p.lastCommit(value.lastCommit.hash, formatAge(value.lastCommit.time, Date.now()))}</Text><Text style={{ color: c.text, fontSize: 13, fontWeight: "600", marginTop: 2 }}>{value.lastCommit.subject}</Text></View>
    </View> : null}
   </View>
-  {value.changes.map(ch => changeRow(ch, () => setView({ kind: "diff", path: ch.path, list })))}
+  {listed.shown.map(ch => changeRow(ch, () => setView({ kind: "diff", path: ch.path, list })))}
+  {x.hiddenRow(listed.hidden)}
   {value.truncated ? <Text style={{ color: c.attention, padding: 12, fontSize: 12 }}>{p.truncated}</Text> : null}
  </ScrollView>;
 }
@@ -160,11 +167,15 @@ function CommitView({ x, commit }: { x: Ctx; commit: Commit }) {
  const { c, theme, p, live, attempt, ws, setView, header, loading, failure, changeRow } = x;
  const shown = useProject(live, "show", ws ? { commit: commit.hash, workspace: ws } : null, attempt);
  const files = shown.state === "ok" ? shown.value.files : [];
+ const listed = hideSecrets(files, ch => ch.path, x.hide); const list = listed.shown.map(ch => ch.path);
  return <View style={{ flex: 1 }}>
   {header(`Commit ${commit.hash}`, p.ago(formatAge(commit.time, Date.now())), false)}
   <ScrollView>
    <View style={{ margin: 10, padding: 12, borderRadius: theme.radius.medium, backgroundColor: c.surfaceRaised }}><Text style={{ color: c.text, fontSize: 15, fontWeight: "700" }}>{commit.subject}</Text>{shown.state === "ok" ? <Text style={{ color: c.textMuted, fontFamily: theme.font.mono, fontSize: 12, marginTop: 4 }}>{p.commitFiles(files.length)}</Text> : null}</View>
-   {shown.state === "loading" ? loading() : shown.state === "error" ? failure(shown.code) : files.map(ch => changeRow(ch, () => setView({ kind: "diff", path: ch.path, commit: commit.hash, list: files.map(f => f.path) })))}
+   {shown.state === "loading" ? loading() : shown.state === "error" ? failure(shown.code) : <>
+    {listed.shown.map(ch => changeRow(ch, () => setView({ kind: "diff", path: ch.path, commit: commit.hash, list })))}
+    {x.hiddenRow(listed.hidden)}
+   </>}
   </ScrollView>
  </View>;
 }
@@ -191,8 +202,10 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
  const [tab, setTab] = useState<Tab>("files"); const [dir, setDir] = useState("");
  const [view, setView] = useState<View_>({ kind: "list" }); const [attempt, setAttempt] = useState(0);
  const [notice, setNotice] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+ const hideSetting = useSyncExternalStore(secretFiles.subscribe, secretFiles.get);
+ const [revealed, setRevealed] = useState(false); const hide = hideSetting && !revealed;
  useEffect(() => { if (!visible) return; void catalog.list().then(hosts => setComputer(hosts.find(h => h.id === hostId) ?? null)); }, [visible, hostId]);
- useEffect(() => { if (!visible) { setView({ kind: "list" }); setDir(""); setTab("files"); setNotice(null); setPinned(null); setAttempt(0); } }, [visible]);
+ useEffect(() => { if (!visible) { setView({ kind: "list" }); setDir(""); setTab("files"); setNotice(null); setPinned(null); setAttempt(0); setRevealed(false); } }, [visible]);
  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 3000); return () => clearTimeout(timer); }, [notice]);
  const live = visible ? computer : null;
  // Herdr focus is shared with the computer: pin the workspace the first tree resolved, so
@@ -232,7 +245,7 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
     const staged = await projectBrowser.run(computer, "stage-link", { path, ...(ws ? { workspace: ws } : {}) });
     return staged.ok ? { ok: true, staged: staged.value.staged, size } : { ok: false };
    });
-   if (!result.ok) { setNotice(result.code === "TAILSCALE_ONLY" ? p.tailscaleOnly : p.linkFailed); return; }
+   if (!result.ok) { setNotice(result.code === "UPDATE_REQUIRED" ? p.linkUpdateRequired : result.code === "ZEROTIER_ADDRESS_NOT_FOUND" ? p.linkZeroTierAddress : p.linkFailed); return; }
    await clipboard.writeText(result.value.url).catch(() => {}); setNotice(p.linkCreated);
   } finally { setBusy(false); }
  }, [computer, root, busy, paste, close, p, ws]);
@@ -266,8 +279,7 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
  function shareBar(path: string, size: number) {
   const action = (label: string, hint: string, glyph: keyof typeof Ionicons.glyphMap, primary: boolean, run: () => void) => <Pressable accessibilityRole="button" accessibilityLabel={`${label}. ${hint}`} disabled={busy} onPress={run} style={{ flex: 1, height: 40, borderRadius: 20, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", backgroundColor: primary ? c.accent : c.surfaceRaised, opacity: busy ? 0.6 : 1 }}>{icon(glyph, primary ? c.onAccent : c.text, 16)}<Text style={{ color: primary ? c.onAccent : c.text, fontSize: 13, fontWeight: "600" }}>{label}</Text></Pressable>;
   return <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderColor: c.border, backgroundColor: c.surface }}>
-   {/* A ZeroTier computer serves no links (zerotier S3): the hint says so and the core refuses. */}
-   {action(p.createLink, computer && !hasTailscaleFeatures(computer) ? p.tailscaleOnly : p.createLinkHint, "link-outline", false, () => void share(path, size, "link"))}
+   {action(p.createLink, p.createLinkHint, "link-outline", false, () => void share(path, size, "link"))}
    {action(p.sendChat, p.sendChatHint, "chatbubble-outline", true, () => void share(path, size, "chat"))}
   </View>;
  }
@@ -289,7 +301,16 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
 
 
 
- const x: Ctx = { c, theme, p, live, attempt, ws, root, changes, lastFiles, colorNotice, mode, setView, setDir, icon, header, failure, loading, shareBar, changeRow };
+ function hiddenRow(count: number) {
+  if (!count) return null;
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${p.secretsHidden(count)}, ${p.showSecrets}`} onPress={() => setRevealed(true)} style={({ pressed }) => ({ minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: theme.radius.medium, backgroundColor: pressed ? c.surfaceRaised : "transparent" })}>
+   {icon("eye-off-outline", c.textMuted, 18)}
+   <Text style={{ flex: 1, color: c.textMuted, fontSize: 14 }}>{p.secretsHidden(count)}</Text>
+   <Text style={{ color: c.accentText, fontSize: 14, fontWeight: "700" }}>{p.showSecrets}</Text>
+  </Pressable>;
+ }
+
+ const x: Ctx = { c, theme, p, live, attempt, ws, root, changes, lastFiles, colorNotice, hide, hiddenRow, mode, setView, setDir, icon, header, failure, loading, shareBar, changeRow };
  const tabs: [Tab, string, keyof typeof Ionicons.glyphMap][] = [["files", p.files, "folder-outline"], ["changes", p.changes, "document-text-outline"], ["history", p.history, "time-outline"], ["branches", p.branches, "git-branch-outline"]];
  return <>
   {mode === "split" ? null : <Pressable accessibilityRole="button" accessibilityLabel={p.close} onPress={close} style={{ position: "absolute", inset: 0, backgroundColor: "rgba(13,14,20,0.62)" }} />}

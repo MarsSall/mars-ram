@@ -33,6 +33,22 @@ describe("read-only link diagnostics in a temporary home", () => {
    expect(probes).toEqual([[stableNodePath(), join(root, "link-server/src/main.ts"), home]]);
    expect(readFileSync(join(store, "mnopqrstuvwx/link.json"), "utf8")).toBe(before);
    expect((await observeLinkServer(root, { ...options, status: async () => ({ serving: false, links: 1 }) })).listener).toBe(false);
+   // Per network: which listeners serve and which networks have «Siempre atento» registrations (zerotier-phase2 S4).
+   const networks = { listeners: { tailscale: false, zerotier: ["10.147.20.49"] }, notify: { tailscale: true, zerotier: ["10.147.20.49", "10.147.20.50"] } };
+   const asked: unknown[] = []; const quiet = { now: options.now, status: async () => ({ serving: true, links: 1 }) };
+   const ask = (value: unknown) => async (node: string, main: string, home: string) => { asked.push([node, main, home]); return value as never; };
+   // Asked only when registrations exist; their contents (phones, secrets) are never read here.
+   expect(await observeLinkServer(root, { ...quiet, networks: ask(networks) })).not.toHaveProperty("listeners");
+   expect(asked).toEqual([]);
+   mkdirSync(join(root, "notify")); writeFileSync(join(root, "notify", `${"a".repeat(64)}.json`), "not read");
+   expect(await observeLinkServer(root, { ...quiet, networks: ask(networks) })).toMatchObject({ listener: true, notificationsRegistered: true, listeners: networks.listeners, notifyNetworks: networks.notify });
+   expect(asked).toEqual([[stableNodePath(), join(root, "link-server/src/main.ts"), home]]);
+   for (const bad of [{ ...networks, listeners: { tailscale: "yes", zerotier: [] } }, { ...networks, notify: { tailscale: true, zerotier: ["../x"] } }, { ...networks, listeners: { tailscale: true, zerotier: "10.1.1.1" } }, null]) {
+    const observed = await observeLinkServer(root, { ...quiet, networks: ask(bad) });
+    expect(observed.listeners).toBeUndefined(); expect(observed.notifyNetworks).toBeUndefined();
+   }
+   const failing = await observeLinkServer(root, { ...quiet, networks: async () => { throw new Error("old copy"); } });
+   expect(failing).toMatchObject({ listener: true, notificationsRegistered: true }); expect(failing.listeners).toBeUndefined();
    writeFileSync(join(root, "link-server/src/main.ts"), "// old");
    expect((await observeLinkServer(root, options)).current).toBe(false);
    writeFileSync(join(root, "host.json"), JSON.stringify({ node: "node", linkServer: "relative", linkPort: 1 }));

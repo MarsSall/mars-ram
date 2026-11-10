@@ -187,4 +187,12 @@ describe('OS adapters with fake I/O', () => {
   });
   expect(result).toEqual([3210, 47811]);
  });
+ it('also excludes the link server of a ZeroTier-only computer', async () => {
+  const missing = () => Promise.reject(Object.assign(Error('missing'), { code: 'ENOENT' }));
+  const result = await excludedPorts(signal(), '/home/test', {
+   list: async path => path.endsWith('links') ? ['server-zerotier-10.147.20.49.pid.json', 'server-zerotier-x.pid.json', 'other.json'] : [],
+   read: async path => path.endsWith('server-zerotier-10.147.20.49.pid.json') ? '{"port":47811}' : missing(),
+  });
+  expect(result).toEqual([47811]);
+ });
 });

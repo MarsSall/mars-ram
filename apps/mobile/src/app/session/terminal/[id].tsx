@@ -4,17 +4,19 @@ import { AppState, Keyboard, KeyboardAvoidingView, PanResponder, Pressable, Stat
 import { WebView } from "react-native-webview";
 import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
 import { terminalHtml } from "../../../../assets/terminal/page";
-import { terminalKey, type HerdrState, type HerdrTerminal } from "../../../core/herdr-terminal";
-import { applyTerminalCtrl, tapTerminalCtrl, decodeWebMessage, encodeTerminalMessage, terminalToolbarKeys, terminalToolbarWidth, terminalChromeInsets, type TerminalCtrlState, type TerminalMessage } from "../../../core/terminal-controls";
+import type { HerdrState, HerdrTerminal } from "../../../core/herdr-terminal";
+import { applyTerminalCtrl, tapTerminalCtrl, decodeWebMessage, encodeTerminalMessage, terminalChromeInsets, type TerminalCtrlState, type TerminalMessage } from "../../../core/terminal-controls";
+import { CUSTOM_HOLD_MS, catalogKeyBytes, terminalKeyInfo, type KeyId } from "../../../core/terminal-keys";
 import { addAttachment, type Attachment } from "../../../core/attachment-draft";
 import type { AttachmentSource } from "../../../core/media-source";
-import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, sessions, terminalFont } from "../../../services";
+import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, sessions, terminalFont, terminalKeys } from "../../../services";
 import { AttachmentButton } from "../../../ui/attachment-composer";
 import { attachmentError } from "../../../ui/attachment-messages";
 import { FloatingTerminalPad } from "../../../ui/floating-terminal-pad";
 import { FloatingSessionChat } from "../../../ui/floating-session-chat";
 import { ChatHandle } from "../../../ui/chat-handle";
 import { usePreferences } from "../../../ui/preferences";
+import { customAccessibleName, customButtonOf, customInput, keyName, terminalBarItems } from "../../../ui/terminal-key-view";
 import { herdrKeyBytes, parseHerdrKeys, type HerdrKeys } from "../../../core/herdr-keys";
 
 import { fullChatMetadata } from "../../../core/pane-chat";
@@ -62,6 +64,9 @@ export default function TerminalScreen() {
  // One stored size for every terminal; Settings changes reach an open terminal live.
  const [fontSize, setFontSize] = useState(terminalFont.get); const font = useRef(fontSize); font.current = fontSize;
  useEffect(() => { setFontSize(terminalFont.get()); return terminalFont.subscribe(setFontSize); }, []);
+ // One saved bar + D-pad layout for every computer; «Guardar» in Settings reaches an open terminal live.
+ const [keys, setKeys] = useState(terminalKeys.get);
+ useEffect(() => { setKeys(terminalKeys.get()); return terminalKeys.subscribe(setKeys); }, []);
  const [bounds, setBounds] = useState({ width: 0, height: 0 });
  const [ctrlState, setCtrlState] = useState<TerminalCtrlState>({ mode: "off", tappedAt: null }); const ctrl = useRef(ctrlState);
  const [computerName, setComputerName] = useState(params.computer ?? s.title);
@@ -69,6 +74,7 @@ export default function TerminalScreen() {
  const [keysReady, setKeysReady] = useState(false);
  const [prefixPanel, setPrefixPanel] = useState(false); const [prefixWaiting, setPrefixWaiting] = useState(false);
  const [prefixNotice, setPrefixNotice] = useState(false); const prefixLongPress = useRef(false);
+ const [holdHint, setHoldHint] = useState(false);
  const [padOpen, setPadOpen] = useState(false);
  const [switcherOpen, setSwitcherOpen] = useState(false);
  const [serverSelection, setServerSelection] = useState<ServerSelection | null>(null);
@@ -117,6 +123,11 @@ export default function TerminalScreen() {
   const timer = setTimeout(() => setPrefixNotice(false), 3000);
   return () => clearTimeout(timer);
  }, [prefixNotice]);
+ useEffect(() => {
+  if (!holdHint) return;
+  const timer = setTimeout(() => setHoldHint(false), 2000);
+  return () => clearTimeout(timer);
+ }, [holdHint]);
 
  useEffect(() => {
   let alive = true; let current: HerdrTerminal | null = null; let unsubscribe: (() => void) | undefined;
@@ -184,7 +195,17 @@ export default function TerminalScreen() {
   return result.ok;
  }
  function input(bytes: Uint8Array) { const next = applyTerminalCtrl(ctrl.current, bytes); updateCtrl(next.state); void write(next.bytes); }
- function press(name: string) { input(terminalKey(name, mode.current)); }
+ // Catalog keys go through Ctrl like typed input, in the page's cursor mode; agent keys use this computer's Herdr binding.
+ // A custom button with «Ignorar Ctrl» sends its text as written and leaves Ctrl for the next key.
+ function act(id: KeyId, gesture: "tap" | "hold") {
+  const custom = customButtonOf(keys, id);
+  if (custom) { const result = customInput(custom, gesture, ctrl.current); updateCtrl(result.ctrl); if (result.bytes) void write(result.bytes); else if (result.hint) setHoldHint(true); return; }
+  const info = terminalKeyInfo(keys, id);
+  if (!info?.send) return;
+  const bytes = catalogKeyBytes(info, { cursorMode: mode.current, herdr: herdrKeys });
+  if ("binding" in info.send) { if (!keysReady) return; if (bytes) void write(bytes); else setError(herdrKeys[info.send.binding] ? s.bindingUnavailable : s.notConfigured); return; }
+  if (bytes) input(bytes);
+ }
  async function sendPrefix() {
   const bytes = herdrKeyBytes(herdrKeys.prefix);
   if (!bytes) return;
@@ -215,7 +236,17 @@ export default function TerminalScreen() {
  }
  // `icon` replaces the text with a line icon (no emoji in the chrome, voice-dictation L7).
  const button = (label: string, action: () => void, text = label, disabled = false, selected = false, expanded?: boolean, compact = false, icon?: ReactNode) => <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, selected, expanded }} disabled={disabled} onPress={action} hitSlop={{ top: compact ? 2 : 9, bottom: compact ? 2 : 9, left: compact ? 0 : 7, right: compact ? 0 : 7 }} style={{ height: compact ? 44 : 30, minWidth: compact ? 0 : 34, width: compact ? "100%" : undefined, paddingHorizontal: compact ? 1 : 6, alignItems: "center", justifyContent: "center", borderRadius: compact ? 22 : theme.radius.small, backgroundColor: selected && !(text === "Ctrl" && ctrlState.mode === "armed") ? c.accent : compact ? c.surfaceRaised : "transparent", opacity: disabled ? 0.4 : 1, borderBottomWidth: selected ? 2 : 0, borderColor: c.accentText }}>{icon ?? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: selected ? text === "Ctrl" && ctrlState.mode === "armed" ? c.accent : c.onAccent : c.text, fontSize: text.length <= 2 ? 18 : compact ? 11 : 12, fontFamily: theme.font.mono, fontWeight: "600" }}>{text}</Text>}</Pressable>;
- const key = (name: string, label: string, text = label) => button(label, () => press(name), text, !open || sending, false, undefined, true);
+ const key = (name: KeyId, label: string, text = label, waiting = false) => button(label, () => act(name, "tap"), text, !open || sending || waiting, false, undefined, true);
+ // S5: a button with «Enter al final» sends only after CUSTOM_HOLD_MS; its tap shows s.holdToSend.
+ const customKey = (id: KeyId) => {
+  const custom = customButtonOf(keys, id); if (!custom) return null;
+  const disabled = !open || sending;
+  return <Pressable accessibilityRole="button" accessibilityLabel={customAccessibleName(custom, t.terminalKeys)} accessibilityHint={custom.enter ? s.holdToSend : undefined} accessibilityState={{ disabled }} disabled={disabled} hitSlop={{ top: 2, bottom: 2 }}
+   onPress={() => act(id, "tap")} onLongPress={custom.enter ? () => act(id, "hold") : undefined} delayLongPress={CUSTOM_HOLD_MS}
+   style={{ height: 44, width: "100%", paddingHorizontal: 1, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: c.surfaceRaised, opacity: disabled ? 0.4 : 1 }}>
+   <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ color: c.accentText, fontFamily: theme.font.mono, fontWeight: "700", fontSize: 11 }}>{custom.name}</Text>
+  </Pressable>;
+ };
  function reconnect() { sessions.allowUnlockAgain(); if (!ready) web.current?.reload(); setAttempt(n => n + 1); }
  const reason = state.status === "closed" || state.status === "unlock-required" ? state.reason : null;
  const status = pageFailed ? s.error : state.status === "open" ? null : state.status === "connecting" ? s.connecting : state.status === "reconnecting" ? s.reconnecting : state.status === "unlock-required" ? t.sessions.locked : reason === "Herdr se cerró" ? s.normalExit : s.closed;
@@ -270,8 +301,9 @@ export default function TerminalScreen() {
      {button(state.status === "unlock-required" ? s.unlock : s.reconnect, reconnect)}
     </> : null}
    </View> : null}
-   {bounds.height > 0 ? <FloatingTerminalPad bounds={bounds} press={press} disabled={!open || sending} open={padOpen} onOpenChange={setPadOpen} /> : null}
+   {bounds.height > 0 ? <FloatingTerminalPad bounds={bounds} layout={keys} act={act} disabled={!open || sending} open={padOpen} onOpenChange={setPadOpen} /> : null}
    {prefixNotice ? <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, padding: 10, borderRadius: 10, backgroundColor: c.surface }}><Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{s.prefixSent}</Text></View> : null}
+   {holdHint ? <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, padding: 10, borderRadius: 10, backgroundColor: c.surface }}><Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{s.holdToSend}</Text></View> : null}
   </View>
   {chatOpen && sessionKey ? <FloatingSessionChat key={sessionKey} sessionKey={sessionKey} live={live} expand={fullChat} close={() => { setChatOpen(false); Keyboard.dismiss(); }} /> : null}
   {selection ? <View style={{ flexDirection: "row", gap: 4 }}>{button(s.copy, () => { void clipboard.writeText(selection).then(() => setSelection("")).catch(() => setError(s.keyFailed)); })}{button(s.close, () => setSelection(""), "×")}</View> : null}
@@ -292,7 +324,7 @@ export default function TerminalScreen() {
   <View style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 8 }}>
   {sessionKey && !chatOpen ? <View pointerEvents="box-none" style={{ position: "absolute", top: -4, left: 0, right: 0, alignItems: "center", zIndex: 2 }}><ChatHandle state="closed" change={next => { if (next === "full") fullChat(); else if (next === "floating") { blurTerminal(); setChatOpen(true); } }} /></View> : null}
   <View accessibilityLabel={s.toolbar} style={{ flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0, padding: 6, borderWidth: 1, borderRadius: 30, borderColor: c.border, backgroundColor: c.surface }}>
-   {terminalToolbarKeys({ keyboard, prefixPanel }).map(name => <View key={name} style={{ width: terminalToolbarWidth(name), flexGrow: 1, flexShrink: 1, height: 44, alignItems: "center", justifyContent: "center" }}>
+   {terminalBarItems(keys, { keyboard, prefixPanel }).map(({ id: name, info }) => <View key={name} style={{ width: info.width, flexGrow: 1, flexShrink: 1, height: 44, alignItems: "center", justifyContent: "center" }}>
     {name === "attach" ? <>
      <AttachmentButton compact label={s.attach} disabled={!open || sending} busy={sending} select={attach} />
     </> : name === "ctrl" ? <>
@@ -304,7 +336,8 @@ export default function TerminalScreen() {
      : name === "mic" ? <DictationMic d={dictating} variant="key" disabled={!open || sending} />
      : name === "paste" ? button(s.paste, () => void pasteClipboard(), "", !open || sending, false, undefined, true, <Ionicons name="clipboard-outline" size={20} color={c.text} />)
      : name === "keyboard" ? button(keyboard ? s.hideKeyboard : s.showKeyboard, () => { if (keyboard) Keyboard.dismiss(); else { setChatOpen(false); sendPage({ type: "focus" }); } }, "", false, false, undefined, true, <MaterialCommunityIcons name="keyboard-outline" size={21} color={c.text} />)
-     : key(name, { esc: s.escape, tab: s.tab, enter: s.enter, up: s.up, down: s.down, left: s.left, right: s.right, backspace: s.backspace }[name], { esc: "Esc", tab: "Tab", enter: "↵", up: "↑", down: "↓", left: "←", right: "→", backspace: "⌫" }[name])}
+     : info.kind === "custom" ? customKey(name)
+     : key(name, keyName(info, s), info.label, info.send !== null && "binding" in info.send && !keysReady)}
    </View>)}
   </View>
   </View>

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readdir, rename, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isTailnetAddress, validNotifySecret } from '../../../../packages/protocol/src/session-notice.ts';
+import { isIpv4 } from '../../../../packages/protocol/src/private-network.ts';
 import { privateNotifyMode, type NotifyRegistration, type NotifyRegistrationStore } from '../core/notify-registration.ts';
 import { privateDirectory, readRegular, writePrivate } from './file-store.ts';
 export function createNotifyStore(root: string): NotifyRegistrationStore & { all(): Promise<NotifyRegistration[]> } {
@@ -11,13 +12,16 @@ export function createNotifyStore(root: string): NotifyRegistrationStore & { all
   if (!info.isDirectory() || info.isSymbolicLink() || (process.platform !== 'win32' && (info.uid !== process.getuid?.() || !privateNotifyMode(info.mode, true)))) throw Error('Unsafe notification directory.');
  }
  async function get(address: string): Promise<NotifyRegistration | null> {
-  if (!isTailnetAddress(address)) throw Error('Invalid notification address.');
+  if (!isTailnetAddress(address) && !isIpv4(address)) throw Error('Invalid notification address.');
   try {
    await check();
    const path = join(root, name(address)), info = await lstat(path);
    if (process.platform !== 'win32' && (info.uid !== process.getuid?.() || !privateNotifyMode(info.mode, false))) throw Error('Unsafe notification record.');
    const row = JSON.parse((await readRegular(path, 1024)).toString('utf8'));
-   if (row.address !== address || !validNotifySecret(row.secret) || !Number.isInteger(row.port) || row.port < 1 || row.port > 65535 || typeof row.hostKeyId !== 'string' || row.hostKeyId.length > 256) throw Error('Invalid notification record.');
+   // A record without a network is Tailscale, as every record written before ZeroTier support.
+   const network = row.network === undefined ? isTailnetAddress(address) && row.hostAddress === undefined
+    : row.network === 'zerotier' && isIpv4(address) && typeof row.hostAddress === 'string' && isIpv4(row.hostAddress);
+   if (row.address !== address || !network || !validNotifySecret(row.secret) || !Number.isInteger(row.port) || row.port < 1 || row.port > 65535 || typeof row.hostKeyId !== 'string' || row.hostKeyId.length > 256) throw Error('Invalid notification record.');
    return row;
   } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
  }

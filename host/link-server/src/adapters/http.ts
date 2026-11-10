@@ -14,7 +14,7 @@ const SECURITY = {
 };
 const digest = (token: string) => createHash("sha256").update(token).digest("hex");
 export async function startHttp(service: LinkService, options: {
- ip: string; port: number; instance?: string; sweepMs?: number; log?: (message: string) => void;
+ ip: string; port: number; network?: "zerotier"; instance?: string; sweepMs?: number; log?: (message: string) => void;
  maxDownloads?: number; responseMs?: number; stallMs?: number; shutdownMs?: number; expiryCheckMs?: number;
 }) {
  let timer: ReturnType<typeof setInterval> | undefined;
@@ -122,7 +122,9 @@ export async function startHttp(service: LinkService, options: {
   finally { sweeping = false; }
  }
  await new Promise<void>((resolve, reject) => {
-  server.once("error", () => reject(new Error("Cannot bind link server to the Tailscale address. Check Tailscale and the port.")));
+  server.once("error", () => reject(new Error(options.network === "zerotier"
+   ? "Cannot bind link server to the ZeroTier address. Check ZeroTier and the port."
+   : "Cannot bind link server to the Tailscale address. Check Tailscale and the port.")));
   server.listen(options.port, options.ip, resolve);
  });
  server.on("error", () => { options.log?.("Link server stopped after a listener error."); void close(); });

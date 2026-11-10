@@ -15,13 +15,14 @@ class LinkSsh extends FakeSsh {
  output: unknown = created;
  stdout: string | null = null;
  exitStatus = 0;
+ stderr = "secret stderr";
  commands: string[] = [];
  removed: string[] = [];
  override async readFile(_id: string, path: string, cap: number) {
   expect(path).toBe(".mars-ram/host.json"); expect(cap).toBe(4096);
   return this.record === null ? failure("NOT_FOUND") : { ok: true as const, content: typeof this.record === "string" ? this.record : JSON.stringify(this.record) };
  }
- async exec(_id: string, command: string) { this.commands.push(command); return { ok: true as const, stdout: command.includes(" ensure ") ? JSON.stringify({ serving: true }) : this.stdout ?? JSON.stringify(this.output) + "\n", stderr: "secret stderr", exitStatus: this.exitStatus }; }
+ async exec(_id: string, command: string) { this.commands.push(command); return { ok: true as const, stdout: command.includes(" ensure ") ? JSON.stringify({ serving: true }) : this.stdout ?? JSON.stringify(this.output) + "\n", stderr: this.stderr, exitStatus: this.exitStatus }; }
  override async removeFile(connectionId: string, path: string) { this.removed.push(path); return super.removeFile(connectionId, path); }
 }
 function setup(entries: LinkHistoryEntry[] = []) {
@@ -188,26 +189,77 @@ describe("private link from a project file (project-files S2, L9)", () => {
  });
 });
 
-describe("private links on a ZeroTier computer (zerotier S3)", () => {
- const zeroTier = savedHost("z", { network: "zerotier", address: "10.147.17.5" });
- const tailscaleOnly = { ok: false, code: "TAILSCALE_ONLY", message: "Private links are available only with Tailscale." };
- function zeroTierService(entries: LinkHistoryEntry[] = []) {
-  const ssh = new LinkSsh(); const connects: string[] = [];
-  const store = { list: async (computerId: string) => entries.filter(e => e.computerId === computerId), save: async () => { throw new Error("must not save"); }, remove: async () => {} };
-  const service = new LinkService({ host: ssh as unknown as HostConnection, connections: { connection: async h => { connects.push(h.id); return { ok: true, connectionId: "c" }; } }, history: store, clock: () => now, random: () => 0 }, zeroTier);
-  return { ssh, service, connects };
- }
- it("refuses to create a link from the phone or from a project file, without connecting", async () => {
-  const { ssh, service, connects } = zeroTierService(); let staged = false;
-  expect(await service.create(source)).toEqual(tailscaleOnly);
-  expect(await service.createFromHost(async () => { staged = true; return { ok: true, staged: "x.png", size: 1 }; })).toEqual(tailscaleOnly);
-  expect(staged).toBe(false);
-  expect(connects).toEqual([]);
-  expect(ssh.commands).toEqual([]);
- });
- it("does not restart a link server after connecting", async () => {
-  const { ssh, service } = zeroTierService([{ ...entry, computerId: "z" }]);
+describe("private links on a Tailscale computer stay byte-identical (zerotier-phase2 S2)", () => {
+ it.each([undefined, "tailscale"] as const)("sends no network flags for network %s", async network => {
+  const ssh = new LinkSsh(); ssh.sourceSizes.set(source.sourceUri, 5); let entries: LinkHistoryEntry[] = [];
+  const store = { list: async () => entries, save: async (value: LinkHistoryEntry) => { entries = [value]; }, remove: async () => { entries = []; } };
+  const host = network ? savedHost("a", { network }) : savedHost("a");
+  const service = new LinkService({ host: ssh as unknown as HostConnection, connections: { connection: async () => ({ ok: true, connectionId: "c" }) }, history: store, clock: () => now, random: () => 0.2 }, host);
+  expect((await service.create(source)).ok).toBe(true);
+  ssh.output = { serving: true, links: [] }; await service.list();
+  ssh.output = { ok: true }; await service.delete(id);
   await service.restore("c");
-  expect(ssh.commands).toEqual([]);
+  const prefix = "'/opt/Node Runtime/node' '/home/dev/link server/main.ts'";
+  expect(ssh.commands[0]).toBe(`${prefix} ensure --port 47811`);
+  expect(ssh.commands[1]).toMatch(/^'\/opt\/Node Runtime\/node' '\/home\/dev\/link server\/main\.ts' create --staged [A-Za-z0-9._-]+ --port 47811$/);
+  expect(ssh.commands.slice(2)).toEqual([`${prefix} list --port 47811`, `${prefix} delete ${id} --port 47811`, `${prefix} ensure --port 47811`]);
+ });
+ it("keeps an unknown option from the computer a generic failure", async () => {
+  const { ssh, service } = setup(); ssh.exitStatus = 1; ssh.stderr = "Invalid option.\n";
+  expect(await service.list()).toEqual({ ok: false, code: "LINK_FAILED", message: "The link operation could not be completed. Please try again." });
+ });
+});
+
+describe("private links on a ZeroTier computer (zerotier-phase2 S3)", () => {
+ const address = "10.147.17.5";
+ const zeroTier = savedHost("z", { network: "zerotier", address });
+ const flags = ` --port 47811 --network zerotier --address ${address}`;
+ const zeroTierCreated = { ...created, url: `http://${address}:47811/l/${"x".repeat(43)}` };
+ function zeroTierService(entries: LinkHistoryEntry[] = []) {
+  const ssh = new LinkSsh(); ssh.sourceSizes.set(source.sourceUri, 5); ssh.output = zeroTierCreated;
+  const store = { list: async (computerId: string) => entries.filter(e => e.computerId === computerId), save: async (value: LinkHistoryEntry) => { entries = [...entries, value]; }, remove: async () => {} };
+  const service = new LinkService({ host: ssh as unknown as HostConnection, connections: { connection: async () => ({ ok: true, connectionId: "c" }) }, history: store, clock: () => now, random: () => 0.2 }, zeroTier);
+  return { ssh, service, store };
+ }
+ it("appends the saved ZeroTier address to every link-server command", () => {
+  const choice = { network: "zerotier" as const, address };
+  expect(buildLinkCommand(config, "list", undefined, choice)).toBe(`'/opt/Node Runtime/node' '/home/dev/link server/main.ts' list${flags}`);
+  expect(buildLinkCommand(config, "create", "photo.png", choice)).toBe(`'/opt/Node Runtime/node' '/home/dev/link server/main.ts' create --staged photo.png${flags}`);
+  expect(buildLinkCommand(config, "delete", id, choice)).toBe(`'/opt/Node Runtime/node' '/home/dev/link server/main.ts' delete ${id}${flags}`);
+  expect(buildLinkCommand(config, "ensure", undefined, choice)).toBe(`'/opt/Node Runtime/node' '/home/dev/link server/main.ts' ensure${flags}`);
+ });
+ it.each(["10.147.17.05", "10.147.17", "10.147.17.5;id", "zt.example", "", "256.1.1.1"])("refuses the unsafe address %j", bad => {
+  expect(() => buildLinkCommand(config, "list", undefined, { network: "zerotier", address: bad })).toThrow();
+ });
+ it("creates a link from the phone and from a project file with the ZeroTier URL", async () => {
+  const { ssh, service, store } = zeroTierService();
+  expect(await service.create(source)).toMatchObject({ ok: true, value: { url: zeroTierCreated.url, computerId: "z" } });
+  expect(await service.createFromHost(async () => ({ ok: true, staged: "x.png", size: 1 }))).toMatchObject({ ok: true, value: { url: zeroTierCreated.url } });
+  expect(ssh.commands).toHaveLength(4);
+  for (const command of ssh.commands) expect(command.endsWith(flags)).toBe(true);
+  expect(await store.list("z")).toHaveLength(2);
+ });
+ it("lists, deletes and restores through the ZeroTier listener", async () => {
+  const { ssh, service } = zeroTierService([{ ...entry, ...zeroTierCreated, computerId: "z" }]);
+  ssh.output = { serving: true, links: [{ ...zeroTierCreated, fileName: "photo.png", size: 5, createdAt: entry.createdAt }] };
+  expect((await service.history())[0]).toMatchObject({ status: "valid", url: zeroTierCreated.url });
+  ssh.output = { ok: true }; expect((await service.delete(id)).ok).toBe(true);
+  await service.restore("c");
+  expect(ssh.commands.map(command => command.split(" ").slice(4, 5)[0])).toEqual(["list", "delete", "ensure"]);
+  for (const command of ssh.commands) expect(command.endsWith(flags)).toBe(true);
+ });
+ it("asks to update a computer whose mars-ram does not know ZeroTier links", async () => {
+  const { ssh, service } = zeroTierService(); ssh.exitStatus = 1; ssh.stderr = "Invalid option.\n";
+  expect(await service.list()).toEqual({ ok: false, code: "UPDATE_REQUIRED", message: "Update mars-ram on the computer to use links over ZeroTier." });
+  expect(await service.create(source)).toMatchObject({ ok: false, code: "UPDATE_REQUIRED" });
+ });
+ it("explains that the computer no longer has the paired ZeroTier address", async () => {
+  const { ssh, service } = zeroTierService(); ssh.exitStatus = 1;
+  ssh.stderr = "ZeroTier address not found on this computer's ZeroTier interfaces. Check ZeroTier and the paired address.\n";
+  expect(await service.ensure()).toEqual({ ok: false, code: "ZEROTIER_ADDRESS_NOT_FOUND", message: "The computer does not have that ZeroTier address. Check ZeroTier on the computer and pair it again if it changed." });
+ });
+ it("keeps other host errors generic and never echoes them", async () => {
+  const { ssh, service } = zeroTierService(); ssh.exitStatus = 1; ssh.stderr = "Invalid network option.\n";
+  expect(await service.list()).toEqual({ ok: false, code: "LINK_FAILED", message: "The link operation could not be completed. Please try again." });
  });
 });

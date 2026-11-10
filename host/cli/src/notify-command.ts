@@ -1,7 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { runNotify, registrationAddress } from './core/notify.ts';
+import { runNotify, registrationPeer } from './core/notify.ts';
 import { readHostIdentity } from './adapters/host-identity.ts';
+import { zeroTierNetworks } from './adapters/zerotier.ts';
 
 export async function notifyCommand(args: string[]): Promise<number> {
  let result: Awaited<ReturnType<typeof runNotify>>;
@@ -10,9 +11,10 @@ export async function notifyCommand(args: string[]): Promise<number> {
  const { createNotifyStore } = await import('../../link-server/src/adapters/notify-store.ts');
  const { createLauncher } = await import('../../link-server/src/adapters/launcher.ts');
  const { tailscale } = await import('../../link-server/src/adapters/tailscale.ts');
+ const { zerotier } = await import('../../link-server/src/adapters/zerotier.ts');
  const { DEFAULT_PORT } = await import('../../link-server/src/core/links.ts');
  result = await runNotify(args, {
-  address: () => registrationAddress(process.env),
+  peer: () => registrationPeer(process.env, () => zeroTierNetworks()),
   hostKeyId: () => { const identity = readHostIdentity(); if (!identity.ok) throw Error(); return identity.fingerprint; },
   readInput: async () => {
    let text = ''; const timeout = setTimeout(() => process.stdin.destroy(Error('Input timeout.')), 5000);
@@ -20,9 +22,10 @@ export async function notifyCommand(args: string[]): Promise<number> {
    finally { clearTimeout(timeout); }
   },
   store: createNotifyStore(join(root, 'notify')),
-  ensure: async () => {
+  ensure: async peer => {
    const launcher = createLauncher(join(root, 'links'), join(root, 'link-server', 'src', 'main.ts'));
-   const address = await tailscale.address();
+   // A ZeroTier phone is notified by the listener on the ZeroTier address it registered through.
+   const address = 'network' in peer ? await zerotier.address(peer.hostAddress) : await tailscale.address();
    if (!await launcher.isRunning(DEFAULT_PORT, address)) await launcher.start(DEFAULT_PORT, address);
   },
  });

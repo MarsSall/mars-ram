@@ -1,6 +1,6 @@
 import type { NetworkInterfaceInfo } from "node:os";
 import { describe, expect, it } from "vitest";
-import { zeroTierAddresses, zeroTierInterfaces } from "../../src/adapters/zerotier.ts";
+import { zeroTierAddresses, zeroTierInterfaces, zeroTierNetworks } from "../../src/adapters/zerotier.ts";
 import { resolvePairingTarget, type PairingNetworkPorts } from "../../src/core/pairing-network.ts";
 
 const v4 = (address: string, internal = false): NetworkInterfaceInfo => ({ address, family: "IPv4", internal, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: `${address}/24` });
@@ -42,6 +42,13 @@ describe("zeroTierInterfaces", () => {
 	it("pairs each ZeroTier IPv4 address with its interface name, for the firewall hint", () => {
 		const interfaces = { eth0: [v4("192.168.1.20")], ztexample0: [v4("10.147.20.49"), v6("fd80::5")], zt3jnkd: [v4("169.254.3.4")], zt1: [v4("10.144.0.2")] };
 		expect(zeroTierInterfaces(() => interfaces, "linux")).toEqual([{ name: "ztexample0", address: "10.147.20.49" }, { name: "zt1", address: "10.144.0.2" }]);
+	});
+});
+
+describe("zeroTierNetworks", () => {
+	it("gives each ZeroTier address with its subnet prefix, for checking where Siempre atento registrations come from", () => {
+		const interfaces = { eth0: [v4("192.168.1.20")], ztexample0: [v4("10.147.20.49")], zt1: [{ ...v4("10.144.0.2"), netmask: "255.255.0.0" }] };
+		expect(zeroTierNetworks(() => interfaces, "linux")).toEqual([{ address: "10.147.20.49", prefix: 24 }, { address: "10.144.0.2", prefix: 16 }]);
 	});
 });
 

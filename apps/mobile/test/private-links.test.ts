@@ -58,9 +58,14 @@ describe("private link rows", () => {
   expect(selectComputer(["a"], "gone")).toBe("a");
   expect(selectComputer([], "gone")).toBeNull();
  });
- it("explains that links need Tailscale on a ZeroTier computer", () => {
-  expect(linkOperationError({ ok: false, code: "TAILSCALE_ONLY", message: "Only Tailscale" }, "failed")).toEqual({ key: "tailscaleOnly", detail: "TAILSCALE_ONLY: Only Tailscale" });
-  expect(es.files.tailscaleOnly).toBe("Disponible solo con Tailscale");
-  expect(en.files.tailscaleOnly).toBe("Available only with Tailscale");
+ it("explains ZeroTier link failures (zerotier-phase2 S3)", () => {
+  expect(linkOperationError({ ok: false, code: "UPDATE_REQUIRED", message: "Update" }, "failed")).toEqual({ key: "updateRequired", detail: "UPDATE_REQUIRED: Update" });
+  expect(linkOperationError({ ok: false, code: "ZEROTIER_ADDRESS_NOT_FOUND", message: "Gone" }, "removeFailed")).toEqual({ key: "zeroTierAddress", detail: "ZEROTIER_ADDRESS_NOT_FOUND: Gone" });
+  expect(es.files.updateRequired).toBe("Actualizá mars-ram en la computadora para usar links por ZeroTier.");
+  expect(en.files.updateRequired).toBe("Update mars-ram on the computer to use links over ZeroTier.");
+  expect(es.files.zeroTierAddress).toBe("La computadora no tiene esa dirección de ZeroTier. Revisá ZeroTier en la compu y volvé a vincularla si cambió.");
+  expect(en.files.zeroTierAddress).toBe("The computer does not have that ZeroTier address. Check ZeroTier on the computer and pair it again if it changed.");
+  expect(JSON.stringify([es, en])).not.toContain("solo con Tailscale");
+  expect(JSON.stringify([es, en])).not.toContain("only with Tailscale");
  });
 });
