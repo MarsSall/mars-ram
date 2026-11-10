@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { LinkHistoryItem } from "../src/core/links";
 import { linkDisplayName, linkOperationError, linkRow, newestLinks, linkSize, selectComputer, unavailableLinks } from "../src/ui/private-links";
+import { en } from "../src/ui/i18n/en";
+import { es } from "../src/ui/i18n/es";
 
 const now = Date.parse("2026-10-25T12:00:00.000Z");
 const item: LinkHistoryItem = { id: "a", computerId: "pc", fileName: "photo.png", url: "http://pc/l/token", size: 1024, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 86400000).toISOString(), status: "valid" };
@@ -55,5 +57,10 @@ describe("private link rows", () => {
   expect(selectComputer(["a", "b"], "b")).toBe("b");
   expect(selectComputer(["a"], "gone")).toBe("a");
   expect(selectComputer([], "gone")).toBeNull();
+ });
+ it("explains that links need Tailscale on a ZeroTier computer", () => {
+  expect(linkOperationError({ ok: false, code: "TAILSCALE_ONLY", message: "Only Tailscale" }, "failed")).toEqual({ key: "tailscaleOnly", detail: "TAILSCALE_ONLY: Only Tailscale" });
+  expect(es.files.tailscaleOnly).toBe("Disponible solo con Tailscale");
+  expect(en.files.tailscaleOnly).toBe("Available only with Tailscale");
  });
 });

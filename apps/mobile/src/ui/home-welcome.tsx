@@ -16,8 +16,7 @@ export function HomeHeading({ welcome = false }: { welcome?: boolean }) {
 	);
 }
 
-/** The same introduction and actions on Home and when adding another computer. */
-/** The welcome's steps and actions; Agregar computadora shows them without the ram heading. */
+/** The welcome's steps and actions; «Guiame paso a paso» opens the connection wizard. */
 export function WelcomeSteps({ heading = true }: { heading?: boolean }) {
 	const router = useRouter();
 	const { theme, t } = usePreferences();
@@ -28,6 +27,9 @@ export function WelcomeSteps({ heading = true }: { heading?: boolean }) {
 			<Text style={{ color: theme.colors.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingBottom: theme.spacing(3) }}>{t.home.windowsPair}</Text>
 			<View style={{ flex: 1 }} />
 			<PrimaryButton label={t.home.scan} onPress={() => router.push("/add-computer/scan")} />
+			<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
+				<Text style={{ color: theme.colors.accentText, fontSize: 16, fontWeight: "600", textAlign: "center" }}>{t.home.guide}</Text>
+			</Pressable>
 			<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer/manual")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
 				<Text style={{ color: theme.colors.textMuted, fontSize: 16, textAlign: "center" }}>{t.home.manual}</Text>
 			</Pressable>

@@ -2,14 +2,15 @@ import AudioRecord from "@fugood/react-native-audio-pcm-stream";
 import * as FileSystem from "expo-file-system/legacy";
 import { PermissionsAndroid } from "react-native";
 import { initParakeet, type ParakeetContext } from "whisper.rn/index";
-import { DICTATION_MODEL, joinPcm, latinize, modelReady, type DictationEngine } from "../core/dictation";
+import Ssh from "../../modules/ssh/src/SshModule";
+import { DICTATION_MODEL, joinPcm, latinize, modelReady, type DictationEngine, type ModelDownloadStatus } from "../core/dictation";
 
 // On-device dictation with Parakeet through whisper.rn (whisper.cpp); audio stays in memory
 // and never leaves the phone (S1).
 const dir = `${FileSystem.documentDirectory}models/`;
 const path = `${dir}${DICTATION_MODEL.fileName}`;
 const partial = `${path}.part`;
-/** An interrupted download, and files left over from the probe and the Whisper trial (L4, L13,
+/** An interrupted copy (or download of an older build), and files left over from the probe and the Whisper trial (L4, L13,
  * L14): removed at start so they do not keep 669 MB (Parakeet q8_0) and 574 MB (Whisper turbo). */
 const LEGACY = [partial, `${dir}ggml-parakeet-tdt-0.6b-v3-q8_0.bin`, `${dir}ggml-large-v3-turbo-q5_0.bin`, `${dir}ggml-large-v3-turbo-q5_0.bin.part`, `${FileSystem.documentDirectory}dictation-engine.json`];
 
@@ -22,6 +23,7 @@ async function verified(file: string): Promise<boolean> {
  const info = await FileSystem.getInfoAsync(file, { md5: true });
  return modelReady({ exists: info.exists, ...(info.exists ? { size: info.size, md5: info.md5 } : {}) });
 }
+const FAILED: ModelDownloadStatus = { state: "failed" };
 
 export function createOnDeviceDictation(): DictationEngine {
  let context: Promise<ParakeetContext> | null = null;
@@ -34,6 +36,7 @@ export function createOnDeviceDictation(): DictationEngine {
  // The running transcription, and a counter that voids a finish once it is aborted.
  let job: { stop: () => Promise<void>; promise: Promise<unknown> } | null = null;
  let transcription = 0;
+ let settling: Promise<ModelDownloadStatus> | null = null;
  for (const file of LEGACY) void FileSystem.deleteAsync(file, { idempotent: true }).catch(() => {});
  AudioRecord.on("data", data => { if (recording) chunks.push(decode(data)); });
  const engine = (): Promise<ParakeetContext> => context ??= (async () => {
@@ -44,26 +47,57 @@ export function createOnDeviceDictation(): DictationEngine {
  })().catch(error => { context = null; throw error; });
  // The native stop returns nothing; the audio heard so far is already in memory.
  const stopRecording = () => { if (!recording) return; recording = false; try { AudioRecord.stop(); } catch { /* Already stopped. */ } };
+ // The system download writes to the app's external files folder (no storage permission); a
+ // finished file is verified there, copied next to the model and renamed into place, and only then
+ // removed from DownloadManager, which deletes its copy and its notification.
+ const settle = async (): Promise<ModelDownloadStatus> => {
+  const native = await Ssh.modelDownloadStatus();
+  switch (native.state) {
+   case "none": return { state: "none" };
+   case "pending": case "running": case "paused":
+    return { state: "downloading", written: native.written, total: native.total > 0 ? native.total : DICTATION_MODEL.bytes, waiting: native.state !== "running" };
+   case "failed": await Ssh.cancelModelDownload().catch(() => {}); return FAILED;
+   case "successful": break;
+  }
+  try {
+   if (!native.uri || !(await verified(native.uri))) return FAILED;
+   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+   await FileSystem.deleteAsync(partial, { idempotent: true });
+   // Copied, not moved: shared storage and the app's private folder are different file systems.
+   await FileSystem.copyAsync({ from: native.uri, to: partial });
+   await FileSystem.moveAsync({ from: partial, to: path });
+   const info = await FileSystem.getInfoAsync(path);
+   if (!info.exists || info.size !== DICTATION_MODEL.bytes) { await FileSystem.deleteAsync(path, { idempotent: true }); return FAILED; }
+   ready = true;
+   return { state: "ready" };
+  } catch {
+   await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {});
+   return FAILED;
+  } finally { await Ssh.cancelModelDownload().catch(() => {}); }
+ };
  const self: DictationEngine = {
   async modelReady() {
+   if (ready) return true;
+   // A download that finished while the app was closed is put in place first.
+   if ((await self.downloadStatus().catch(() => FAILED)).state === "ready") return true;
    // The MD5 of 356 MB takes a moment: check once per app run, then trust the cached answer.
    ready ??= await verified(path).catch(() => false);
    return ready;
   },
   async warm() { if (await self.modelReady()) await engine().catch(() => {}); },
-  download(progress) {
-   const task = FileSystem.createDownloadResumable(DICTATION_MODEL.url, partial, {}, p => progress(p.totalBytesWritten, DICTATION_MODEL.bytes));
-   const promise = (async () => {
-    try {
-     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
-     const result = await task.downloadAsync();
-     if (!result || result.status !== 200 || !(await verified(partial))) { await FileSystem.deleteAsync(partial, { idempotent: true }); return { ok: false as const, code: "DOWNLOAD_FAILED" as const }; }
-     await FileSystem.moveAsync({ from: partial, to: path });
-     ready = true;
-     return { ok: true as const };
-    } catch { await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {}); return { ok: false as const, code: "DOWNLOAD_FAILED" as const }; }
-   })();
-   return { promise, cancel: async () => { await task.cancelAsync().catch(() => {}); await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {}); } };
+  async download(notice) {
+   const now = await self.downloadStatus();
+   if (now.state === "downloading" || now.state === "ready") return now;
+   if (await self.modelReady()) return { state: "ready" };
+   // The native start attaches too: one system download at a time, whoever asks.
+   const started = await Ssh.startModelDownload(DICTATION_MODEL.url, DICTATION_MODEL.fileName, notice.title, notice.description);
+   return started.state === "failed" ? (await Ssh.cancelModelDownload().catch(() => {}), FAILED) : self.downloadStatus();
+  },
+  // Shared while it runs: verifying and copying 356 MB must happen once, whoever asks.
+  downloadStatus: () => settling ??= settle().finally(() => { settling = null; }),
+  async cancelDownload() {
+   await Ssh.cancelModelDownload();
+   await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {});
   },
   async removeModel() {
    const loaded = context; context = null; ready = false;

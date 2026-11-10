@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { ATTACHMENT_MAX_BYTES, PROTOCOL_VERSION, UPLOADS_DIRECTORY, decodeResponse, UploadName } from "@workspace/protocol";
+import { ATTACHMENT_MAX_BYTES, decodeResponse, UploadName } from "@workspace/protocol";
 import { LiveSession } from "../src/core/live-session";
 import type { BridgeHttp } from "../src/core/bridge-client";
 import type { HostConnection } from "../src/core/ports";
 import type { Attachment } from "../src/core/attachment-draft";
-import { FakeSsh, failure } from "./fakes";
+import { UPDATE_REQUIRED_MESSAGE } from "../src/core/uploads-folder";
+import { FakeSsh, FakeUploadsFolder, TEMP_UPLOADS, failure } from "./fakes";
+
+/** First bridge protocol that resolves attachments in the temp uploads folder. */
+const TEMP_UPLOADS_PROTOCOL = "1.7";
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const draft: readonly Attachment[] = [
@@ -12,8 +16,9 @@ const draft: readonly Attachment[] = [
 	{ id: "b", sourceUri: "content://b", displayName: "b.txt", size: null, mimeType: "text/plain", kind: "file" },
 ];
 
-async function setup(version = PROTOCOL_VERSION, queued = false) {
+async function setup(version = TEMP_UPLOADS_PROTOCOL, queued = false) {
 	const ssh = new FakeSsh();
+	const folder = new FakeUploadsFolder();
 	ssh.sourceSizes.set("content://a", ATTACHMENT_MAX_BYTES);
 	ssh.sourceSizes.set("content://b", 10);
 	const upload = vi.spyOn(ssh, "uploadFile");
@@ -36,13 +41,13 @@ async function setup(version = PROTOCOL_VERSION, queued = false) {
 	} };
 	const endpoint = { baseUrl: "http://localhost:5000", token: "t" };
 	const timers = { set: () => 0, clear: () => {} };
-	const uploads = { host: ssh as unknown as HostConnection, connection: async () => ({ ok: true as const, connectionId: "conn" }), clock: () => 0, random: () => 0.5 };
+	const uploads = { host: ssh as unknown as HostConnection, folder, connection: async () => ({ ok: true as const, connectionId: "conn" }), clock: () => 0, random: () => 0.5 };
 	const session = new LiveSession({ http, endpoint: async () => endpoint, events: { open: () => () => {} }, timers, uploads });
 	session.start();
 	await flush();
 	const progress = vi.fn();
 	const send = (text: string, attachments: readonly Attachment[] = draft) => session.send(text, attachments, progress);
-	return { ssh, upload, remove, posts, uploadedAtSend, send, session, draft, progress, failSend: () => { sendFails = true; } };
+	return { ssh, folder, upload, remove, posts, uploadedAtSend, send, session, draft, progress, failSend: () => { sendFails = true; } };
 }
 
 describe("chat attachment send", () => {
@@ -55,16 +60,29 @@ describe("chat attachment send", () => {
 		const names = f.upload.mock.calls.map(call => call[3]);
 		for (const call of f.upload.mock.calls) {
 			expect(call[0]).toBe("conn");
-			expect(call[2]).toBe(UPLOADS_DIRECTORY);
+			expect(call[2]).toBe(TEMP_UPLOADS.sftpPath);
 			expect(call[4]).toBe(ATTACHMENT_MAX_BYTES);
+			expect(call[5]).toBe(TEMP_UPLOADS.sftpPath);
 			expect(decodeResponse(UploadName, call[3]).ok).toBe(true);
 		}
 		expect(f.posts).toEqual([{ text: "look", attachments: names }]);
 		expect(f.uploadedAtSend).toEqual([2]);
 	});
-	it("rejects an older bridge before any upload", async () => {
-		const f = await setup("1.1");
-		expect(await f.send("look")).toEqual({ ok: false, message: expect.stringMatching(/update Mars-RAM on the computer/i) });
+	it.each(["1.1", "1.6"])("asks to update before any upload when the bridge speaks %s", async version => {
+		const f = await setup(version);
+		expect(await f.send("look")).toEqual({ ok: false, message: UPDATE_REQUIRED_MESSAGE });
+		expect(f.folder.calls).toEqual([]);
+		expect(f.upload).not.toHaveBeenCalled();
+		expect(f.posts).toEqual([]);
+	});
+	it.each([
+		[{ ok: false as const, code: "UPDATE_REQUIRED" as const, message: UPDATE_REQUIRED_MESSAGE }, UPDATE_REQUIRED_MESSAGE],
+		[{ ok: false as const, code: "PERMISSION_DENIED" as const, message: "Uploads folder refused: not private." }, "Uploads folder refused: not private."],
+	])("sends nothing when the uploads folder lookup fails (%#)", async (result, message) => {
+		const f = await setup();
+		f.folder.result = result;
+		expect(await f.send("look")).toEqual({ ok: false, message });
+		expect(f.folder.calls).toEqual(["conn"]);
 		expect(f.upload).not.toHaveBeenCalled();
 		expect(f.posts).toEqual([]);
 	});
@@ -75,6 +93,7 @@ describe("chat attachment send", () => {
 		expect(f.posts).toEqual([]);
 		expect(f.progress.mock.calls).toEqual([[1, 2], [2, 2]]);
 		expect(f.remove).toHaveBeenCalledTimes(1);
+		expect(f.remove).toHaveBeenCalledWith("conn", `${TEMP_UPLOADS.sftpPath}/${f.upload.mock.calls[0]![3]}`, TEMP_UPLOADS.sftpPath);
 		expect(f.ssh.uploadedFiles.size).toBe(0);
 		expect(draft).toHaveLength(2);
 		expect(await f.send("retry")).toMatchObject({ ok: true });
@@ -105,7 +124,7 @@ describe("chat attachment send", () => {
 		expect(plain.posts).toEqual([{ text: "hello" }]);
 	});
 	it("keeps upload names on attachment-only queued messages for the shared renderer", async () => {
-		const f = await setup(PROTOCOL_VERSION, true);
+		const f = await setup(TEMP_UPLOADS_PROTOCOL, true);
 		expect(await f.send("")).toMatchObject({ ok: true });
 		const names = f.upload.mock.calls.map(call => call[3]);
 		const stop = (f.session as LiveSession).subscribe(view => {

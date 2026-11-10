@@ -17,11 +17,13 @@ const IMAGE_TYPES: Record<string, string> = {
 /** Not following a link when opening; Windows has no such flag, so there the lstat check stands alone. */
 const NO_FOLLOW = constants.O_NOFOLLOW ?? 0;
 
-export function createUploadStore(dir: string): UploadStorePort {
+/** `verify` re-checks the folder's own policy (owner, mode, links) before each lookup. */
+export function createUploadStore(dir: string, verify?: () => Promise<boolean>): UploadStorePort {
 	return {
 		async resolve(name) {
 			if (!Value.Check(UploadName, name)) return null;
 			try {
+				if (verify && !(await verify())) return null;
 				// A linked uploads folder would serve files from wherever it points.
 				if (!(await lstat(dir)).isDirectory()) return null;
 				const root = await realpath(dir);

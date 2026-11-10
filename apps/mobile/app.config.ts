@@ -21,5 +21,13 @@ export function withVariant<T extends Identity>(config: T, variant: string | und
 	};
 }
 
+/** Config plugins added on top of app.json's list, for every variant. */
+export const extraPlugins = ["./plugins/with-tailscale-queries"];
+
+export function withExtraPlugins<T extends { plugins?: unknown[] }>(config: T): T {
+	const plugins: unknown[] = config.plugins ?? [];
+	return { ...config, plugins: [...plugins, ...extraPlugins.filter(name => !plugins.includes(name))] };
+}
+
 export default ({ config }: ConfigContext): ExpoConfig =>
-	withVariant(config as ExpoConfig, process.env.APP_VARIANT);
+	withExtraPlugins(withVariant(config as ExpoConfig, process.env.APP_VARIANT));

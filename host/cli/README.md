@@ -75,31 +75,69 @@ mars-ram version
 mars-ram version --json
 ```
 
-Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.4`); JSON is `{"version":1,"release":"0.1.4"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.5`); JSON is `{"version":1,"release":"0.1.5"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
 
 The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
 
-The app requires host **0.1.4** for this feature. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run the pinned commands shown by the app, for example:
+The app requires host **0.1.5**: `version` first shipped in 0.1.4, and attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run the pinned commands shown by the app, for example:
 
 ```text
-pnpm add -g mars-ram@0.1.4
+pnpm add -g mars-ram@0.1.5
 mars-ram install
 ```
 
 Then type `/reload` in an existing Pi session to load the updated bridge.
 
+## uploads-dir
+
+```text
+mars-ram uploads-dir --json
+```
+
+Names the folder the phone copies attachments into, creating it when missing. Non-interactive; writes exactly one JSON line on stdout:
+
+```text
+{"v":1,"path":"/tmp/mars-ram-1000/uploads"}
+{"v":1,"error":"unsafe_folder","message":"The attachments folder /tmp/mars-ram-1000 is a link. Remove it and try again."}
+```
+
+Exit **0** with `path` (absolute); exit **1** with `error` `unsafe_folder` or `unavailable` and an English `message`. Any other argument exits **2** with usage. The app runs it over SSH (since protocol 1.7) and uses the path for chat uploads, terminal paste paths and retention cleanup; a host whose CLI lacks the command gets an update notice instead of attachments. The decoder is `decodeUploadsDir` in `packages/protocol`.
+
+The path policy is shared with the Pi bridge (`packages/protocol/src/uploads-folder.ts`):
+
+- **Linux/macOS:** `/tmp/mars-ram-<uid>/uploads` (`TMPDIR` is ignored, so the CLI over SSH and the bridge inside Pi name the same folder). Missing components are created with mode `0700`. Then both `mars-ram-<uid>` and `uploads` must be real folders (not links), owned by the current user, with no group or other permissions. Anything else is refused as `unsafe_folder`, naming the component: remove it and try again. An existing component is never `chmod`-ed or `chown`-ed into place, since someone else may control it. `/tmp`'s sticky bit keeps other users from replacing a verified component.
+- **Windows:** `%TEMP%\mars-ram\uploads` of the SSH user. A junction or symbolic link is refused. The user's temp folder already allows only that user, SYSTEM and Administrators, and new folders inherit that access list, so no further ACL is set.
+
+The temp folder is cleared by the system (on reboot or by its temp cleaner); the app's retention setting still removes older files.
+
 ## pair
 
 ```bash
 mars-ram pair [--ssh-port <port>]
+mars-ram pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>]
 ```
 
-1. Reads the computer's Tailscale address and the SSH server's Ed25519 identity.
+1. Reads the computer's private network address and the SSH server's Ed25519 identity. Tailscale is the default (`tailscale status --json`, with its MagicDNS name).
 2. Shows a QR (and the same link as text) with the address, SSH user and port, identity, a one-time code, and the expiry.
-3. Listens **only on the Tailscale address**, for **5 minutes**, for **one** phone. Five invalid requests of any kind close it.
+3. Listens **only on that address**, for **5 minutes**, for **one** phone. Five invalid requests of any kind close it.
 4. When a phone answers with the code, asks at the computer:
    `Authorize the phone "<name>" (<key fingerprint>)? [y/N]` — only an explicit yes (`s`, `si`, `y`, `yes`) authorizes.
 5. Adds the phone's key with `restrict,port-forwarding,pty` (tunnels for the bridge and a terminal; no agent or X11 forwarding).
+
+### Over ZeroTier
+
+`mars-ram pair-zt` pairs over ZeroTier instead (the phone needs an app version that supports ZeroTier). It reads the IPv4 addresses of the computer's ZeroTier interfaces from the operating system, without the ZeroTier CLI or administrator rights: `zt…` interfaces on Linux, `feth…` (or `zt…`) on macOS, and adapters named `ZeroTier One [<network id>]` on Windows. Link-local `169.254.…` addresses do not count.
+
+| ZeroTier addresses | What happens |
+|--------------------|--------------|
+| None | Stops: `ZeroTier is not connected on this computer: no ZeroTier network address found. Join a network and authorize this computer, then try again.` |
+| One | Pairs on it |
+| Several | Stops and lists them; choose one with `--address <ipv4>` |
+| `--address` not among them | Stops and lists the ZeroTier addresses; pairing never listens on another interface |
+
+The QR carries a version 2 offer (`network: "zerotier"`, the ZeroTier IPv4 address, no MagicDNS name); Tailscale offers stay version 1, byte for byte. Over ZeroTier the phone gets SSH sessions, the terminal and files; private links and Siempre atento still need Tailscale. `--address` is accepted only by `pair-zt`.
+
+**Firewall (Linux).** ufw and firewalld block incoming ZeroTier traffic by default, so pairing and SSH time out while ping works; Tailscale is not affected because it adds its own firewall rules. Before the QR, `pair-zt` checks without root whether ufw (`ENABLED=` in the world-readable `/etc/ufw/ufw.conf`, falling back to `systemctl is-active ufw` when that file cannot be read) or firewalld (`systemctl is-active firewalld`) is on — the rules themselves need root, so it cannot tell whether ZeroTier is already allowed. When one is on, it prints one line naming the exact interface of the chosen address, for example `The firewall (ufw) is on and may block the phone over ZeroTier. If pairing does not connect, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'`; for firewalld the command is `sudo firewall-cmd --permanent --zone=trusted --add-interface=<interface> && sudo firewall-cmd --reload`. It never runs sudo or changes the firewall. macOS and Windows firewalls are not checked and get no hint. `mars-ram pair` (Tailscale) never reads the firewall; its output is unchanged.
 
 Ctrl+C at any moment, including during the question, cancels and authorizes nothing. A yes typed after a cancel or the expiry authorizes nothing, and neither does a yes after the phone stopped waiting.
 
@@ -211,6 +249,8 @@ Launcher updates are written to an exclusive private temporary file in the launc
 
 **Windows Path concurrency:** the registry has no atomic compare-and-set. The installer opens one writable key, reads and compares the raw value and type through that handle, writes, then immediately reads back the value and type through the same handle. A detected conflict reports `User Path changed while installing; run install again` and does not confirm ownership of the addition. This only narrows the race: another process can still write between comparison and write (its update could be overwritten), or after verification. Avoid concurrent Path edits; on conflict inspect the user Path and retry. A failed verification does not roll back, since that could overwrite another writer's changes. Empty Path components and unexpanded variables are retained exactly; doctor ignores empty components when looking up the launcher.
 
+8. Removes the attachments folder used by apps before protocol 1.7, `~/.mars-ram/uploads`, so the two locations never coexist. A link is removed as a link, never followed. In a folder, only regular files directly inside (including unfinished `.part` uploads) are deleted, without recursing into subfolders or following links; then the empty folder. It prints `Removed old attachments folder ~/.mars-ram/uploads (attachments now live in <path>).` (Spanish when the system is), or, when folders or links remain inside, that it kept the folder for you to delete. A cleanup failure is reported and does not fail install.
+
 Run the same command again to update the copy or select additional homes. Previously recorded homes are retained, even when excluded from the new registration selection: they already reference the shared copy and therefore receive its update too. Open Pi sessions load the bridge on their next start or `/reload`. The installed copy does not depend on the development checkout.
 
 Before any installer changes, both install and uninstall refuse symlinks or Windows junctions at `~/.mars-ram`, `pi-bridge`, `link-server`, `cli`, `bin`, `install.json`, `host.json`, `host.tmp`, and installer staging/backup/temporary paths (including old random-name leftovers). The resolved product root must be `<real home>/.mars-ram`. If refused, check those paths and resolve the links yourself; the command does not follow them to delete their targets.
@@ -225,7 +265,7 @@ mars-ram uninstall
 
 Removes the CLI copy/staging/backup and the recorded launcher only if its ownership marker remains. On Windows, removes only the last exact occurrence of the entry confirmed as added by install from the raw user Path (install always appends), preserving any earlier duplicates, empty components, other entries and the value type; an already-present entry is never adopted or removed. Open a new terminal after removal. The bin directory itself is retained, as it may contain other user files. Run from the npm package, uninstall removes what install wrote and leaves the package itself: it prints that `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`) removes it.
 
-Shows only the completed and pending homes recorded in `~/.mars-ram/install.json` and asks for confirmation. Checks each home's settings first, runs `pi remove <copy>` only when that registration is still present, and drops successfully handled homes from the record. It never removes unrecorded registrations. After all recorded homes are handled, it deletes `~/.mars-ram/pi-bridge/`, `~/.mars-ram/link-server/`, `~/.mars-ram/install.json`, and the fixed installer staging/backup/temporary leftovers. It removes `herdr`, `node`, `cli`, `linkServer` and `linkPort` from `host.json`, preserving unrelated fields; an empty host record is deleted. With no state file, uninstall still recovers and cleans those installer-owned paths without running Pi. Other Pi homes, the bridges registry, uploads, paired phones, and everything under `~/.ssh/` are untouched. **`~/.mars-ram/links` is retained as user data:** T2 does not specify deleting that store on uninstall.
+Shows only the completed and pending homes recorded in `~/.mars-ram/install.json` and asks for confirmation. Checks each home's settings first, runs `pi remove <copy>` only when that registration is still present, and drops successfully handled homes from the record. It never removes unrecorded registrations. After all recorded homes are handled, it deletes `~/.mars-ram/pi-bridge/`, `~/.mars-ram/link-server/`, `~/.mars-ram/install.json`, and the fixed installer staging/backup/temporary leftovers. It removes `herdr`, `node`, `cli`, `linkServer` and `linkPort` from `host.json`, preserving unrelated fields; an empty host record is deleted. With no state file, uninstall still recovers and cleans those installer-owned paths without running Pi. Other Pi homes, the bridges registry, paired phones, and everything under `~/.ssh/` are untouched. Attachments are removed the same safe way as in install step 8: the legacy `~/.mars-ram/uploads`, and the private temp folder (`uploads`, then its `mars-ram-<uid>` parent if empty) only when it still passes the path policy; a folder that fails it is kept and reported. **`~/.mars-ram/links` is retained as user data:** T2 does not specify deleting that store on uninstall.
 
 **Runtime cleanup:** before removing the installed link-server copy, uninstall runs that copy's `stop` with the current absolute Node executable, without a shell and with a **20-second** timeout. The command confirms the PID and its boot identity before sending SIGTERM (Linux) or ending the `mars-ram-links` task (Windows); it never kills a process by name or an unconfirmed PID. Windows also deletes that task registration; if identity cannot be confirmed it removes the registration without ending its process. An absent server is an idempotent no-op. Stop failures are reported with a nonzero uninstall result, but best-effort copy/config removal still proceeds. Retained copies in `~/.mars-ram/links` are not revoked or deleted: a failed stop or unconfirmed boot may continue serving them until expiry. Native Windows task cleanup still requires real-host verification.
 
@@ -248,9 +288,12 @@ Read-only diagnostics: no prompts, writes, pruning, installation, service change
 | Copy freshness | SHA-256 comparisons of the installed bridge, protocol and typebox against current checkout/dependency bytes. A missing or changed copy warns to re-run install; doctor does not build a replacement. |
 | Bridge loaded | Registry JSON in `~/.mars-ram/bridges` and PID liveness. Shows a live count; warns about zero live sessions and stale/invalid entries. Stale entries are pruned by the **next bridge start**, not doctor. Tokens are never printed. |
 | Registry/token permissions | Linux: directory exactly `0700`, entries exactly `0600`; unsafe or unreadable modes are problems. Windows: read-only PowerShell `Get-Acl`, using SIDs, checks the owner and allowed grants on `~\\.mars-ram`, the registry directory and its children: only the current user, SYSTEM and Administrators. An Administrators-owned product folder warns about the non-elevated bridge failure (terminal-fallback L9). Only an **empty** folder may be manually removed and recreated by non-elevated Pi; otherwise transfer ownership without deleting paired data. |
+| Attachments folder | Checks the private temp folder with the `uploads-dir` policy **without creating it**. A private folder, or one not created yet, is ok with its path. A linked folder, a file, another owner or group/other permissions is a problem naming the component: remove it and try again (attachments fail until then). An unreadable folder warns. A leftover `~/.mars-ram/uploads` warns to run `mars-ram install`, which removes it. |
 | Link-server copy/config | Existing installed `src/main.ts`, SHA-256 comparison of `src/` and `package.json` against current checkout, and `host.json`'s existing absolute Node executable and exact installed main path plus port 47811. Missing, moved or outdated files/config warn to reinstall. Only a fingerprint-current, configured installed copy is allowed to execute the read-only `status` command. |
 | Link-server activity | Runs `node <installed-main> status` only when copy freshness and configuration are valid (10-second command timeout). Status returns `{ serving, links }`, counts validated unexpired entries without initializing storage or pruning, and confirms a live PID plus its boot-identity HEAD response rather than trusting TCP reachability. That HEAD route performs no store access. Zero links/no listener is normal on-demand idle; valid links without a confirmed listener warn to connect the phone. With missing/outdated code or bad config, doctor only reads metadata to count unexpired entries and makes no serving claim. Malformed/unreadable storage produces diagnostic failure rather than a false count. No URLs/tokens are printed, and `list`/`ensure` are never called. |
-| Tailscale | `tailscale ip -4`; unavailable or invalid IPv4 is a problem. Install/sign in/connect manually. |
+| Tailscale | `tailscale ip -4` (on macOS, falling back to the CLI inside `/Applications/Tailscale.app`); unavailable or invalid IPv4 is a problem. Install/sign in/connect manually. When a ZeroTier address exists, unavailable Tailscale is a warning instead: pairing works over ZeroTier, but private links and Siempre atento need Tailscale. |
+| ZeroTier | IPv4 addresses of ZeroTier interfaces, read like `pair-zt` does. Shown as an `ok` line when found; nothing is reported when ZeroTier is absent, and unreadable interfaces count as absent. |
+| Firewall (Linux) | Only when a ZeroTier address exists: if ufw or firewalld is on (read without root, like `pair-zt`), a warning that it may block pairing and SSH over ZeroTier, with the exact command per ZeroTier interface (`sudo ufw allow in on <interface> comment 'ZeroTier'`, or the `firewall-cmd` line). Nothing is reported without ZeroTier, with no active firewall, when the state cannot be read, or on macOS and Windows. Doctor never changes the firewall. |
 | SSH forwarding | Linux: tries `sshd -T`; if unavailable unprivileged, reads `/etc/ssh/sshd_config` and `sshd_config.d/*.conf`. Windows: reads `C:\\ProgramData\\ssh\\sshd_config` (or `%ProgramData%`) and drop-ins. Effective `sshd -T` output is authoritative when available. Only recognized explicit forwarding values yield a result: `AllowTcpForwarding no/remote` or `DisableForwarding yes` is a problem; `AllowTcpForwarding yes/all/local` permits forwarding unless disabled. Missing/empty/unreadable configuration, absent directives, unknown forwarding values, unresolved `Include` directives and unevaluated `Match` blocks warn that forwarding could not be determined, with advice to check `sshd_config`; they never default to allowed. The Linux fallback expands the supported `sshd_config.d/*.conf` Include in place, in sorted order; other Includes warn. |
 | Paired SSH keys | Reads the user's `authorized_keys` (Windows administrators: the shared administrators file). Only lines whose comment starts `mars-ram:` are checked. Unrestricted keys or `restrict,port-forwarding` allow tunnels; restricted keys without it, or explicit `no-port-forwarding`, warn. No keys is not a forwarding failure. Never edits keys or creates backups. |
 | Key writer locks | Checks `authorized_keys.lock` and `.lock.recovery` owner PID + process start time. Stale holders, directories without readable owner metadata, and leftover lock `.trash` directories warn with the exact path to delete manually. Unverifiable live holders report PID, `createdAt`, and conditional repair advice (delete only if that process is not a Mars-RAM key change). Never removes locks. |

@@ -17,7 +17,7 @@ export const text = spanish
 			expired: "El código venció sin que se emparejara ningún teléfono.",
 			cancelled: "Emparejamiento cancelado.",
 			elevate: "Tu usuario es administrador: abrí la terminal como administrador para autorizar el teléfono.",
-			usage: "Uso: mars-ram pair [--ssh-port <puerto>] | install | uninstall | doctor",
+			usage: "Uso: mars-ram pair [--ssh-port <puerto>] | pair-zt [--ssh-port <puerto>] [--address <ipv4 de ZeroTier>] | install | uninstall | doctor",
 		}
 	: {
 			scan: "Scan this code with the app on your phone:",
@@ -30,7 +30,7 @@ export const text = spanish
 			expired: "The code expired without pairing a phone.",
 			cancelled: "Pairing cancelled.",
 			elevate: "Your user is an administrator: open the terminal as administrator to authorize the phone.",
-			usage: "Usage: mars-ram pair [--ssh-port <port>] | install | uninstall | doctor",
+			usage: "Usage: mars-ram pair [--ssh-port <port>] | pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>] | install | uninstall | doctor",
 		};
 
 export const installText = spanish ? {

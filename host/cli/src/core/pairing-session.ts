@@ -1,17 +1,19 @@
 // One pairing: a one-time code shown in a QR, valid for a short time and for one phone,
 // which the user must still confirm at the computer before its key is authorized.
 import { createHash, timingSafeEqual } from "node:crypto";
-import { decodePairingRequest, PAIRING_VERSION, type PairingErrorCode, type PairingOffer, type PairingResponse } from "@workspace/protocol";
+import { decodePairingRequest, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type NetworkPairingOffer, type PairingErrorCode, type PairingNetwork, type PairingResponse } from "@workspace/protocol";
 import type { HostInfo, PairingPorts } from "./ports.ts";
 
 export type PairingState = "open" | "confirming" | "paired" | "closed";
 
-export type PairingSessionOptions = { host: HostInfo; ports: PairingPorts; ttlMs: number; maxBadAttempts: number };
+/** network defaults to Tailscale. */
+export type PairingSessionOptions = { host: HostInfo; network?: PairingNetwork; ports: PairingPorts; ttlMs: number; maxBadAttempts: number };
 
 export class PairingSession {
 	state: PairingState = "open";
 	badAttempts = 0;
 	private readonly host: HostInfo;
+	private readonly network: PairingNetwork;
 	private readonly ports: PairingPorts;
 	private readonly code: string;
 	private readonly expiresAt: number;
@@ -19,14 +21,18 @@ export class PairingSession {
 
 	constructor(options: PairingSessionOptions) {
 		this.host = options.host;
+		this.network = options.network ?? "tailscale";
 		this.ports = options.ports;
 		this.code = options.ports.randomCode();
 		this.expiresAt = options.ports.clock() + options.ttlMs;
 		this.maxBadAttempts = options.maxBadAttempts;
 	}
 
-	offer(): PairingOffer {
-		return { v: PAIRING_VERSION, ...this.host, code: this.code, expiresAt: this.expiresAt };
+	offer(): NetworkPairingOffer {
+		if (this.network === "tailscale") return { v: PAIRING_VERSION, ...this.host, code: this.code, expiresAt: this.expiresAt };
+		// A ZeroTier offer has no MagicDNS name: the phone reaches the computer at its ZeroTier address only.
+		const { name, address, sshPort, user, hostKey, pairPort } = this.host;
+		return { v: ZEROTIER_PAIRING_VERSION, network: "zerotier", name, address, sshPort, user, hostKey, pairPort, code: this.code, expiresAt: this.expiresAt };
 	}
 
 	isExpired(): boolean {

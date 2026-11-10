@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { AppState, Modal, Pressable, Text, View } from "react-native";
-import { DICTATION_MODEL, DictationRunner, formatElapsed, type DictationState } from "../core/dictation";
+import { DICTATION_MODEL, DictationRunner, formatElapsed, ModelDownload, type DictationState, type ModelDownloadView } from "../core/dictation";
 import { dictation } from "../services";
 import { usePreferences } from "./preferences";
 
@@ -71,37 +71,40 @@ export function DictationStatus({ d, terminal = false }: { d: Dictation; termina
  return null;
 }
 
-/** First use: the voice model is downloaded once and stays on the phone. */
+/** The voice model's system download, one for the app: the sheet and the Settings card watch it. */
+export const modelDownload = new ModelDownload(dictation);
+const unwatched = () => () => {};
+/** Watching polls the progress; pass false to stop watching without touching the download. */
+export function useModelDownload(watch = true): ModelDownloadView {
+ return useSyncExternalStore(watch ? modelDownload.subscribe : unwatched, modelDownload.snapshot);
+}
+export const megabytes = (n: number) => Math.round(n / 1e6);
+
+/** First use: the voice model is downloaded once and stays on the phone. The download is the
+ * system's: closing the sheet, leaving the screen or the app never stops it; only «Cancelar
+ * descarga» does. */
 export function DictationModelSheet({ visible, close }: { visible: boolean; close: () => void }) {
  const { theme, t: { dictation: s } } = usePreferences(); const c = theme.colors;
- const [progress, setProgress] = useState<number | null>(null);
- const [failed, setFailed] = useState(false);
- const task = useRef<ReturnType<typeof dictation.download> | null>(null);
- useEffect(() => { if (!visible) { setProgress(null); setFailed(false); } }, [visible]);
- // A download outlives neither the sheet nor the screen that showed it.
- useEffect(() => () => { void task.current?.cancel(); task.current = null; }, []);
- async function download() {
-  setFailed(false); setProgress(0);
-  task.current = dictation.download((written, total) => setProgress(written / total));
-  const result = await task.current.promise; task.current = null;
-  if (result.ok) close(); else { setProgress(null); setFailed(true); }
- }
- async function cancel() { await task.current?.cancel(); task.current = null; close(); }
- const mb = (n: number) => Math.round(n / 1e6);
- const model = DICTATION_MODEL;
+ const view = useModelDownload(visible);
+ const done = visible && view.phase === "ready";
+ useEffect(() => { if (done) close(); }, [done]);
+ const notice = { title: s.notificationTitle, description: s.notificationBody };
+ const total = megabytes(DICTATION_MODEL.bytes);
  const button = (label: string, action: () => void, primary: boolean) => <Pressable accessibilityRole="button" onPress={action} style={{ minHeight: theme.touch, borderRadius: theme.radius.medium, alignItems: "center", justifyContent: "center", marginTop: theme.spacing(2), backgroundColor: primary ? c.accent : c.surfaceRaised }}><Text style={{ color: primary ? c.onAccent : c.text, fontWeight: "700" }}>{label}</Text></Pressable>;
- return <Modal visible={visible} transparent animationType="slide" onRequestClose={() => void cancel()}>
-  <Pressable accessibilityLabel={s.cancel} onPress={() => void cancel()} style={{ flex: 1, backgroundColor: "rgba(13,14,20,0.62)" }} />
+ return <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+  <Pressable accessibilityLabel={s.close} onPress={close} style={{ flex: 1, backgroundColor: "rgba(13,14,20,0.62)" }} />
   <View accessibilityViewIsModal style={{ backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderColor: c.border, padding: theme.spacing(4), paddingBottom: theme.spacing(6) }}>
    <Text accessibilityRole="header" style={{ color: c.text, fontSize: 19, fontWeight: "700", marginBottom: theme.spacing(2) }}>{s.setupTitle}</Text>
-   <Text style={{ color: c.textMuted, fontSize: 14, lineHeight: 21 }}>{s.setupBody(mb(model.bytes))}</Text>
-   {progress !== null ? <>
-    <View style={{ height: 8, borderRadius: 4, backgroundColor: c.surfaceRaised, overflow: "hidden", marginTop: theme.spacing(3) }}><View style={{ height: 8, width: `${Math.round(progress * 100)}%`, backgroundColor: c.accent }} /></View>
-    <Text accessibilityLiveRegion="polite" style={{ color: c.textMuted, fontFamily: theme.font.mono, fontSize: 12, marginTop: 6 }}>{s.downloading(mb(progress * model.bytes), mb(model.bytes))}</Text>
+   <Text style={{ color: c.textMuted, fontSize: 14, lineHeight: 21 }}>{s.setupBody(total)}</Text>
+   {view.phase === "downloading" ? <>
+    <View style={{ height: 8, borderRadius: 4, backgroundColor: c.surfaceRaised, overflow: "hidden", marginTop: theme.spacing(3) }}><View style={{ height: 8, width: `${Math.min(100, Math.round(view.written / view.total * 100))}%`, backgroundColor: c.accent }} /></View>
+    <Text accessibilityLiveRegion="polite" style={{ color: c.textMuted, fontFamily: theme.font.mono, fontSize: 12, marginTop: 6 }}>{(view.waiting ? s.waiting : s.downloading)(megabytes(view.written), megabytes(view.total))}</Text>
+    <Text style={{ color: c.textMuted, fontSize: 13, lineHeight: 19, marginTop: theme.spacing(2) }}>{s.background}</Text>
    </> : null}
-   {failed ? <Text accessibilityRole="alert" style={{ color: c.danger, marginTop: theme.spacing(2) }}>{s.errors.DOWNLOAD_FAILED}</Text> : null}
-   {progress === null ? button(s.download(mb(model.bytes)), () => void download(), true) : null}
-   {button(s.cancel, () => void cancel(), false)}
+   {view.phase === "checking" ? <Text style={{ color: c.textMuted, marginTop: theme.spacing(2) }}>{s.checking}</Text> : null}
+   {view.phase === "missing" && view.failed ? <Text accessibilityRole="alert" style={{ color: c.danger, marginTop: theme.spacing(2) }}>{s.errors.DOWNLOAD_FAILED}</Text> : null}
+   {view.phase === "missing" ? button(s.download(total), () => void modelDownload.start(notice), true) : null}
+   {view.phase === "downloading" ? button(s.cancelDownload, () => void modelDownload.cancel().then(close), false) : button(s.cancel, close, false)}
   </View>
  </Modal>;
 }

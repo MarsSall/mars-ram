@@ -5,6 +5,16 @@ import { createPrompter, installText, isYes, spanish } from "./adapters/terminal
 import { Installation, selectHomes } from "./core/installation.ts";
 import { pathHint } from "./adapters/cli-installation.ts";
 import { homedir } from "node:os";
+import { removeLegacyUploads, removeUploadsFolder } from "./adapters/uploads-cleanup.ts";
+
+// Attachment cleanup never fails install or uninstall: report and continue.
+async function cleanUploads(steps: (() => Promise<string | undefined> | string | undefined)[]): Promise<void> {
+	for (const step of steps) {
+		try { const line = await step(); if (line) console.log(line); }
+		catch (error) { console.log(spanish ? `No se pudo limpiar la carpeta de adjuntos: ${(error as Error).message}` : `Could not clean up the attachments folder: ${(error as Error).message}`); }
+	}
+}
+const uninstallUploads = () => cleanUploads([() => removeLegacyUploads(homedir(), spanish), () => removeUploadsFolder(spanish)]);
 
 export async function installCommand(command: "install" | "uninstall"): Promise<number> {
 	const adapter = createInstallAdapter({ programs: findPrograms });
@@ -18,13 +28,14 @@ export async function installCommand(command: "install" | "uninstall"): Promise<
    // From the npm package, uninstall removes what install wrote; the package itself belongs to the package manager.
    const packageNote = () => { if (adapter.packageBin) console.log(spanish ? "El paquete de npm mars-ram queda instalado; quitalo con pnpm remove -g mars-ram (o npm uninstall -g mars-ram)." : "The mars-ram npm package stays installed; remove it with pnpm remove -g mars-ram (or npm uninstall -g mars-ram)."); };
 			const record = await installation.record();
-			if (!record) { const failures = await installation.uninstall(true); if (failures.length) throw new Error(failures.join("\n")); console.log(linkWarning); console.log(installText.noInstallation); packageNote(); return 0; }
+			if (!record) { const failures = await installation.uninstall(true); if (failures.length) throw new Error(failures.join("\n")); console.log(linkWarning); console.log(installText.noInstallation); await uninstallUploads(); packageNote(); return 0; }
 			console.log([...new Set([...record.homes, ...(record.pending ?? [])])].map((home, index) => `${index + 1}. ${home}`).join("\n"));
 			if (!isYes(await prompter.ask(installText.confirmRemove))) { console.log(installText.cancelled); return 0; }
    console.log(linkWarning);
 			const failures = await installation.uninstall(true);
 			if (failures.length) throw new Error(failures.join("\n"));
 			console.log(installText.removed);
+   await uninstallUploads();
    packageNote();
    if (process.platform === "win32") console.log(spanish ? "Abrí una terminal nueva para actualizar PATH." : "Open a new terminal to refresh PATH.");
 			return 0;
@@ -57,6 +68,7 @@ export async function installCommand(command: "install" | "uninstall"): Promise<
   if (!await adapter.writeHostConfig()) console.log(spanish
    ? "La terminal no se abrirá hasta que instales Herdr y ejecutes mars-ram install de nuevo."
    : "The terminal will not open until Herdr is installed; run mars-ram install again.");
+		await cleanUploads([() => removeLegacyUploads(homedir(), spanish)]);
 		if (skipped.length) console.log(`${installText.unowned}\n${skipped.join("\n")}`);
 		console.log(`${installText.installed}\n${selected.filter((home) => !skipped.includes(home)).join("\n")}\n${installText.reload}`);
 		return 0;

@@ -8,7 +8,7 @@ import { terminalKey, type HerdrState, type HerdrTerminal } from "../../../core/
 import { applyTerminalCtrl, tapTerminalCtrl, decodeWebMessage, encodeTerminalMessage, terminalToolbarKeys, terminalToolbarWidth, terminalChromeInsets, type TerminalCtrlState, type TerminalMessage } from "../../../core/terminal-controls";
 import { addAttachment, type Attachment } from "../../../core/attachment-draft";
 import type { AttachmentSource } from "../../../core/media-source";
-import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, sessions } from "../../../services";
+import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, sessions, terminalFont } from "../../../services";
 import { AttachmentButton } from "../../../ui/attachment-composer";
 import { attachmentError } from "../../../ui/attachment-messages";
 import { FloatingTerminalPad } from "../../../ui/floating-terminal-pad";
@@ -59,7 +59,9 @@ export default function TerminalScreen() {
  const [terminal, setTerminal] = useState<HerdrTerminal | null>(null);
  const [state, setState] = useState<HerdrState>({ status: "connecting" });
  const [ready, setReady] = useState(false); const [pageFailed, setPageFailed] = useState(false); const [attempt, setAttempt] = useState(0);
- const [fontSize, setFontSize] = useState(14); const font = useRef(fontSize); font.current = fontSize;
+ // One stored size for every terminal; Settings changes reach an open terminal live.
+ const [fontSize, setFontSize] = useState(terminalFont.get); const font = useRef(fontSize); font.current = fontSize;
+ useEffect(() => { setFontSize(terminalFont.get()); return terminalFont.subscribe(setFontSize); }, []);
  const [bounds, setBounds] = useState({ width: 0, height: 0 });
  const [ctrlState, setCtrlState] = useState<TerminalCtrlState>({ mode: "off", tappedAt: null }); const ctrl = useRef(ctrlState);
  const [computerName, setComputerName] = useState(params.computer ?? s.title);
@@ -247,6 +249,8 @@ export default function TerminalScreen() {
     mixedContentMode="never" domStorageEnabled={false} thirdPartyCookiesEnabled={false} sharedCookiesEnabled={false} cacheEnabled={false}
     geolocationEnabled={false} javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows keyboardDisplayRequiresUserAction={false}
     allowsInlineMediaPlayback={false} mediaPlaybackRequiresUserAction
+    // Opt-in marker for patches/react-native-webview: Android keyboard without suggestions (text already sent cannot be replaced).
+    applicationNameForUserAgent="MarsRamTerminal"
     onError={() => { setReady(false); setPageFailed(true); }}
     onRenderProcessGone={() => { setReady(false); setPageFailed(true); }}
     onContentProcessDidTerminate={() => { setReady(false); setPageFailed(true); }}
@@ -257,7 +261,7 @@ export default function TerminalScreen() {
      else if (message.type === "size") terminal?.resize(message.cols, message.rows);
      else if (message.type === "cursorMode") mode.current = message.enabled;
      else if (message.type === "selection") setSelection(message.text);
-     else if (message.type === "fontSize") setFontSize(message.value);
+     else if (message.type === "fontSize") void terminalFont.set(message.value).catch(() => { /* Zoom keeps working this session; Settings reports save failures. */ });
     }} />
    {status ? <View style={{ position: "absolute", left: theme.spacing(1), right: theme.spacing(1), top: theme.spacing(1), padding: theme.spacing(2), backgroundColor: c.surfaceRaised, borderRadius: theme.radius.small }}>
     <Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{status}</Text>

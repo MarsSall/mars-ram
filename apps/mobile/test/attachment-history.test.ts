@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AttachmentHistory, attachmentDisplayName, attachmentPresentation } from "../src/core/attachment-history";
 import { uploadAttachments } from "../src/core/attachment-uploads";
-import { FakeSsh } from "./fakes";
+import { FakeSsh, FakeUploadsFolder } from "./fakes";
 import type { HostConnection } from "../src/core/ports";
-import { PROTOCOL_VERSION } from "@workspace/protocol";
 
 import { FakeAttachmentStorage } from "./fake-attachment-storage";
 import { ATTACHMENT_MAX_BYTES } from "@workspace/protocol";
@@ -78,7 +77,7 @@ describe("local attachment history", () => {
 		storage.failSave = true;
 		const host = new FakeSsh();
 		host.sourceSizes.set("content://photo", 10);
-		const result = await uploadAttachments({ host: host as unknown as HostConnection, history: new AttachmentHistory(storage), connection: async () => ({ ok: true, connectionId: "conn" }), clock: () => 0, random: () => 0.5 }, PROTOCOL_VERSION,
+		const result = await uploadAttachments({ host: host as unknown as HostConnection, folder: new FakeUploadsFolder(), history: new AttachmentHistory(storage), connection: async () => ({ ok: true, connectionId: "conn" }), clock: () => 0, random: () => 0.5 }, "1.7",
 			[{ id: "p", sourceUri: "content://photo", displayName: "photo.png", mimeType: "image/png", size: 10, kind: "image" }]);
 		expect(result.ok).toBe(true);
 		if (result.ok) expect(result.names).toHaveLength(1);
@@ -100,7 +99,7 @@ describe("local attachment history", () => {
 		const history = new AttachmentHistory();
 		const host = new FakeSsh();
 		host.sourceSizes.set("content://photo", 10);
-		const result = await uploadAttachments({ host: host as unknown as HostConnection, history, connection: async () => ({ ok: true, connectionId: "conn" }), clock: () => 0, random: () => 0.5 }, PROTOCOL_VERSION,
+		const result = await uploadAttachments({ host: host as unknown as HostConnection, folder: new FakeUploadsFolder(), history, connection: async () => ({ ok: true, connectionId: "conn" }), clock: () => 0, random: () => 0.5 }, "1.7",
 			[{ id: "p", sourceUri: "content://photo", displayName: "Mi foto.png", mimeType: "image/png", size: 10, kind: "image" }]);
 		if (!result.ok) throw new Error(result.message);
 		expect(history.get(result.names[0]!)).toEqual({ uri: "content://photo", displayName: "Mi foto.png", mimeType: "image/png" });

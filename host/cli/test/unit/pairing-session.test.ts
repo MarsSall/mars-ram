@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { PAIRING_VERSION } from "@workspace/protocol";
+import { decodeNetworkPairingUri, encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION } from "@workspace/protocol";
 import { PairingSession } from "../../src/core/pairing-session.ts";
 import type { PairingPorts } from "../../src/core/ports.ts";
 
@@ -42,6 +42,18 @@ beforeEach(() => {
 describe("offer", () => {
 	it("carries the host, a fresh code, and the expiry", () => {
 		expect(session.offer()).toEqual({ v: PAIRING_VERSION, ...host, code: CODE, expiresAt: 1_000 + 5 * 60_000 });
+	});
+
+	it("stays a version 1 Tailscale offer, with its MagicDNS name, when the network is Tailscale", () => {
+		const tailscale = new PairingSession({ host: { ...host, dnsName: "devbox.example-tailnet.ts.net" }, network: "tailscale", ports: ports(), ttlMs: 60_000, maxBadAttempts: 5 });
+		expect(tailscale.offer()).toEqual({ v: PAIRING_VERSION, ...host, dnsName: "devbox.example-tailnet.ts.net", code: CODE, expiresAt: 61_000 });
+	});
+
+	it("is a version 2 ZeroTier offer without a MagicDNS name over ZeroTier", () => {
+		const zerotier = new PairingSession({ host: { ...host, address: "10.147.17.5", dnsName: "ignored.ts.net" }, network: "zerotier", ports: ports(), ttlMs: 60_000, maxBadAttempts: 5 });
+		const offer = zerotier.offer();
+		expect(offer).toEqual({ v: ZEROTIER_PAIRING_VERSION, network: "zerotier", name: "devbox", address: "10.147.17.5", sshPort: 22, user: "mars", hostKey: host.hostKey, pairPort: 47123, code: CODE, expiresAt: 61_000 });
+		expect(decodeNetworkPairingUri(encodePairingUri(offer))).toEqual({ ok: true, network: "zerotier", value: offer });
 	});
 });
 

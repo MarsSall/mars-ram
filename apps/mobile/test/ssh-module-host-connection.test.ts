@@ -6,6 +6,9 @@ import { sshModuleHostConnection, sshModuleTerminalChannel } from "../src/adapte
 
 const native = vi.hoisted(() => ({
  forwardLocal: vi.fn(async () => ({ ok: true, forwardId: "f", localPort: 51000 })),
+	uploadFile: vi.fn(async () => ({ ok: true, size: 1 })),
+	removeFile: vi.fn(async () => ({ ok: true })),
+	listDir: vi.fn(async () => ({ ok: true, entries: [] })),
 	openTerminal: vi.fn(async () => ({ ok: true, terminalId: "term" })),
 	writeTerminal: vi.fn(async () => ({ ok: true })),
 	resizeTerminal: vi.fn(async () => ({ ok: true })),
@@ -289,5 +292,33 @@ describe("attachment transfer HostConnection fake", () => {
 		expect(await ssh.listDir("conn", "uploads")).toEqual(ssh.refuse);
 		ssh.refuse = null;
 		expect((await ssh.listDir("conn", "uploads"))).toMatchObject({ ok: true, entries: [{ size: 0 }] });
+	});
+	it("passes the uploads root explicitly, and null for relative callers", async () => {
+		const root = "/tmp/mars-ram-1000/uploads";
+		await sshModuleHostConnection.uploadFile("conn", "content://a", root, "a.png", 5, root);
+		expect(native.uploadFile).toHaveBeenLastCalledWith("conn", "content://a", root, "a.png", 5, root);
+		await sshModuleHostConnection.uploadFile("conn", "content://a", ".mars-ram/links/.staging", "a.png", 5);
+		expect(native.uploadFile).toHaveBeenLastCalledWith("conn", "content://a", ".mars-ram/links/.staging", "a.png", 5, null);
+		await sshModuleHostConnection.removeFile("conn", `${root}/a.png`, root);
+		expect(native.removeFile).toHaveBeenLastCalledWith("conn", `${root}/a.png`, root);
+		await sshModuleHostConnection.removeFile("conn", ".mars-ram/links/.staging/a.png");
+		expect(native.removeFile).toHaveBeenLastCalledWith("conn", ".mars-ram/links/.staging/a.png", null);
+		await sshModuleHostConnection.listDir("conn", root, root);
+		expect(native.listDir).toHaveBeenLastCalledWith("conn", root, root);
+		await sshModuleHostConnection.listDir("conn", ".mars-ram/bridges");
+		expect(native.listDir).toHaveBeenLastCalledWith("conn", ".mars-ram/bridges", null);
+	});
+	it("fake accepts absolute paths only inside the explicit uploads root", async () => {
+		const ssh = new FakeSsh();
+		const root = "/tmp/mars-ram-1000/uploads";
+		ssh.sourceSizes.set("content://a", 1);
+		expect(await ssh.uploadFile("conn", "content://a", root, "a.png", 5)).toEqual(failure("SSH_ERROR"));
+		expect(await ssh.uploadFile("conn", "content://a", "/tmp/other", "a.png", 5, root)).toEqual(failure("SSH_ERROR"));
+		expect(await ssh.uploadFile("conn", "content://a", root, "a.png", 5, root)).toEqual({ ok: true, size: 1 });
+		expect(await ssh.listDir("conn", root)).toEqual(failure("SSH_ERROR"));
+		expect(await ssh.listDir("conn", root, root)).toMatchObject({ ok: true, entries: [{ name: "a.png" }] });
+		for (const path of [`${root}/a.png`, `${root}/../a.png`, `${root}/x/a.png`, "/etc/passwd"]) expect(await ssh.removeFile("conn", path)).toEqual(failure("SSH_ERROR"));
+		for (const path of [`${root}/..`, `${root}/x/a.png`, "/etc/passwd", root]) expect(await ssh.removeFile("conn", path, root)).toEqual(failure("SSH_ERROR"));
+		expect(await ssh.removeFile("conn", `${root}/a.png`, root)).toEqual({ ok: true });
 	});
 });

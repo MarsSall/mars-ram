@@ -1,4 +1,7 @@
 // Diagnostic policy: ports expose observations only, never repairs.
+import { firewallFixes, type FirewallState } from "./firewall.ts";
+import type { UnsafeReason, UploadsFolderState } from "@workspace/protocol/uploads-folder";
+
 export type Finding = { status: "ok" | "warning" | "problem"; finding: string; fix?: string };
 export type RegistryObservation = { exists: boolean; entries: { name: string; pid?: number }[]; directoryMode?: number; modes: (number | undefined)[] };
 export type WindowsDefaultShell = "cmd" | "powershell" | "other";
@@ -15,9 +18,17 @@ export interface DoctorPorts {
 	alive(pid: number): boolean;
 	acl(): Promise<{ safe: boolean; administratorOwner: boolean }>;
 	tailscale(): Promise<string>;
+	/** IPv4 addresses of ZeroTier interfaces; empty when ZeroTier is not connected. */
+	zerotier(): Promise<string[]>;
+	/** Names of the interfaces holding those addresses. */
+	zeroTierInterfaces(): Promise<string[]>;
+	/** Whether ufw or firewalld is on, read without root. */
+	firewall(): Promise<FirewallState>;
  keyLocks(): Promise<(string | { path: string; diagnostic: string })[]>;
 	forwarding(): Promise<{ allowed: boolean | undefined; keysAllowed: boolean | undefined }>;
 	windows(): Promise<{ service: boolean; shell: WindowsDefaultShell }>;
+	/** The private temp attachments folder, checked without creating it; legacy: ~/.mars-ram/uploads still exists. */
+	uploads(): Promise<{ state: UploadsFolderState; legacy: boolean }>;
 }
 const say = (p: DoctorPorts, en: string, es: string) => p.spanish ? es : en;
 const result = (status: Finding["status"], finding: string, fix?: string): Finding => ({ status, finding, ...(fix ? { fix } : {}) });
@@ -100,10 +111,36 @@ export async function checkLinkServer(p: DoctorPorts): Promise<Finding[]> {
    !state.listener && state.validLinks ? say(p, "Connect the phone to ensure serving. Doctor status never prunes expired links or starts the server.", "Conectá el teléfono para asegurar el servicio. El estado no limpia enlaces vencidos ni inicia el servidor.") : undefined),
  ];
 }
+const zeroTierAddresses = async (p: DoctorPorts) => { try { return await p.zerotier(); } catch { return []; } };
 export async function checkTailscale(p: DoctorPorts): Promise<Finding[]> {
 	try { return [result("ok", `Tailscale: ${await p.tailscale()}`)]; } catch {
+		// Pairing, sessions, terminal and files also work over ZeroTier; private links and Siempre atento do not yet.
+		if ((await zeroTierAddresses(p)).length) return [result("warning", say(p, "Tailscale IPv4 unavailable; this computer pairs over ZeroTier, but private links and Siempre atento need Tailscale.", "IPv4 de Tailscale no disponible; esta computadora se empareja por ZeroTier, pero los enlaces privados y Siempre atento necesitan Tailscale."), say(p, "To use them, install Tailscale, sign in and connect; verify tailscale ip -4.", "Para usarlos, instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4."))];
 		return [result("problem", say(p, "Tailscale IPv4 unavailable.", "IPv4 de Tailscale no disponible."), say(p, "Install Tailscale, sign in and connect; verify tailscale ip -4.", "Instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4."))];
 	}
+}
+/** Informational: ZeroTier is optional, so its absence is not reported. */
+export async function checkZeroTier(p: DoctorPorts): Promise<Finding[]> {
+	const addresses = await zeroTierAddresses(p);
+	return addresses.length ? [result("ok", `ZeroTier: ${addresses.join(", ")}`)] : [];
+}
+/** Pairing and SSH over ZeroTier time out behind ufw or firewalld until its interface is allowed in. */
+export async function checkFirewall(p: DoctorPorts): Promise<Finding[]> {
+	if (!(await zeroTierAddresses(p)).length) return [];
+	let state: FirewallState;
+	try { state = await p.firewall(); } catch { return []; }
+	let interfaces: (string | undefined)[];
+	try { interfaces = [...new Set(await p.zeroTierInterfaces())]; } catch { interfaces = []; }
+	if (!interfaces.length) interfaces = [undefined];
+	const fixes = interfaces.flatMap((name) => firewallFixes(state, name));
+	const findings: Finding[] = [];
+	for (const firewall of new Set(fixes.map((fix) => fix.firewall))) {
+		const commands = fixes.filter((fix) => fix.firewall === firewall).map((fix) => fix.command).join("; ");
+		findings.push(result("warning",
+			say(p, `Firewall (${firewall}) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected).`, `Firewall (${firewall}) activo; puede bloquear el emparejamiento y SSH por ZeroTier (Tailscale no se ve afectado).`),
+			say(p, `If the phone cannot connect over ZeroTier, run: ${commands}`, `Si el teléfono no conecta por ZeroTier, ejecutá: ${commands}`)));
+	}
+	return findings;
 }
 export async function checkForwarding(p: DoctorPorts): Promise<Finding[]> {
 	const unknown = () => result("warning", say(p, "Could not determine SSH TCP forwarding.", "No se pudo determinar el reenvío TCP SSH."), say(p, "Check sshd_config, its Includes and Match blocks; ask an administrator to inspect sshd -T.", "Revisá sshd_config, sus Include y bloques Match; pedí a un administrador revisar sshd -T."));
@@ -135,9 +172,27 @@ export async function checkWindows(p: DoctorPorts): Promise<Finding[]> {
 				: say(p, "SSH default shell: other shell; untested with the phone terminal.", "Shell SSH predeterminado: otro shell; no probado con la terminal del teléfono."),
 				say(p, "Run in administrator PowerShell: Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\OpenSSH' -Name DefaultShell", "Ejecutá en PowerShell como administrador: Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\OpenSSH' -Name DefaultShell"))];
 }
+const unsafeText: Record<UnsafeReason, [string, string]> = {
+	link: ["is a link", "es un enlace"],
+	not_folder: ["is not a folder", "no es una carpeta"],
+	owner: ["belongs to another user", "pertenece a otro usuario"],
+	permissions: ["can be opened by other users", "la pueden abrir otros usuarios"],
+};
+export async function checkUploads(p: DoctorPorts): Promise<Finding[]> {
+	const { state, legacy } = await p.uploads();
+	const results = [
+		state.ok || state.error === "missing"
+			? result("ok", say(p, `Attachments folder: ${state.path} (${state.ok ? "private" : "created with the first attachment"}).`, `Carpeta de adjuntos: ${state.path} (${state.ok ? "privada" : "se crea con el primer adjunto"}).`))
+			: state.error === "unsafe_folder"
+			? result("problem", say(p, `Attachments folder ${state.component} ${unsafeText[state.reason][0]}; attachments will fail.`, `La carpeta de adjuntos ${state.component} ${unsafeText[state.reason][1]}; los adjuntos van a fallar.`), say(p, `Remove ${state.component} and try again.`, `Eliminá ${state.component} y volvé a intentar.`))
+			: result("warning", say(p, `Could not check the attachments folder ${state.path}.`, `No se pudo revisar la carpeta de adjuntos ${state.path}.`), say(p, "Check access to the temp folder, then run doctor again.", "Verificá el acceso a la carpeta temporal y volvé a ejecutar doctor.")),
+	];
+	if (legacy) results.push(result("warning", say(p, "Old attachments folder ~/.mars-ram/uploads still exists; nothing reads it anymore.", "La carpeta anterior de adjuntos ~/.mars-ram/uploads todavía existe; ya nada la usa."), say(p, "Run mars-ram install to remove it.", "Ejecutá mars-ram install para eliminarla.")));
+	return results;
+}
 export async function diagnose(p: DoctorPorts): Promise<{ code: number; results: Finding[] }> {
 	const results: Finding[] = [];
-	for (const check of [checkPi, checkHerdr, checkCli, checkInstallation, checkRegistry, checkPermissions, checkLinkServer, checkTailscale, checkForwarding, checkKeyLocks, checkWindows]) {
+	for (const check of [checkPi, checkHerdr, checkCli, checkInstallation, checkRegistry, checkPermissions, checkUploads, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkKeyLocks, checkWindows]) {
 		try { results.push(...await check(p)); } catch {
 			results.push(result("problem", say(p, `Cannot read diagnostic data (${check.name}).`, `No se pudo leer el diagnóstico (${check.name}).`), say(p, "Check read access to the relevant configuration and diagnostic commands, then run doctor again.", "Verificá acceso de lectura a la configuración y los comandos de diagnóstico y volvé a ejecutar doctor.")));
 		}

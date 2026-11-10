@@ -18,6 +18,7 @@ export const notificationCopy = {
   registered: "Registro confirmado", update: "Actualizá mars-ram en esta computadora (mars-ram install) y reintentá.", failed: "No se pudo registrar. Conectá o desbloqueá esta computadora y reintentá.",
   denied: "No se permitieron las notificaciones. El modo sigue apagado. Podés habilitarlas en los ajustes del sistema.", tailscale: "No se pudo escuchar en Tailscale. Encendé Tailscale y reintentá con la app abierta.",
   visible: "Android necesita la app visible para iniciar el servicio. Volvé a abrirla y reintentá.", generic: "No se pudo iniciar el seguimiento. Revisá los permisos y reintentá con la app abierta.", settingsFailed: "No se pudieron abrir los ajustes del sistema.",
+  tailscaleOnly: "Disponible solo con Tailscale",
  },
  en: {
   deleteFailed: "Could not delete the local notice secret. The computer is still saved; retry.",
@@ -38,5 +39,6 @@ export const notificationCopy = {
   registered: "Registration confirmed", update: "Update mars-ram on this computer (mars-ram install), then retry.", failed: "Could not register. Connect or unlock this computer, then retry.",
   denied: "Notifications were not allowed. The mode remains off. You can enable them in system settings.", tailscale: "Could not listen on Tailscale. Turn Tailscale on, then retry with the app open.",
   visible: "Android needs the app visible to start the service. Open it and retry.", generic: "Could not start watching. Check permissions and retry with the app open.", settingsFailed: "Could not open system settings.",
+  tailscaleOnly: "Available only with Tailscale",
  },
 };

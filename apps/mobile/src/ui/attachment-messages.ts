@@ -1,4 +1,5 @@
 import type { Strings } from "./i18n/en";
+import { FOLDER_REFUSED_PREFIX, FOLDER_UNAVAILABLE_PREFIX, UPDATE_REQUIRED_MESSAGE } from "../core/uploads-folder";
 
 type Labels = Strings["attachments"];
 /** Core errors remain English; never present an untranslated transport error as UI copy. */
@@ -9,6 +10,10 @@ export function attachmentError(message: string, t: Labels): string {
  if (unreadable) return t.unreadable(unreadable[1]!);
  if (message === "Attach at most 10 files.") return t.tooMany;
  if (message === "Please update Mars-RAM on the computer to send attachments.") return t.oldBridge;
+ if (message === UPDATE_REQUIRED_MESSAGE) return t.updateRequired;
+ // The host's own (bounded, control-free) explanation of why its folder is unsafe.
+ if (message.startsWith(FOLDER_REFUSED_PREFIX)) return t.folderRefused(message.slice(FOLDER_REFUSED_PREFIX.length));
+ if (message.startsWith(FOLDER_UNAVAILABLE_PREFIX)) return t.folderUnavailable(message.slice(FOLDER_UNAVAILABLE_PREFIX.length));
  return t.sendFailed;
 }
 export function withheldNotice(reason: "none" | "model" | "blocked" | undefined, t: Labels): string | null {

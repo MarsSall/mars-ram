@@ -1,12 +1,15 @@
-import { ATTACHMENT_MAX_BYTES, supportsAttachments, UPLOADS_DIRECTORY, type UploadName } from "@workspace/protocol";
+import { ATTACHMENT_MAX_BYTES, type UploadName } from "@workspace/protocol";
 import { addAttachment, uploadName, type Attachment } from "./attachment-draft";
 import type { ConnectionResult } from "./host-connections";
 import type { HostConnection } from "./ports";
 import type { AttachmentHistory } from "./attachment-history";
+import { supportsTempUploads, UPDATE_REQUIRED_MESSAGE, type UploadsFolder, type UploadsFolderLookup } from "./uploads-folder";
 
 /** AttachmentTransfer use case backed by the existing HostConnection port. */
 export type AttachmentUploads = {
 	host: HostConnection;
+	/** The host-chosen absolute folder; files never go to a home-relative folder. */
+	folder: UploadsFolderLookup;
 	connection(): Promise<ConnectionResult>;
 	clock(): number;
 	random(): number;
@@ -16,11 +19,12 @@ export type AttachmentUploads = {
 /** current=0 signals the batch is uploaded and the bridge send is starting. */
 export type UploadProgress = (current: number, total: number) => void;
 
-type UploadResult = { ok: true; names: UploadName[] } | { ok: false; message: string };
+type UploadResult = { ok: true; names: UploadName[]; folder: UploadsFolder } | { ok: false; message: string };
 
 /** Never changes the caller's draft; only its owner may clear it after a confirmed send. */
 export async function uploadAttachments(deps: AttachmentUploads | undefined, version: string, items: readonly Attachment[], progress?: UploadProgress): Promise<UploadResult> {
-	if (!supportsAttachments(version)) return { ok: false, message: "Please update Mars-RAM on the computer to send attachments." };
+	// An older bridge would look for the files in the old home folder (S5).
+	if (!supportsTempUploads(version)) return { ok: false, message: UPDATE_REQUIRED_MESSAGE };
 	return uploadTerminalAttachments(deps, items, progress);
 }
 
@@ -35,20 +39,25 @@ export async function uploadTerminalAttachments(deps: AttachmentUploads | undefi
 	}
 	const names: UploadName[] = [];
 	let connectionId: string | null = null;
+	let root: string | null = null;
 	const clean = async () => {
-		if (connectionId === null) return;
+		if (connectionId === null || root === null) return;
 		await Promise.all(names.map(async name => {
-			try { await deps.host.removeFile(connectionId!, `${UPLOADS_DIRECTORY}/${name}`); } catch { /* Best effort after a failed batch. */ }
+			try { await deps.host.removeFile(connectionId!, `${root}/${name}`, root!); } catch { /* Best effort after a failed batch. */ }
 		}));
 	};
 	try {
 		const connection = await deps.connection();
 		if (!connection.ok) return { ok: false, message: connection.message };
 		connectionId = connection.connectionId;
+		const lookup = await deps.folder.folder(connectionId);
+		if (!lookup.ok) return { ok: false, message: lookup.message };
+		const folder = lookup.folder;
+		root = folder.sftpPath;
 		for (const item of items) {
 			progress?.(names.length + 1, items.length);
 			const name = uploadName(item.displayName, deps.clock, deps.random);
-			const result = await deps.host.uploadFile(connectionId, item.sourceUri, UPLOADS_DIRECTORY, name, ATTACHMENT_MAX_BYTES);
+			const result = await deps.host.uploadFile(connectionId, item.sourceUri, root, name, ATTACHMENT_MAX_BYTES, root);
 			if (!result.ok) {
 				await clean();
 				return { ok: false, message: result.code === "TOO_LARGE" ? `${item.displayName} is over 25 MB. Choose a smaller file.`
@@ -58,7 +67,7 @@ export async function uploadTerminalAttachments(deps: AttachmentUploads | undefi
 			await deps.history?.remember(name, { uri: item.sourceUri, displayName: item.displayName, mimeType: item.mimeType });
 		}
 		progress?.(0, items.length);
-		return { ok: true, names };
+		return { ok: true, names, folder };
 	} catch {
 		await clean();
 		return { ok: false, message: "The file upload could not be completed. Keep your draft and try again." };

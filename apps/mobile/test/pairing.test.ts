@@ -20,6 +20,7 @@ const PUBLIC_KEY = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY app";
 
 let probes: { address: string; port: number }[];
 let probeAnswer: boolean;
+let nameProbeAnswer: boolean;
 let posts: { url: string; body: unknown; timeoutMs: number }[];
 let postReply: { status: number; json: unknown } | Error;
 let connects: HostTarget[];
@@ -33,6 +34,7 @@ let deps: PairingDeps;
 beforeEach(() => {
 	probes = [];
 	probeAnswer = true;
+	nameProbeAnswer = true;
 	posts = [];
 	postReply = { status: 200, json: { ok: true, user: "mars", hostKey: offer.hostKey } };
 	connects = [];
@@ -48,7 +50,7 @@ beforeEach(() => {
 		appKey: { ensure: async () => ({ publicKey: PUBLIC_KEY }) },
 		probe: async (address, port) => {
 			probes.push({ address, port });
-			return probeAnswer;
+			return address === offer.address ? probeAnswer : nameProbeAnswer;
 		},
 		http: {
 			postJson: async (url, body, timeoutMs) => {
@@ -201,9 +203,55 @@ describe("pairWithComputer", () => {
 		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({ ok: false, step: "send-key", code, message: "From the computer." });
 	});
 
-	it("checks that the computer answers before sending the key", async () => {
+	it("checks that the computer answers, first at its address and then by its name, before sending the key", async () => {
 		await pairWithComputer(deps, encodePairingUri(offer));
-		expect(probes).toEqual([{ address: "100.64.0.10", port: 22 }]);
+		expect(probes).toEqual([
+			{ address: "100.64.0.10", port: 22 },
+			{ address: "devbox.example-tailnet.ts.net", port: 22 },
+		]);
+		expect(posts).toHaveLength(1);
+	});
+
+	it("stops right away when the phone cannot find the computer by its name, and asks to turn off Private DNS", async () => {
+		nameProbeAnswer = false;
+		expect(await pairWithComputer(deps, encodePairingUri(offer))).toEqual({
+			ok: false,
+			step: "send-key",
+			code: "PRIVATE_DNS",
+			message: "Your phone can't find the computer by its Tailscale name. Turn off Private DNS: Settings › Connections › More connection settings › Private DNS › Off.",
+		});
+		expect(probes).toEqual([
+			{ address: "100.64.0.10", port: 22 },
+			{ address: "devbox.example-tailnet.ts.net", port: 22 },
+		]);
+		expect(posts).toEqual([]);
+		expect(unlocks).toBe(0);
+		expect(saved).toEqual([]);
+	});
+
+	it("tells when it starts looking for the computer and when the computer answered and waits for its user", async () => {
+		const stages: unknown[] = [];
+		deps.onProgress = (stage) => {
+			stages.push(stage);
+			// The confirmation stage starts only after both probes and before the key request.
+			if (stage.stage === "confirming") expect({ probes: probes.length, posts: posts.length }).toEqual({ probes: 2, posts: 0 });
+		};
+		await pairWithComputer(deps, encodePairingUri(offer));
+		expect(stages).toEqual([
+			{ stage: "reaching", computerName: "devbox", deviceName: "Galaxy S24 Ultra" },
+			{ stage: "confirming", computerName: "devbox", deviceName: "Galaxy S24 Ultra" },
+		]);
+	});
+
+	it("never says the computer answered when it could not be reached", async () => {
+		const stages: string[] = [];
+		deps.onProgress = (stage) => void stages.push(stage.stage);
+		probeAnswer = false;
+		await pairWithComputer(deps, encodePairingUri(offer));
+		nameProbeAnswer = false;
+		probeAnswer = true;
+		await pairWithComputer(deps, encodePairingUri(offer));
+		expect(stages).toEqual(["reaching", "reaching"]);
 	});
 
 	it("stops right away when the computer does not answer, instead of waiting for the code to expire", async () => {
@@ -214,6 +262,8 @@ describe("pairWithComputer", () => {
 			code: "UNREACHABLE",
 			message: "Cannot reach the computer. Check that Tailscale is on in this phone and the computer is on, then scan again.",
 		});
+		// The name is not checked when the address already does not answer.
+		expect(probes).toEqual([{ address: "100.64.0.10", port: 22 }]);
 		expect(posts).toEqual([]);
 		expect(unlocks).toBe(0);
 		expect(saved).toEqual([]);

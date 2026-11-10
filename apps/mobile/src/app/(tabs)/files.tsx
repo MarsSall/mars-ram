@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import type { SavedHost } from "../../core/host-catalog";
+import { hasTailscaleFeatures, type SavedHost } from "../../core/host-catalog";
 import type { LinkHistoryItem } from "../../core/links";
 import { Card, EmptyState, PrimaryButton, Screen, SectionTitle } from "../../ui/components";
 import { formatDateTime } from "../../ui/format";
@@ -19,6 +19,8 @@ export default function FilesScreen() {
  useEffect(() => { if (!state.refreshing) setPulling(false); }, [state.refreshing]);
  const actionStyle = { minHeight: 48, justifyContent: "center" as const, paddingHorizontal: 12 };
  const error = state.error;
+ const selectedHost = state.hosts?.find(host => host.id === state.selected);
+ const linksAvailable = !selectedHost || hasTailscaleFeatures(selectedHost);
  useEffect(() => setDetails(false), [error]);
  const errorText = error ? error.key === "noImage" || error.key === "cameraDenied" || error.key === "sourceFailed" ? t.attachments[error.key] : t.files[error.key] : null;
  const remove = (host: SavedHost, item: LinkHistoryItem) => {
@@ -36,7 +38,10 @@ export default function FilesScreen() {
    {state.hosts.length > 1 ? <ScrollView horizontal contentContainerStyle={{ gap: 8 }}>
     {state.hosts.map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.name} accessibilityState={{ selected: state.selected === host.id, disabled: !!state.busy }} disabled={!!state.busy} onPress={() => state.chooseComputer(host.id)} style={{ ...actionStyle, backgroundColor: state.selected === host.id ? c.accent : c.surfaceRaised, borderRadius: 12 }}><Text style={{ color: state.selected === host.id ? c.onAccent : c.text }}>{host.name}</Text></Pressable>)}
    </ScrollView> : <Text style={{ color: c.text }}>{state.hosts[0]?.name}</Text>}
-   <PrimaryButton label={t.files.create} disabled={!!state.busy || state.refreshing} onPress={() => setSourceMenu(true)} />
+   {/* Links are served on the Tailscale address only; a ZeroTier computer gets a note instead (zerotier S3). */}
+   {linksAvailable
+    ? <PrimaryButton label={t.files.create} disabled={!!state.busy || state.refreshing} onPress={() => setSourceMenu(true)} />
+    : <Text style={{ color: c.textMuted, marginTop: 8 }}>{t.files.tailscaleOnly}</Text>}
   </> : null}
   {state.busy ? <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>{t.files[state.busy]}</Text> : null}
  </View>

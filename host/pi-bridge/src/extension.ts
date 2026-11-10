@@ -12,7 +12,7 @@ import { stopInstance } from "./adapters/lifecycle.ts";
 import { publishEntry, pruneStaleEntries } from "./adapters/registry.ts";
 import { createToken } from "./adapters/token.ts";
 import { createUploadStore } from "./adapters/upload-store.ts";
-import { registryDir, uploadsDir } from "./config.ts";
+import { registryDir, uploadsFolder } from "./config.ts";
 import { BridgeSession } from "./core/bridge-session.ts";
 import { summarize } from "./core/message-summary.ts";
 import { publishesSession } from "./core/publish-policy.ts";
@@ -64,9 +64,10 @@ export default function bridge(pi: ExtensionAPI) {
 		pruneStaleEntries(dir);
 		const token = createToken();
 		const terminal = createHerdrTerminal();
+		const uploads = uploadsFolder();
 		const session = new BridgeSession({
 			pi: port,
-			uploads: createUploadStore(uploadsDir()),
+			uploads: createUploadStore(uploads.dir, uploads.verify),
 			instanceId: randomUUID(),
 			capacity: EVENT_CAPACITY,
 			clock: Date.now,

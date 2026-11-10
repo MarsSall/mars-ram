@@ -14,7 +14,10 @@ it('compares semantic versions numerically including prereleases and build metad
  for (const bad of ['01.0.0', '1.0', 'v1.0.0', '1.0.0-01', '1.0.0;echo', '999999999999999999999.0.0']) expect(compareSemver(bad, '1.0.0')).toBeNull();
 });
 it('prioritizes minimum over npm; missing is legacy, dev and unknown never warn', () => {
- expect(MINIMUM_HOST_VERSION).toBe('0.1.4');
+ expect(MINIMUM_HOST_VERSION).toBe('0.1.5');
+ expect(hostUpdateStatus('0.1.4', MINIMUM_HOST_VERSION, '0.1.5')).toBe('required');
+ expect(hostUpdateStatus('0.1.5', MINIMUM_HOST_VERSION, '0.1.5')).toBe('ok');
+ expect(hostUpdateStatus('missing', MINIMUM_HOST_VERSION)).toBe('required');
  expect(hostUpdateStatus('0.1.3', '0.1.4', '0.1.5')).toBe('required');
  expect(hostUpdateStatus('missing', '0.1.4')).toBe('required');
  expect(hostUpdateStatus('missing', '0.1.3')).toBe('ok');

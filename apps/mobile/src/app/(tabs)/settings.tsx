@@ -10,6 +10,7 @@ import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react
 import { securityRow } from "../../ui/key-security";
 import { DictationSettings } from "../../ui/dictation-settings";
 import { NotificationSettingsCard } from "../../ui/notification-settings";
+import { TerminalFontSettings } from "../../ui/terminal-font-settings";
 import { useKeySecurity } from "../../ui/use-key-security";
 import { Card, Screen, SectionTitle, Segmented } from "../../ui/components";
 import { type LanguageChoice, usePreferences } from "../../ui/preferences";
@@ -59,6 +60,7 @@ export default function SettingsScreen() {
 					<Text style={{ color: theme.colors.textMuted, marginTop: 8 }}>{t.attachments.location}</Text>
 					{preferenceError ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger }}>{t.attachments.preferenceFailed}</Text> : null}
 				</Card>
+				<TerminalFontSettings />
 				<DictationSettings />
 				<NotificationSettingsCard />
 				<SectionTitle>{t.settings.security}</SectionTitle>

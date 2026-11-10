@@ -16,6 +16,8 @@ export type FailureCode =
 	| "PERMISSION_DENIED"
 	| "TOO_LARGE"
 	| "SOURCE_UNREADABLE"
+	/** The host CLI or bridge is too old for this operation. */
+	| "UPDATE_REQUIRED"
 	| "SSH_ERROR";
 
 export type Failure = {
@@ -63,13 +65,15 @@ export interface HostConnection {
 	isConnected(connectionId: string): boolean;
 	/** Absolute home from SFTP realpath("."); Windows /C:/ paths become native C:\\ paths. */
 	homeDirectory(connectionId: string): Promise<{ ok: true; path: string } | Failure>;
-	/** Paths are relative to the user's home on the host. */
-	listDir(connectionId: string, path: string): Promise<{ ok: true; entries: DirEntry[] } | Failure>;
+	/** Paths are relative to the user's home on the host, unless `root` is given (see uploadFile). */
+	listDir(connectionId: string, path: string, root?: string): Promise<{ ok: true; entries: DirEntry[] } | Failure>;
 	readFile(connectionId: string, path: string, maxBytes: number): Promise<{ ok: true; content: string } | Failure>;
-	/** Upload all-or-nothing from an Android content:// or file:// URI; remoteDir is relative to the user's home. Never overwrites an existing name. */
-	uploadFile(connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number): Promise<{ ok: true; size: number } | Failure>;
-	/** Remove one regular file; path is relative to the user's home. */
-	removeFile(connectionId: string, path: string): Promise<{ ok: true } | Failure>;
+	/** Upload all-or-nothing from an Android content:// or file:// URI; remoteDir is relative to the user's home. Never overwrites an existing name.
+	 * With `root` (the SFTP path of this connection's uploads folder lookup), remoteDir must be exactly that
+	 * absolute, already existing directory; it is never created. */
+	uploadFile(connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number, root?: string): Promise<{ ok: true; size: number } | Failure>;
+	/** Remove one regular file; path is relative to the user's home, or a file directly inside `root`. */
+	removeFile(connectionId: string, path: string, root?: string): Promise<{ ok: true } | Failure>;
 	/** Phone loopback only; destination is exactly host 127.0.0.1 (default) or ::1. */
 	forwardLocal(connectionId: string, remotePort: number, remoteHost?: "127.0.0.1" | "::1"): Promise<{ ok: true; forwardId: string; localPort: number } | Failure>;
 	closeForward(forwardId: string): Promise<void>;

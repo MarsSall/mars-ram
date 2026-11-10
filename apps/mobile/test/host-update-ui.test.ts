@@ -15,12 +15,12 @@ it('shows no notice for ok/unknown, makes required prominent and soft subtle, an
  expect(HostUpdateNotice({ update: { release: 'dev', status: 'ok' } })).toBeNull();
  expect(HostUpdateNotice({})).toBeNull();
  for (const status of ['required', 'soft'] as const) {
-  const nodes = flatten(HostUpdateNotice({ update: { release: '0.1.3', status, target: '0.1.4' } }));
+  const nodes = flatten(HostUpdateNotice({ update: { release: '0.1.4', status, target: '0.1.5' } }));
   expect(nodes).toContain(status === 'required' ? en.hostUpdate.required : en.hostUpdate.soft);
   expect(nodes.some(n => n?.props?.style?.color === (status === 'required' ? 'red' : 'gray'))).toBe(true);
   expect(nodes).toContain(en.hostUpdate.terminal);
   const copy = nodes.find(n => n?.type === 'CommandBlock');
-  expect(copy.props.command).toBe('pnpm add -g mars-ram@0.1.4\nmars-ram install');
+  expect(copy.props.command).toBe('pnpm add -g mars-ram@0.1.5\nmars-ram install');
  }
 });
 it('wires notices to both approved locations and provides English and Spanish reload/remediation copy', () => {

@@ -50,7 +50,7 @@ describe("decodeResponse", () => {
 	};
 
 	it("preserves the optional captured pane and accepts older snapshots", () => {
-		expect(PROTOCOL_VERSION).toBe("1.6");
+		expect(PROTOCOL_VERSION).toBe("1.7");
 		const snapshot = { ...state, terminal: true, terminalPane: "w2G:p2" };
 		expect(decodeResponse(StateResponse, snapshot)).toEqual({ ok: true, value: snapshot });
 		expect(decodeResponse(StateResponse, { ...state, protocolVersion: "1.4" }).ok).toBe(true);

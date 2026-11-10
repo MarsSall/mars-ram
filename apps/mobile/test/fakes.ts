@@ -2,6 +2,7 @@
 import { validHerdrPath } from "../src/core/herdr-terminal";
 import type { SavedHost } from "../src/core/host-catalog";
 import type { DirEntry, Failure, HostConnection, HostTarget, TerminalChannel, TerminalExit, TerminalListener } from "../src/core/ports";
+import type { UploadsFolder, UploadsFolderLookup, UploadsFolderResult } from "../src/core/uploads-folder";
 
 export const savedHost = (id: string, extra: Partial<SavedHost> = {}): SavedHost => ({
 	id,
@@ -15,6 +16,21 @@ export const savedHost = (id: string, extra: Partial<SavedHost> = {}): SavedHost
 });
 
 export const failure = (code: Failure["code"]): Failure => ({ ok: false, code, message: code });
+
+export const TEMP_UPLOADS: UploadsFolder = { path: "/tmp/mars-ram-1000/uploads", sftpPath: "/tmp/mars-ram-1000/uploads", windows: false };
+/** The host's uploads folder per connection; tests set the result and read the calls. */
+export class FakeUploadsFolder implements UploadsFolderLookup {
+	result: UploadsFolderResult = { ok: true, folder: TEMP_UPLOADS };
+	calls: string[] = [];
+	async folder(connectionId: string): Promise<UploadsFolderResult> {
+		this.calls.push(connectionId);
+		return this.result;
+	}
+}
+
+/** Native rule: an absolute path is only accepted inside the explicit uploads root. */
+const scoped = (path: string, root: string | undefined, file: boolean) => root === undefined ? !path.startsWith("/")
+	: root.startsWith("/") && (file ? path.startsWith(`${root}/`) && !/[/\\]/.test(path.slice(root.length + 1)) && ![".", ".."].includes(path.slice(root.length + 1)) : path === root);
 
 /** In-memory interactive terminal; tests drive remote output and exits explicitly. */
 export class FakeTerminalChannel implements TerminalChannel {
@@ -97,8 +113,8 @@ export class FakeSsh implements HostConnection {
 	uploadedFiles = new Map<string, DirEntry>();
 	private next = 0;
 
-	async uploadFile(_connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number) {
-		if (!Number.isFinite(maxBytes) || maxBytes <= 0) return failure("SSH_ERROR");
+	async uploadFile(_connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number, root?: string) {
+		if (!Number.isFinite(maxBytes) || maxBytes <= 0 || !scoped(remoteDir, root, false)) return failure("SSH_ERROR");
 		if (!remoteName || remoteName.startsWith(".") || /[/\\\\:]/.test(remoteName) || remoteName.endsWith(".part")) return failure("SSH_ERROR");
 		if (this.refuse) return this.refuse;
 		const size = this.sourceSizes.get(sourceUri);
@@ -110,7 +126,8 @@ export class FakeSsh implements HostConnection {
 		return { ok: true as const, size };
 	}
 
-	async listDir(_connectionId: string, path: string) {
+	async listDir(_connectionId: string, path: string, root?: string) {
+		if (!scoped(path, root, false)) return failure("SSH_ERROR");
 		if (this.refuse) return this.refuse;
 		const prefix = `${path.replace(/\/$/, "")}/`;
 		const entries = [...this.uploadedFiles.entries()]
@@ -119,7 +136,8 @@ export class FakeSsh implements HostConnection {
 		return { ok: true as const, entries };
 	}
 
-	async removeFile(_connectionId: string, path: string) {
+	async removeFile(_connectionId: string, path: string, root?: string) {
+		if (!scoped(path, root, true)) return failure("SSH_ERROR");
 		if (this.refuse) return this.refuse;
 		const entry = this.uploadedFiles.get(path);
 		if (!entry) return failure("NOT_FOUND");

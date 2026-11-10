@@ -1,5 +1,5 @@
 import { APP_ID } from "@workspace/protocol";
-import { connectTarget, LEGACY_KEY_ALIAS, type SavedHost } from "./host-catalog";
+import { connectTarget, hasTailscaleFeatures, LEGACY_KEY_ALIAS, type SavedHost } from "./host-catalog";
 import { buildHerdrCommand } from "./herdr-switcher";
 import type { KeyCommandConfig } from "./key-security";
 import type { HostConnection, HostTarget } from "./ports";
@@ -75,7 +75,7 @@ export interface NotificationPorts {
  unregister(host: SavedHost): Promise<void>;
  forget(hostId: string): Promise<void>;
 }
-export type NotificationSnapshot = { mode: NotificationMode; busy: boolean; error?: string; status: WatchStatus; computers: { hostId: string; name: string; result: RegistrationResult | "CONNECTION_FAILED" | "PREPARATION_TIMEOUT" }[] };
+export type NotificationSnapshot = { mode: NotificationMode; busy: boolean; error?: string; status: WatchStatus; computers: { hostId: string; name: string; result: RegistrationResult | "CONNECTION_FAILED" | "PREPARATION_TIMEOUT" | "TAILSCALE_ONLY" }[] };
 export const notificationMode = (value: unknown): NotificationMode => value === "while-working" || value === "always" ? value : "off";
 
 /** Serialized opt-in transitions. No permission prompts or remote registrations on import. */
@@ -156,13 +156,15 @@ export class NotificationSettings {
    const computers: NotificationSnapshot["computers"] = [];
    for (const host of hosts) {
     let result: NotificationSnapshot["computers"][number]["result"];
-    try { result = await prepare(signal => this.ports.register(host, signal)); }
+    // Notices arrive on the Tailscale address; a ZeroTier computer is never registered (zerotier S3).
+    if (!hasTailscaleFeatures(host)) result = "TAILSCALE_ONLY";
+    else try { result = await prepare(signal => this.ports.register(host, signal)); }
     catch (error) { result = error instanceof WatchTimeout ? "PREPARATION_TIMEOUT" : "REGISTRATION_FAILED"; }
     computers.push({ hostId: host.id, name: host.name, result }); this.update({ computers: [...computers] });
    }
    const accepted = new Set(computers.filter(c => c.result === "ok").map(c => c.hostId));
    config = { appId: APP_ID, mode: "always", language: this.language, hosts: hosts.filter(h => accepted.has(h.id)).map(h => ({ hostId: h.id, hostKeyId: h.hostKey })) };
-   if (!config.hosts.length) { this.update({ error: computers.some(c => c.result === "PREPARATION_TIMEOUT") ? "WATCH_TIMEOUT" : "REGISTRATION_FAILED" }); return; }
+   if (!config.hosts.length) { this.update({ error: computers.some(c => c.result === "PREPARATION_TIMEOUT") ? "WATCH_TIMEOUT" : computers.every(c => c.result === "TAILSCALE_ONLY") ? "TAILSCALE_ONLY" : "REGISTRATION_FAILED" }); return; }
   } else if (this.value.mode === "while-working") {
    // Only the visible UI may prompt. Native start adopts these retained transports.
    const computers: NotificationSnapshot["computers"] = [];

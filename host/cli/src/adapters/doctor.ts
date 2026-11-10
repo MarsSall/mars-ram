@@ -6,12 +6,15 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, win32 } from "node:path";
 import { decodeRegistryEntry } from "@workspace/protocol";
+import { checkUploadsFolder, currentHost, type UploadsFolderHost } from "@workspace/protocol/uploads-folder";
 import type { DoctorPorts, RegistryObservation, WindowsDefaultShell } from "../core/doctor.ts";
 import { createInstallAdapter, findPi, executableHerdr } from "./installation.ts";
 import { keyTarget, parseWindowsPrivileges } from "./authorized-keys.ts";
 import { lockOwnerState, unverifiedKeyLock, type LockOwner } from "./authorized-key-file.ts";
 import { readTailscaleIp, type ReadOnlyRunner } from "./tailscale.ts";
 import { spanish } from "./terminal.ts";
+import { zeroTierAddresses, zeroTierInterfaces } from "./zerotier.ts";
+import { readFirewall, systemdIsActive } from "./firewall.ts";
 import { observeLinkServer } from "./link-doctor.ts";
 import { observeCli, protocolSource } from "./cli-installation.ts";
 
@@ -117,7 +120,7 @@ export function copyIsCurrent(copy: string): boolean {
 	} catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 }
 
-export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.Platform; io?: DoctorIO; installation?: DoctorPorts["installation"]; pi?: typeof findPi } = {}): DoctorPorts {
+export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.Platform; io?: DoctorIO; installation?: DoctorPorts["installation"]; pi?: typeof findPi; uploadsHost?: UploadsFolderHost } = {}): DoctorPorts {
 	const home = options.home ?? homedir();
 	const platform = options.platform ?? process.platform;
 	const fs = options.io ?? io;
@@ -185,6 +188,9 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
 			return { safe, administratorOwner: rootAcl.administratorOwner };
 		},
 		async tailscale() { return readTailscaleIp(fs.run); },
+		async zerotier() { return zeroTierAddresses(undefined, platform); },
+		async zeroTierInterfaces() { return zeroTierInterfaces(undefined, platform).map((entry) => entry.name); },
+		async firewall() { return readFirewall({ read: fs.read, isActive: systemdIsActive(fs.run) }, platform); },
   async keyLocks() {
    const privileges = platform === 'win32' ? parseWindowsPrivileges(fs.run('whoami', ['/groups', '/fo', 'csv'])) : { administrator: false };
    const target = keyTarget(platform, { home, programData, administrator: privileges.administrator });
@@ -246,6 +252,11 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
 				keysAllowed = pairingKeysAllowForwarding(fs.read(target.path) ?? "");
 			} catch { /* Key access cannot erase the independent sshd observation. */ }
 			return { allowed: config === undefined ? undefined : parseForwarding(config), keysAllowed };
+		},
+		async uploads() {
+			let legacy = true;
+			try { lstatSync(paths.join(root, "uploads")); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") legacy = false; }
+			return { state: await checkUploadsFolder(options.uploadsHost ?? currentHost()), legacy };
 		},
 		async windows() {
 			let service = false;

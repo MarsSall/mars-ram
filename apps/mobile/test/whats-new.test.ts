@@ -146,4 +146,16 @@ describe("bundled changelog", () => {
   expect(first.es.fixes).toHaveLength(2);
   expect(first.en.fixes).toHaveLength(2);
  });
+
+ it("build 9 names ZeroTier and the mars-ram 0.1.5 it needs, in plain words", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 9)!;
+  expect(note).toBeDefined();
+  for (const side of [note.es, note.en]) {
+   const text = [...side.new, ...side.fixes].join("\n");
+   for (const word of ["ZeroTier", "Tailscale", "mars-ram 0.1.5", "Mac"]) expect(text).toContain(word);
+   expect(text).not.toMatch(/SSH|SFTP|bridge|protocol|PTY|DownloadManager|uploads-dir|pair-zt/i);
+   expect(side.new).toHaveLength(3);
+   expect(side.fixes).toHaveLength(5);
+  }
+ });
 });

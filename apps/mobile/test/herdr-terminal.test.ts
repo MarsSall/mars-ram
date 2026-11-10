@@ -2,14 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { HerdrTerminal, terminalKey, validHerdrPath } from "../src/core/herdr-terminal";
 import { HostConnections } from "../src/core/host-connections";
 import type { HostConnection } from "../src/core/ports";
-import { FakeSsh, FakeTerminalChannel, failure, savedHost } from "./fakes";
+import { UPDATE_REQUIRED_MESSAGE, parseUploadsFolder } from "../src/core/uploads-folder";
+import { FakeSsh, FakeTerminalChannel, FakeUploadsFolder, failure, savedHost } from "./fakes";
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 function setup() {
- const host = new FakeSsh(); const channel = new FakeTerminalChannel();
+ const host = new FakeSsh(); const channel = new FakeTerminalChannel(); const folder = new FakeUploadsFolder();
  const connections = new HostConnections({ host: host as unknown as HostConnection, keyAlias: "key", unlock: async () => false });
- const deps = { connections, channel, host: host as unknown as HostConnection, clock: () => 0, random: () => 0 };
+ const deps = { connections, channel, host: host as unknown as HostConnection, uploadsFolder: folder, clock: () => 0, random: () => 0 };
  const terminal = new HerdrTerminal(deps, savedHost("one"), { cols: 80, rows: 24 });
- return { host, channel, terminal, deps };
+ return { host, channel, terminal, deps, folder };
 }
 afterEach(() => vi.useRealTimers());
 describe("Herdr path", () => {
@@ -184,13 +185,15 @@ describe("Herdr terminal", () => {
  });
  it("rejects invalid initial dimensions", () => { const { deps } = setup(); expect(() => new HerdrTerminal(deps, savedHost("one"), { cols: NaN, rows: 20 })).toThrow(RangeError); });
  it("keeps unlock failure messages", async () => { const { terminal, host } = setup(); host.locked = true; await terminal.open(); expect(terminal.state).toMatchObject({ status: "unlock-required", code: "UNLOCK_REQUIRED", reason: "UNLOCK_REQUIRED" }); });
- it.each(["/home/dev", "/home/my user", "/home/user's files", "C:\\Users\\dev", "C:\\Users\\my user", "/C:/Users/dev", "/C:/Users/my user"])("pastes only quoted attachment paths without Enter for %s", async home => {
-  const { terminal, host, channel } = setup(); host.home = home; host.sourceSizes.set("file://a", 1); await terminal.open();
+ it.each(["/tmp/mars-ram-1000/uploads", "/tmp/my temp/mars-ram-1000/uploads", "/tmp/user's files/uploads", "C:\\Users\\dev\\AppData\\Local\\Temp\\mars-ram\\uploads", "C:\\Users\\my user\\AppData\\Local\\Temp\\mars-ram\\uploads"])("uploads into %s and pastes only its quoted absolute paths without Enter", async folderPath => {
+  const { terminal, host, channel, folder } = setup(); host.sourceSizes.set("file://a", 1); await terminal.open();
+  const looked = parseUploadsFolder({ ok: true, stdout: JSON.stringify({ v: 1, path: folderPath }), stderr: "", exitStatus: 0 });
+  if (!looked.ok) throw new Error(looked.message); folder.result = looked;
   const items = [{ id: "a", sourceUri: "file://a", displayName: "a.txt", size: 1, mimeType: "text/plain", kind: "file" as const }];
-  expect(await terminal.pasteAttachmentPaths(items)).toEqual({ ok: true }); const name = [...host.uploadedFiles.values()][0].name;
-  const windows = !home.startsWith("/home");
-  const base = windows ? home.replace(/^\//, "").replace(/\//g, "\\") : home;
-  const path = windows ? `${base}\\.mars-ram\\uploads\\${name}` : `${base}/.mars-ram/uploads/${name}`;
+  expect(await terminal.pasteAttachmentPaths(items)).toEqual({ ok: true }); const [[key, { name }]] = [...host.uploadedFiles.entries()];
+  expect(key).toBe(`${looked.folder.sftpPath}/${name}`);
+  const windows = folderPath.startsWith("C:");
+  const path = `${folderPath}${windows ? "\\" : "/"}${name}`;
   const quoted = !path.includes(" ") ? path : windows ? `"${path}"` : `'${path.replace(/'/g, "'\\''")}'`;
   expect(channel.writes).toHaveLength(1);
   expect(decode(channel.writes[0].bytes)).toBe(`\x1b[200~${quoted}\x1b[201~`); expect(items).toHaveLength(1);
@@ -202,9 +205,12 @@ describe("Herdr terminal", () => {
   const items = ["a", "missing"].map(id => ({ id, sourceUri: `file://${id}`, displayName: `${id}.txt`, size: 1, mimeType: "text/plain", kind: "file" as const }));
   expect((await terminal.pasteAttachmentPaths(items)).ok).toBe(false); expect(channel.writes).toHaveLength(0);
  });
- it.each(["relative/home", "/home/dev\nignored"])("rejects a non-absolute or control-bearing home %s without pasting", async home => {
-  const { terminal, host, channel } = setup(); host.home = home; host.sourceSizes.set("file://a", 1); await terminal.open();
-  expect((await terminal.pasteAttachmentPaths([{ id: "a", sourceUri: "file://a", displayName: "a.txt", size: 1, mimeType: "text/plain", kind: "file" }])).ok).toBe(false);
+ it.each([
+  [{ ok: false as const, code: "UPDATE_REQUIRED" as const, message: UPDATE_REQUIRED_MESSAGE }, UPDATE_REQUIRED_MESSAGE],
+  [{ ok: false as const, code: "PERMISSION_DENIED" as const, message: "Uploads folder refused: not private." }, "Uploads folder refused: not private."],
+ ])("uploads and pastes nothing when the uploads folder lookup fails (%#)", async (result, message) => {
+  const { terminal, host, channel, folder } = setup(); folder.result = result; host.sourceSizes.set("file://a", 1); await terminal.open();
+  expect(await terminal.pasteAttachmentPaths([{ id: "a", sourceUri: "file://a", displayName: "a.txt", size: 1, mimeType: "text/plain", kind: "file" }])).toEqual({ ok: false, message });
   expect(channel.writes).toHaveLength(0); expect(host.uploadedFiles.size).toBe(0);
  });
  it.each(["too many", "too large"])("keeps upload limits for %s without pasting", async reason => {

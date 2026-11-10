@@ -57,7 +57,11 @@ Open a new terminal and run:
 mars-ram pair
 ```
 
-Scan the code with the app.
+Scan the code with the app. On Windows, if your user is an administrator, run `mars-ram pair` in an administrator terminal: the computer asks you there to authorize the phone.
+
+Using ZeroTier instead of Tailscale? Join the computer to your ZeroTier network, authorize it in ZeroTier Central, and run `mars-ram pair-zt`; if the computer is in several ZeroTier networks, it lists their addresses and you pick one with `--address <ipv4>`. This needs an app version that supports ZeroTier. Over ZeroTier you get SSH sessions, the terminal and files; private links and Siempre atento still need Tailscale. On Linux, a firewall (ufw or firewalld) blocks ZeroTier until you let it in: when one is on, `mars-ram pair-zt` and `mars-ram doctor` print the exact command with the interface name, such as `sudo ufw allow in on <ZeroTier interface> comment 'ZeroTier'` (Tailscale does not need this).
+
+In the app, **Add computer** first asks which network you use, Tailscale (recommended) or ZeroTier, and remembers it; you can change it on the first step. It then walks you through it step by step: it checks Tailscale and Private DNS on the phone (or, for ZeroTier, that the ZeroTier app is installed and on; Android runs one VPN at a time) and moves on by itself once they are right, shows these commands for Linux, macOS or Windows with copy buttons, and, if the scan fails or stalls, **See what's wrong** names the likely cause and its fix. **I know, scan** jumps straight to the camera; **Add manually** stays available from the scan step.
 
 ## What the installer does
 
@@ -102,4 +106,5 @@ sh install.sh
 - **"mars-ram: command not found"**: open a new terminal. With pnpm, run `pnpm setup` once if it says the global bin directory is not set. On Linux and macOS with the script, add `~/.local/bin` to your PATH if it said so.
 - **Node.js is too old**: install Node.js 24 or newer and run the add command again.
 - **Windows says the terminal is running as administrator**: open a normal terminal and run the command again.
+- **Pairing says the phone can't find the computer by its Tailscale name**: Android's Private DNS bypasses Tailscale's MagicDNS. Turn it off on the phone (Settings › Connections › More connection settings › Private DNS › Off) and scan a new code.
 - **The download does not match the checksum**: do not install. Try again later and tell us if it repeats.

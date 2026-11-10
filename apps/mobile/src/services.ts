@@ -30,6 +30,7 @@ import { SessionLister } from "./core/session-list";
 import { bridgeClient } from "./core/bridge-client";
 import type { AttachmentUploads } from "./core/attachment-uploads";
 import { AttachmentHistory } from "./core/attachment-history";
+import { HostUploadsFolder } from "./core/uploads-folder";
 import { NotificationRegistration, NotificationSettings } from "./core/notifications";
 import { nativeNotifications } from "./adapters/native-notifications";
 import { WhatsNew } from "./core/whats-new";
@@ -37,6 +38,9 @@ import { AppUpdates } from "./core/app-updates";
 import { fileSeenBuild } from "./adapters/file-seen-build";
 import { fileAppUpdateCheck } from "./adapters/file-app-update-check";
 import { playAppUpdates, readAppBuild } from "./adapters/play-app-updates";
+import { nativePhoneNetwork } from "./adapters/native-phone-network";
+import { fileNetworkChoice } from "./adapters/file-network-choice";
+import { NetworkChoice } from "./core/network-choice";
 
 import { expoAttachmentStorage } from "./adapters/expo-attachment-storage";
 
@@ -46,6 +50,8 @@ import { expoMediaSource } from "./adapters/expo-media-source";
 import { readRetention, writeRetention } from "./adapters/file-retention-preference";
 import type { AttachmentRetention } from "./core/attachment-retention";
 import type { AttachmentSource } from "./core/media-source";
+import { fileTerminalFont } from "./adapters/file-terminal-font";
+import { TerminalFontPreference } from "./core/terminal-font";
 
 export const chooseAttachments = (source: AttachmentSource) => expoMediaSource.select(source);
 let retention = readRetention();
@@ -55,6 +61,8 @@ export const attachmentPreference = {
  get: () => retention,
  set: async (value: AttachmentRetention) => { await writeRetention(value); retention = value; },
 };
+/** The one terminal font size: Settings and pinch zoom; read before any terminal opens. */
+export const terminalFont = new TerminalFontPreference(fileTerminalFont);
 
 /** The installed build, read once: Android versionCode first, Expo's values as fallback. */
 export const appBuild = readAppBuild();
@@ -83,6 +91,10 @@ export const catalog = {
   await notifications.ensureWatching();
  },
 };
+/** The connection wizard's phone checks (Tailscale or ZeroTier installed and on, Private DNS) and system screens. */
+export const phoneNetwork = nativePhoneNetwork;
+/** The wizard's network, Tailscale until the user picks; remembered for the next time. */
+export const networkChoice = new NetworkChoice(fileNetworkChoice);
 /** Clipboard adapter: read only after an explicit paste action. */
 export const clipboard = { readText: () => Clipboard.getStringAsync(), writeText: (text: string) => Clipboard.setStringAsync(text) };
 
@@ -100,7 +112,7 @@ export function unlock(title: string): Promise<boolean> {
 	return Ssh.unlock(title);
 }
 
-export function pair(uri: string, unlockTitle: string) {
+export function pair(uri: string, unlockTitle: string, onProgress?: PairingDeps["onProgress"]) {
  return keySecurity.withCurrent(async key => {
 	const deps: PairingDeps = {
 		clock: Date.now,
@@ -109,10 +121,15 @@ export function pair(uri: string, unlockTitle: string) {
 		appKey: { ensure: async () => ({ publicKey: key.publicKey }) },
 		probe: (address, port) => Ssh.probe(address, port, PROBE_TIMEOUT_MS),
 		http: { postJson },
+		vpnPost: async (address, port, body, timeoutMs) => {
+			const reply = await Ssh.postPairingOverVpn(address, port, body, timeoutMs);
+			return reply.ok ? reply : { ok: false, code: reply.code === "NOT_ON_VPN" ? "NOT_ON_VPN" : "SEND_FAILED" };
+		},
 		host: sshModuleHostConnection,
 		catalog,
 		newId,
 		unlock: () => key.requireUnlock ? unlock(unlockTitle) : Promise.resolve(true),
+		onProgress,
 	};
 	return pairWithComputer(deps, uri);
  });
@@ -145,7 +162,9 @@ export function setUnlockTitle(title: string): void {
 	unlockTitle = title;
 }
 
-const connections: HostConnections = new HostConnections({ host: sshModuleHostConnection, catalog, keyAlias: KEY_ALIAS, unlock: () => unlock(unlockTitle), retention: () => retention,
+/** One cached `uploads-dir` answer per SSH connection, shared by chat, terminal paste and retention. */
+const uploadsFolder = new HostUploadsFolder(sshModuleHostConnection);
+const connections: HostConnections = new HostConnections({ host: sshModuleHostConnection, catalog, keyAlias: KEY_ALIAS, unlock: () => unlock(unlockTitle), retention: () => retention, uploadsFolder,
  // Independent, non-blocking maintenance: rotation resumes on every fresh
  // connection; link restoration and retention remain once per app opening.
  afterConnect: computer => keySecurity.resume(computer.id),
@@ -187,7 +206,7 @@ export function createLinkService(computer: SavedHost): LinkService {
 }
 /** Screens own activity/output; session focus is optional and never blocks the PTY. */
 export function createHerdrTerminal(computer: SavedHost, options: HerdrOptions): HerdrTerminal {
-	return new HerdrTerminal({ connections, channel: sshModuleTerminalChannel, host: sshModuleHostConnection,
+	return new HerdrTerminal({ connections, channel: sshModuleTerminalChannel, host: sshModuleHostConnection, uploadsFolder,
 		clock: Date.now, random: Math.random, history: attachmentHistory,
 		focusSession: async (key, fresh, isCurrent) => {
 			// Reconnecting the PTY drops SSH; rebuild its old bridge tunnel before focusing.
@@ -216,6 +235,7 @@ function sessionUploads(key: string): AttachmentUploads {
 	return {
 		history: attachmentHistory,
 		host: sshModuleHostConnection,
+		folder: uploadsFolder,
 		connection: async () => {
 			const host = (await catalog.list()).find(host => host.id === hostIdOf(key));
 			return host ? connections.connection(host) : { ok: false, code: "NOT_CONNECTED", message: "The computer is no longer saved." };

@@ -96,7 +96,9 @@ mars-ram install
 mars-ram pair
 ```
 
-Scan the QR code in the app, or open the printed pairing link on your phone. Setup runs for your user, without administrator rights; on Windows, use a normal terminal.
+Scan the QR code in the app, or open the printed pairing link on your phone. In the app, **Add computer** guides you step by step over Tailscale or ZeroTier: it checks the phone's network app (and Private DNS for Tailscale), gives these commands per system, and explains a failed scan. Setup runs for your user, without administrator rights; on Windows, use a normal terminal for `mars-ram install`, and an administrator terminal for `mars-ram pair` if your user is an administrator.
+
+**ZeroTier instead of Tailscale?** Run `mars-ram pair-zt` (add `--address <ipv4>` if the computer is in several ZeroTier networks). It needs an app version that supports ZeroTier; SSH sessions, the terminal and files work over ZeroTier, while private links and Siempre atento still need Tailscale. Plain `mars-ram pair` keeps using Tailscale. On Linux with a firewall (ufw or firewalld) on, `pair-zt` and `mars-ram doctor` print the exact command to let ZeroTier in, such as `sudo ufw allow in on <ZeroTier interface> comment 'ZeroTier'`; Tailscale does not need it.
 
 Prefer npm? Replace the first command with `npm i -g mars-ram`.
 
@@ -187,7 +189,7 @@ The app, host components and protocol follow hexagonal boundaries: rules in the 
 - **No analytics, advertising or tracking.** Mars-RAM does not operate a backend. Tailscale and any agent or model provider you use have their own policies; content you send to a session reaches those programs on your computer.
 - **Phone data.** Saved computers, pinned host identities, settings and the downloaded voice model stay in app storage; the SSH private key stays in Android Keystore. Drafts and dictation audio are held in memory. Chosen photos and files may be cached.
 - **Voice.** Transcription runs on-device. Downloading the optional voice model contacts Hugging Face and any download hosts reached by redirects; they can see ordinary request information, including your IP address.
-- **Computer data.** Attachments go to `~/.mars-ram/uploads`, with best-effort cleanup when the app connects (1, 7 or 30 days, or never). Private links serve copies from `~/.mars-ram/links` for one day; anyone on the tailnet with the link can open it until it expires or you delete it.
+- **Computer data.** Attachments go to a private per-user folder in the system temp directory (`/tmp/mars-ram-<uid>/uploads` on Linux, `%TEMP%\mars-ram\uploads` on Windows), never to your home folder, with best-effort cleanup when the app connects (1, 7 or 30 days, or never) and whatever the system's temp cleanup removes. `mars-ram install` deletes the old `~/.mars-ram/uploads`. Private links serve copies from `~/.mars-ram/links` for one day; anyone on the tailnet with the link can open it until it expires or you delete it.
 - **Removal.** Uninstalling the Android app removes its app data and key, not copies on your computers. Forgetting a computer does not revoke its authorized public key. `mars-ram uninstall` retains shared files, link data, phone authorization keys and the session registry; remove unwanted copies and keys separately.
 
 Read the [full privacy policy](./docs/privacy.md).

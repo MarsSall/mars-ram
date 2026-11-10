@@ -1,7 +1,7 @@
 import { APP_ID, ATTACHMENT_MAX_BYTES, UploadName } from "@workspace/protocol";
 import { Value } from "typebox/value";
 import { uploadName, type Attachment } from "./attachment-draft";
-import type { SavedHost } from "./host-catalog";
+import { hasTailscaleFeatures, type SavedHost } from "./host-catalog";
 import type { HostConnections } from "./host-connections";
 import type { Failure, HostConnection } from "./ports";
 import { readHostRecord } from "./host-record";
@@ -18,7 +18,7 @@ export interface LinkHistoryStore {
  save(entry: LinkHistoryEntry): Promise<void>;
  remove(computerId: string, id: string): Promise<void>;
 }
-export type LinkFailure = { ok: false; code: Failure["code"] | "LINK_NOT_INSTALLED" | "LINK_FAILED"; message: string };
+export type LinkFailure = { ok: false; code: Failure["code"] | "LINK_NOT_INSTALLED" | "LINK_FAILED" | "TAILSCALE_ONLY"; message: string };
 export type LinkResult<T> = { ok: true; value: T } | LinkFailure;
 export type LinkDeps = {
  host: HostConnection;
@@ -31,6 +31,8 @@ type Command = "create" | "list" | "delete" | "ensure";
 const staging = `.${APP_ID}/links/.staging`;
 const failed = (): LinkFailure => ({ ok: false, code: "LINK_FAILED", message: "The link operation could not be completed. Please try again." });
 const notInstalled = (): LinkFailure => ({ ok: false, code: "LINK_NOT_INSTALLED", message: "Link server not installed. Run mars-ram install on the computer." });
+// The link server listens only on the Tailscale address (zerotier S3: ZeroTier links are phase 2).
+const tailscaleOnly = (): LinkFailure => ({ ok: false, code: "TAILSCALE_ONLY", message: "Private links are available only with Tailscale." });
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 const validId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{12}$/.test(v);
@@ -109,6 +111,7 @@ export class LinkService {
  /** Low-level remote delete; Files UI should use remove() to update phone history too. */
  delete(id: string): Promise<LinkResult<{ ok: true }>> { return validId(id) ? this.command("delete", deleted, id) : Promise.resolve(failed()); }
  async create(file: Attachment): Promise<LinkResult<LinkHistoryEntry>> {
+  if (!hasTailscaleFeatures(this.computer)) return tailscaleOnly();
   if (file.size !== null && (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > ATTACHMENT_MAX_BYTES)) return { ok: false, code: "TOO_LARGE", message: "Choose a file no larger than 25 MiB." };
   const context = await this.context();
   if (!context.ok) return context;
@@ -145,6 +148,7 @@ export class LinkService {
  /** A link to a file already on the computer: `stage` copies it into the private staging
   * dir (mars-ram project stage-link) after `ensure` created that dir; no phone upload. */
  async createFromHost(stage: () => Promise<{ ok: true; staged: string; size: number } | { ok: false }>): Promise<LinkResult<LinkHistoryEntry>> {
+  if (!hasTailscaleFeatures(this.computer)) return tailscaleOnly();
   const context = await this.context();
   if (!context.ok) return context;
   try {
@@ -187,6 +191,7 @@ export class LinkService {
  }
  /** Called by the first-connect hook with the established connection; never reconnect recursively. */
  async restore(connectionId: string): Promise<void> {
+  if (!hasTailscaleFeatures(this.computer)) return;
   try {
    if (!(await this.deps.history.list(this.computer.id)).some(e => Date.parse(e.expiresAt) > this.deps.clock())) return;
    const config = await readHostRecord(this.deps.host, connectionId);

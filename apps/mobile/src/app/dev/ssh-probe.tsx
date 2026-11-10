@@ -4,7 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
 import { Button, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { decodeResponse, StateResponse } from "@workspace/protocol";
-import Ssh, { type Failure } from "../../../modules/ssh/src/SshModule";
+import Ssh from "../../../modules/ssh/src/SshModule";
+import type { Failure } from "../../core/ports";
 import { sshModuleHostConnection } from "../../adapters/ssh-module-host-connection";
 import { discoverBridges, openBridge } from "../../core/bridge-discovery";
 

@@ -4,7 +4,7 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const PROTOCOL_VERSION = "1.6";
+export const PROTOCOL_VERSION = "1.7";
 
 /** The one value that names the product; change it when the final name is chosen. */
 export const APP_ID = "mars-ram";
@@ -12,8 +12,30 @@ export const APP_ID = "mars-ram";
 /** Where running bridges publish themselves, relative to the host user's home directory. */
 export const REGISTRY_DIRECTORY = `.${APP_ID}/bridges`;
 
-/** Where the app copies attachments, relative to the host user's home directory (since 1.2). */
+/**
+ * @deprecated Where apps before 1.7 copied attachments, relative to the host user's home directory (1.2–1.6).
+ * Since 1.7 the host names the folder: `mars-ram uploads-dir --json` (see `decodeUploadsDir`).
+ */
 export const UPLOADS_DIRECTORY = `.${APP_ID}/uploads`;
+
+/** The protocol minor from which the bridge reads attachments only from the host's private temp folder. */
+export const UPLOADS_IN_TEMP_MINOR = 7;
+
+/** The output of `mars-ram uploads-dir --json`: the absolute folder for attachments, or why the host refused it. */
+export type UploadsDir = { ok: true; path: string } | { ok: false; error: "unsafe_folder" | "unavailable"; message: string };
+
+/** Decodes the one JSON line of `mars-ram uploads-dir --json`; anything else (an older CLI's usage text) is null. */
+export function decodeUploadsDir(output: string): UploadsDir | null {
+	const line = output.replace(/\r?\n$/, "");
+	if (/[\r\n]/.test(line)) return null;
+	let value: unknown;
+	try { value = JSON.parse(line); } catch { return null; }
+	if (!value || typeof value !== "object" || (value as { v?: unknown }).v !== 1) return null;
+	const { path, error, message } = value as { path?: unknown; error?: unknown; message?: unknown };
+	if (typeof path === "string") return /^(?:\/|[A-Za-z]:\\)/.test(path) && !/[\x00-\x1f]/.test(path) ? { ok: true, path } : null;
+	if ((error === "unsafe_folder" || error === "unavailable") && typeof message === "string") return { ok: false, error, message };
+	return null;
+}
 
 /** The largest file the app uploads as an attachment. */
 export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
@@ -62,6 +84,12 @@ export function checkCompatibility(version: string): Compatibility {
 export function supportsAttachments(version: string): boolean {
 	const match = /^(\d+)\.(\d+)$/.exec(version);
 	return match !== null && Number(match[1]) === SUPPORTED_MAJOR && Number(match[2]) >= 2;
+}
+
+/** Whether a bridge of this version reads attachments from the folder `mars-ram uploads-dir` names. */
+export function supportsTempUploads(version: string): boolean {
+	const match = /^(\d+)\.(\d+)$/.exec(version);
+	return match !== null && Number(match[1]) === SUPPORTED_MAJOR && Number(match[2]) >= UPLOADS_IN_TEMP_MINOR;
 }
 
 // ---- Envelope and shared shapes ----
@@ -364,11 +392,16 @@ export function decodeEvent(data: unknown): DecodedEvent {
 
 // ---- Pairing ----
 // The computer shows a QR with a pairing offer; the phone answers with its public key.
+// Version 1 is a Tailscale offer; version 2 names its network and has no MagicDNS name, so apps that know
+// only version 1 ask to be updated instead of asking for MagicDNS.
 
 export const PAIRING_VERSION = 1;
+export const ZEROTIER_PAIRING_VERSION = 2;
 const PAIRING_PREFIX = `${APP_ID}://pair?p=`;
 
-/** What the computer's QR carries. hostKey lets the phone trust the right host without comparing by hand. */
+export type PairingNetwork = "tailscale" | "zerotier";
+
+/** What the computer's QR carries over Tailscale. hostKey lets the phone trust the right host without comparing by hand. */
 export const PairingOffer = Type.Object({
 	v: Type.Literal(PAIRING_VERSION),
 	name: Type.String({ minLength: 1, maxLength: 128 }),
@@ -381,6 +414,26 @@ export const PairingOffer = Type.Object({
 	code: Type.String({ pattern: "^[A-Za-z0-9_-]{16,64}$" }),
 	expiresAt: Type.Number(),
 });
+
+/** An IPv4 literal in dotted-decimal form, without leading zeros. */
+const IPV4_PATTERN = "^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}$";
+
+/** What the computer's QR carries over ZeroTier: the phone reaches it at its ZeroTier IPv4 address only. */
+export const ZeroTierPairingOffer = Type.Object(
+	{
+		v: Type.Literal(ZEROTIER_PAIRING_VERSION),
+		network: Type.Literal("zerotier"),
+		name: PairingOffer.properties.name,
+		address: Type.String({ pattern: IPV4_PATTERN }),
+		sshPort: PairingOffer.properties.sshPort,
+		user: PairingOffer.properties.user,
+		hostKey: PairingOffer.properties.hostKey,
+		pairPort: PairingOffer.properties.pairPort,
+		code: PairingOffer.properties.code,
+		expiresAt: PairingOffer.properties.expiresAt,
+	},
+	{ additionalProperties: false },
+);
 
 /**
  * One public key on one line, without authorized_keys options, of a type the app may use.
@@ -410,33 +463,61 @@ export const PairingResponse = Type.Union([
 ]);
 
 export type PairingOffer = Static<typeof PairingOffer>;
+export type ZeroTierPairingOffer = Static<typeof ZeroTierPairingOffer>;
+export type NetworkPairingOffer = PairingOffer | ZeroTierPairingOffer;
 export type PairingRequest = Static<typeof PairingRequest>;
 export type PairingErrorCode = Static<typeof PairingErrorCode>;
 export type PairingResponse = Static<typeof PairingResponse>;
 
 export const decodePairingRequest = (data: unknown) => decodeResponse(PairingRequest, data);
 
-export function encodePairingUri(offer: PairingOffer): string {
+export function encodePairingUri(offer: NetworkPairingOffer): string {
 	return PAIRING_PREFIX + toBase64Url(new TextEncoder().encode(JSON.stringify(offer)));
 }
 
 export type PairingUriResult = { ok: true; value: PairingOffer } | { ok: false; message: string };
 
+export type NetworkPairingUriResult =
+	| { ok: true; network: "tailscale"; value: PairingOffer }
+	| { ok: true; network: "zerotier"; value: ZeroTierPairingOffer }
+	| { ok: false; message: string };
+
+const NEWER_APP = { ok: false as const, message: "This pairing code needs a newer version of the app." };
+const DAMAGED = { ok: false as const, message: "This pairing code is damaged. Show a new one on the computer." };
+
+/** Reads a Tailscale or a ZeroTier offer; any other version asks for a newer app. */
+export function decodeNetworkPairingUri(uri: string): NetworkPairingUriResult {
+	const payload = readPairingPayload(uri);
+	if (!payload.ok) return payload;
+	const { data } = payload;
+	if (hasVersionOtherThan(data, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION)) return NEWER_APP;
+	if (Value.Check(PairingOffer, data)) return { ok: true, network: "tailscale", value: data };
+	if (Value.Check(ZeroTierPairingOffer, data)) return { ok: true, network: "zerotier", value: data };
+	return DAMAGED;
+}
+
+/** Reads only Tailscale offers, for an app that cannot pair over ZeroTier yet: any other version asks for a newer app. */
 export function decodePairingUri(uri: string): PairingUriResult {
+	const payload = readPairingPayload(uri);
+	if (!payload.ok) return payload;
+	const { data } = payload;
+	if (hasVersionOtherThan(data, PAIRING_VERSION)) return NEWER_APP;
+	return Value.Check(PairingOffer, data) ? { ok: true, value: data } : DAMAGED;
+}
+
+function readPairingPayload(uri: string): { ok: true; data: unknown } | { ok: false; message: string } {
 	if (!uri.startsWith(PAIRING_PREFIX) || uri.length === PAIRING_PREFIX.length) {
 		return { ok: false, message: "This QR is not a pairing code for this app." };
 	}
-	const damaged = { ok: false as const, message: "This pairing code is damaged. Show a new one on the computer." };
-	let data: unknown;
 	try {
-		data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(fromBase64Url(uri.slice(PAIRING_PREFIX.length))));
+		return { ok: true, data: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(fromBase64Url(uri.slice(PAIRING_PREFIX.length)))) };
 	} catch {
-		return damaged;
+		return DAMAGED;
 	}
-	if (typeof data === "object" && data !== null && "v" in data && data.v !== PAIRING_VERSION) {
-		return { ok: false, message: "This pairing code needs a newer version of the app." };
-	}
-	return Value.Check(PairingOffer, data) ? { ok: true, value: data } : damaged;
+}
+
+function hasVersionOtherThan(data: unknown, ...versions: number[]): boolean {
+	return typeof data === "object" && data !== null && "v" in data && !versions.includes(data.v as number);
 }
 
 // Base64url without padding, written out so it behaves the same in Node and React Native.

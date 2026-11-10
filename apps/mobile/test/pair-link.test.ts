@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodePairingUri, PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
+import { encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
 import { pairingFailureMessage, pairingUriFromLink, readPairLink } from "../src/core/pair-link";
 import { en } from "../src/ui/i18n/en";
 import { es } from "../src/ui/i18n/es";
@@ -62,6 +62,15 @@ describe("pairing link", () => {
 	it("refuses an expired offer", () => {
 		expect(readPairLink(p, 10_001)).toEqual({ ok: false, reason: "expired", code: "CODE_EXPIRED" });
 	});
+
+	it("summarizes a ZeroTier offer with its ZeroTier address", () => {
+		const { dnsName: _, ...rest } = offer;
+		const uri = encodePairingUri({ ...rest, v: ZEROTIER_PAIRING_VERSION, network: "zerotier", address: "10.147.17.5" });
+		expect(readPairLink(uri.slice(uri.indexOf("p=") + 2), 1_000)).toEqual({
+			ok: true,
+			offer: { name: "devbox", address: "10.147.17.5", expiresAt: 10_000, uri },
+		});
+	});
 });
 
 describe("pairing failure text", () => {
@@ -69,6 +78,15 @@ describe("pairing failure text", () => {
 		expect(pairingFailureMessage({ code: "CODE_EXPIRED", message: "x" }, es.add)).toBe(es.add.failures.CODE_EXPIRED);
 		expect(pairingFailureMessage({ code: "UNREACHABLE", message: "x" }, en.add)).toBe(en.add.unreachable);
 		expect(pairingFailureMessage({ message: "Something else" }, en.add)).toBe("Something else");
+	});
+
+	it("asks to turn off Private DNS when the phone cannot find the computer by its name", () => {
+		expect(pairingFailureMessage({ code: "PRIVATE_DNS", message: "x" }, es.add)).toBe(
+			"Tu teléfono no encuentra la computadora por su nombre de Tailscale. Desactivá el DNS privado: Ajustes › Conexiones › Más ajustes de conexión › DNS privado › Desactivado.",
+		);
+		expect(pairingFailureMessage({ code: "PRIVATE_DNS", message: "x" }, en.add)).toBe(
+			"Your phone can't find the computer by its Tailscale name. Turn off Private DNS: Settings › Connections › More connection settings › Private DNS › Off.",
+		);
 	});
 });
 

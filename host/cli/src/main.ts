@@ -7,8 +7,12 @@ import { authorizeKey, buildKeyLine, keyTarget, readWindowsPrivileges } from "./
 import { fingerprintOfPublicKey, readHostIdentity } from "./adapters/host-identity.ts";
 import { startPairingEndpoint } from "./adapters/pairing-endpoint.ts";
 import { readTailscale } from "./adapters/tailscale.ts";
-import { parseArguments } from "./arguments.ts";
-import { askConfirmation, renderQr, text } from "./adapters/terminal.ts";
+import { zeroTierAddresses, zeroTierInterfaces } from "./adapters/zerotier.ts";
+import { readFirewall } from "./adapters/firewall.ts";
+import { parseArguments, type PairArguments } from "./arguments.ts";
+import { askConfirmation, renderQr, spanish, text } from "./adapters/terminal.ts";
+import { pairingFirewallHints } from "./core/firewall.ts";
+import { resolvePairingTarget } from "./core/pairing-network.ts";
 import { PairingSession } from "./core/pairing-session.ts";
 import { installCommand } from "./install-command.ts";
 import { doctorCommand } from "./doctor-command.ts";
@@ -18,14 +22,17 @@ import { serversCommand } from './servers-command.ts';
 import { projectCommand } from './project-command.ts';
 import { shortcutsCommand } from './shortcuts-command.ts';
 import { notifyCommand } from './notify-command.ts';
+import { uploadsDirCommand } from './uploads-command.ts';
 
 import { readRelease } from './adapters/release-version.ts';
 
 const TTL_MS = 5 * 60_000;
 
-async function pair(sshPort: number): Promise<number> {
-	const tailscale = readTailscale();
-	if (!tailscale.ok) return fail(tailscale.message);
+async function pair(choice: PairArguments): Promise<number> {
+	const { sshPort } = choice;
+	const listen = resolvePairingTarget(choice, { tailscale: () => readTailscale(), zeroTierAddresses: () => zeroTierAddresses() });
+	if (!listen.ok) return fail(listen.message);
+	const firewallHints = pairingFirewallHints(listen, { firewall: () => readFirewall(), zeroTierInterface: (address) => zeroTierInterfaces().find((entry) => entry.address === address)?.name }, spanish);
 	const identity = readHostIdentity();
 	if (!identity.ok) return fail(identity.message);
 
@@ -35,8 +42,8 @@ async function pair(sshPort: number): Promise<number> {
 
 	const host = {
 		name: hostname(),
-		address: tailscale.address,
-		...(tailscale.dnsName ? { dnsName: tailscale.dnsName } : {}),
+		address: listen.address,
+		...(listen.network === "tailscale" && listen.dnsName ? { dnsName: listen.dnsName } : {}),
 		sshPort,
 		user: userInfo().username,
 		hostKey: identity.fingerprint,
@@ -51,6 +58,7 @@ async function pair(sshPort: number): Promise<number> {
 	});
 	const session = new PairingSession({
 		host,
+		network: listen.network,
 		ttlMs: TTL_MS,
 		maxBadAttempts: 5,
 		ports: {
@@ -64,12 +72,12 @@ async function pair(sshPort: number): Promise<number> {
 			authorizeKey: async (publicKey, name) => authorizeKey(target, buildKeyLine(publicKey, name, new Date())),
 		},
 	});
-	const endpoint = await startPairingEndpoint({ session, address: tailscale.address, maxBodyBytes: 8 * 1024 });
+	const endpoint = await startPairingEndpoint({ session, address: listen.address, maxBodyBytes: 8 * 1024 });
 	// The QR carries the port the endpoint actually got.
 	host.pairPort = endpoint.port;
 	const uri = encodePairingUri({ ...session.offer(), pairPort: endpoint.port });
 
-	console.log(`\n${text.scan}\n\n${renderQr(uri)}\n\n${text.orOpen}\n${uri}\n\n${text.expires(TTL_MS / 60_000)}\n${text.waiting}\n`);
+	console.log(`\n${firewallHints.map((hint) => `${hint}\n\n`).join("")}${text.scan}\n\n${renderQr(uri)}\n\n${text.orOpen}\n${uri}\n\n${text.expires(TTL_MS / 60_000)}\n${text.waiting}\n`);
 
 	const expiry = new Promise<"expired">((resolve) => setTimeout(() => resolve("expired"), TTL_MS).unref());
 	const outcome = await Promise.race([endpoint.finished, expiry, cancel]);
@@ -89,7 +97,7 @@ function fail(message: string): number {
 // Exit explicitly: a confirmation question left unanswered after a cancel or expiry would keep reading stdin.
 const parsed = parseArguments(process.argv.slice(2));
 if (!parsed.ok) {
-	console.error(text.usage + '\nmars-ram version [--json]\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json]\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
+	console.error(text.usage + '\nmars-ram version [--json]\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json]\nmars-ram uploads-dir --json\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
 	process.exit(2);
 }
 if (parsed.command === 'version') {
@@ -97,4 +105,4 @@ if (parsed.command === 'version') {
  console.log(parsed.json ? JSON.stringify({ version: 1, release }) : release);
  process.exit(0);
 }
-process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed.sshPort) : parsed.command === "doctor" ? doctorCommand() : installCommand(parsed.command)));
+process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed) : parsed.command === "doctor" ? doctorCommand() : parsed.command === "uploads-dir" ? uploadsDirCommand() : installCommand(parsed.command)));

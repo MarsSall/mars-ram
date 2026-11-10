@@ -8,9 +8,12 @@ import {
 	SendMessageRequest,
 	SendMessageResponse,
 	supportsAttachments,
+	supportsTempUploads,
 	TerminalInputRequest,
+	UPLOADS_IN_TEMP_MINOR,
 	UPLOADS_DIRECTORY,
 	UploadName,
+	decodeUploadsDir,
 } from "../src/index.ts";
 
 const envelope = { protocolVersion: PROTOCOL_VERSION, bridgeInstanceId: "inst-1", sessionId: "sess-1" };
@@ -18,8 +21,18 @@ const check = (schema: Parameters<typeof decodeResponse>[0], data: unknown) => d
 const name = "20261023-101500-a1b2c3-screenshot.png";
 
 describe("protocol version", () => {
-	it("is 1.6, adding optional settled outcomes without changing older routes", () => {
-		expect(PROTOCOL_VERSION).toBe("1.6");
+	it("is 1.7: attachments move to the host's private temp folder; requests and responses are unchanged", () => {
+		expect(PROTOCOL_VERSION).toBe("1.7");
+		expect(UPLOADS_IN_TEMP_MINOR).toBe(7);
+	});
+
+	it("tells the app which bridges read attachments from the temp folder", () => {
+		expect(supportsTempUploads(PROTOCOL_VERSION)).toBe(true);
+		expect(supportsTempUploads("1.6")).toBe(false);
+		expect(supportsTempUploads("1.2")).toBe(false);
+		expect(supportsTempUploads("1.10")).toBe(true);
+		expect(supportsTempUploads("2.7")).toBe(false);
+		expect(supportsTempUploads("bad")).toBe(false);
 	});
 
 	it("supports attachments from 1.2 on, so the app never sends them to a bridge that would drop them", () => {
@@ -33,9 +46,33 @@ describe("protocol version", () => {
 });
 
 describe("uploads", () => {
-	it("live in the app folder of the user's home, with a 25 MB limit per file", () => {
+	it("keep the legacy home folder name only for apps that predate 1.7, with a 25 MB limit per file", () => {
 		expect(UPLOADS_DIRECTORY).toBe(".mars-ram/uploads");
 		expect(ATTACHMENT_MAX_BYTES).toBe(25 * 1024 * 1024);
+	});
+});
+
+describe("mars-ram uploads-dir --json", () => {
+	it("decodes the folder the host chose", () => {
+		expect(decodeUploadsDir('{"v":1,"path":"/tmp/mars-ram-1000/uploads"}\n')).toEqual({ ok: true, path: "/tmp/mars-ram-1000/uploads" });
+		expect(decodeUploadsDir('{"v":1,"path":"C:\\\\Users\\\\alex\\\\AppData\\\\Local\\\\Temp\\\\mars-ram\\\\uploads"}')).toEqual({ ok: true, path: "C:\\Users\\alex\\AppData\\Local\\Temp\\mars-ram\\uploads" });
+	});
+
+	it("decodes a refusal with its code and message", () => {
+		const message = "The attachments folder /tmp/mars-ram-1000 is a link. Remove it and try again.";
+		expect(decodeUploadsDir(JSON.stringify({ v: 1, error: "unsafe_folder", message }))).toEqual({ ok: false, error: "unsafe_folder", message });
+		expect(decodeUploadsDir(JSON.stringify({ v: 1, error: "unavailable", message: "x" }))).toEqual({ ok: false, error: "unavailable", message: "x" });
+	});
+
+	it.each([
+		["not JSON (an old CLI's usage text)", "Usage: mars-ram pair"],
+		["an unknown version", '{"v":2,"path":"/tmp/x"}'],
+		["a relative path", '{"v":1,"path":"tmp/uploads"}'],
+		["a path with a line break", JSON.stringify({ v: 1, path: "/tmp/a\nb" })],
+		["an unknown error code", '{"v":1,"error":"boom","message":"x"}'],
+		["two lines", '{"v":1,"path":"/a"}\n{"v":1,"path":"/b"}'],
+	])("rejects %s", (_label, output) => {
+		expect(decodeUploadsDir(output)).toBeNull();
 	});
 });
 

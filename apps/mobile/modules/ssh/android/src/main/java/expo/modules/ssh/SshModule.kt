@@ -51,6 +51,25 @@ class ConnectOptions(
 private class SourceUnreadable(cause: Exception) : IOException("Cannot read the selected attachment. Select it again.", cause)
 
 internal const val LOOPBACK = "127.0.0.1"
+
+// Launch directly: resolver queries can hide targets under Android package visibility.
+// ActivityNotFoundException (or a rejected launch) moves on to the next target.
+private fun startTarget(activity: android.app.Activity, target: LaunchTarget): Boolean {
+  val intent = android.content.Intent(target.action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+  target.uri?.let { intent.data = android.net.Uri.parse(it) }
+  activity.startActivity(intent)
+  return true
+}
+
+/** Launches an installed app (needs its <queries> entry), or opens its store page; false when neither works. */
+private fun openAppOrStore(activity: android.app.Activity, packageName: String, store: List<LaunchTarget>): Boolean {
+  val launch = activity.packageManager.getLaunchIntentForPackage(packageName)
+  val opened = launch != null && runCatching {
+    activity.startActivity(launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    true
+  }.getOrDefault(false)
+  return opened || launchFirst(store) { startTarget(activity, it) }
+}
 private const val MAX_DIR_ENTRIES = 1_000
 
 class SshModule : Module() {
@@ -61,6 +80,9 @@ class SshModule : Module() {
     ?: appContext.reactContext?.applicationContext?.let { context ->
       PlayAppUpdates(context) { status -> sendEvent("onAppUpdateStatus", mapOf("status" to status)) }.also { playUpdates = it }
     }
+  private var modelDownloads: ModelDownloads? = null
+  @Synchronized private fun modelDownloads(): ModelDownloads? = modelDownloads
+    ?: appContext.reactContext?.let { ModelDownloads(it) }?.also { modelDownloads = it }
   // Runs after the lifecycle lock is released: closing a channel can wait for the host.
   private val lease = ConnectionManager.acquire(LeaseOwner.UI) { connectionId ->
     val closing = terminals.filterValues { it.connectionId == connectionId }
@@ -88,6 +110,18 @@ class SshModule : Module() {
     AsyncFunction("startFlexibleUpdate") Coroutine { -> playUpdates()?.start(appContext.currentActivity) ?: startResult(null) }
     AsyncFunction("appUpdateProgress") Coroutine { -> playUpdates()?.progress() ?: installProgress(null) }
     AsyncFunction("completeUpdate") Coroutine { -> playUpdates()?.complete(); Unit }
+
+    // The voice model's system download (DownloadManager): it outlives the app; no permission.
+    AsyncFunction("startModelDownload") Coroutine { url: String, fileName: String, title: String, description: String ->
+      withContext(Dispatchers.IO) { modelDownloads()?.start(url, fileName, title, description) ?: modelDownloadResult("failed") }
+    }
+    AsyncFunction("modelDownloadStatus") Coroutine { ->
+      withContext(Dispatchers.IO) { modelDownloads()?.status() ?: modelDownloadResult("none") }
+    }
+    AsyncFunction("cancelModelDownload") Coroutine { ->
+      withContext(Dispatchers.IO) { modelDownloads()?.cancel() }
+      Unit
+    }
 
     AsyncFunction("startSessionWatch") { config: SessionWatchConfig ->
       SessionWatchControl.start(appContext.currentActivity as? FragmentActivity, config)
@@ -127,6 +161,44 @@ class SshModule : Module() {
           true
         }
         if (!opened) throw IllegalStateException("SETTINGS_UNAVAILABLE")
+      }
+    }
+
+    // Connection wizard: read-only checks of the phone's side; no permission beyond ACCESS_NETWORK_STATE.
+    AsyncFunction("phoneNetworkState") {
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      phoneNetworkState(context)
+    }
+    AsyncFunction("installTailscale") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        if (!launchFirst(INSTALL_TAILSCALE_TARGETS) { startTarget(activity, it) }) throw IllegalStateException("STORE_UNAVAILABLE")
+      }
+    }
+    AsyncFunction("openTailscale") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        // Needs the <queries> entry for com.tailscale.ipn; without the app, open its store page instead.
+        if (!openAppOrStore(activity, TAILSCALE_PACKAGE, INSTALL_TAILSCALE_TARGETS)) throw IllegalStateException("STORE_UNAVAILABLE")
+      }
+    }
+    AsyncFunction("installZeroTier") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        if (!launchFirst(INSTALL_ZEROTIER_TARGETS) { startTarget(activity, it) }) throw IllegalStateException("STORE_UNAVAILABLE")
+      }
+    }
+    AsyncFunction("openZeroTier") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        // Needs the <queries> entry for com.zerotier.one.
+        if (!openAppOrStore(activity, ZEROTIER_PACKAGE, INSTALL_ZEROTIER_TARGETS)) throw IllegalStateException("STORE_UNAVAILABLE")
+      }
+    }
+    AsyncFunction("openPrivateDnsSettings") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+        if (!launchFirst(PRIVATE_DNS_SETTINGS_TARGETS) { startTarget(activity, it) }) throw IllegalStateException("SETTINGS_UNAVAILABLE")
       }
     }
 
@@ -238,6 +310,12 @@ class SshModule : Module() {
       withContext(Dispatchers.IO) { probe(host, port, timeoutMs) }
     }
 
+    /** ZeroTier pairing only; VpnPairing.kt lists what it refuses. Resolves every failure, never rejects. */
+    AsyncFunction("postPairingOverVpn") Coroutine { address: String, port: Int, body: String, timeoutMs: Double ->
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      withContext(Dispatchers.IO) { postPairingOverVpn(context, address, port, body, timeoutMs.toLong()) }
+    }
+
     /** Resolve the actual login home over SFTP, without invoking the host shell. */
     AsyncFunction("homeDirectory") Coroutine { connectionId: String ->
       withContext(Dispatchers.IO) {
@@ -256,8 +334,8 @@ class SshModule : Module() {
     }
 
     /** Lists a host directory over SFTP; paths are relative to the user's home on Linux and Windows. */
-    AsyncFunction("listDir") Coroutine { connectionId: String, path: String ->
-      withContext(Dispatchers.IO) { listDir(connectionId, path) }
+    AsyncFunction("listDir") Coroutine { connectionId: String, path: String, root: String? ->
+      withContext(Dispatchers.IO) { listDir(connectionId, path, root) }
     }
 
     /** Reads a small UTF-8 text file over SFTP, refusing files larger than maxBytes. */
@@ -265,12 +343,12 @@ class SshModule : Module() {
       withContext(Dispatchers.IO) { readFile(connectionId, path, maxBytes) }
     }
 
-    AsyncFunction("uploadFile") Coroutine { connectionId: String, sourceUri: String, remoteDir: String, remoteName: String, maxBytes: Double ->
-      withContext(Dispatchers.IO) { uploadFile(connectionId, sourceUri, remoteDir, remoteName, maxBytes) }
+    AsyncFunction("uploadFile") Coroutine { connectionId: String, sourceUri: String, remoteDir: String, remoteName: String, maxBytes: Double, root: String? ->
+      withContext(Dispatchers.IO) { uploadFile(connectionId, sourceUri, remoteDir, remoteName, maxBytes, root) }
     }
 
-    AsyncFunction("removeFile") Coroutine { connectionId: String, path: String ->
-      withContext(Dispatchers.IO) { removeFile(connectionId, path) }
+    AsyncFunction("removeFile") Coroutine { connectionId: String, path: String, root: String? ->
+      withContext(Dispatchers.IO) { removeFile(connectionId, path, root) }
     }
 
     /** Phone binds only IPv4 loopback; remote destination is exactly IPv4 or IPv6 loopback. */
@@ -366,10 +444,12 @@ class SshModule : Module() {
     }
   }
 
-  private fun listDir(connectionId: String, path: String): Map<String, Any?> {
+  private fun listDir(connectionId: String, path: String, root: String?): Map<String, Any?> {
+    if (if (root == null) !UploadScope.relative(path) else UploadScope.directory(path, root) == null) return failure("SSH_ERROR", "Invalid directory.")
     val ssh = lease.connection(connectionId) ?: return notConnected()
     return try {
       ssh.newSFTPClient().use { sftp ->
+        if (root != null) requireUploadRoot(sftp, root)
         val listed = sftp.ls(path)
         if (listed.size > MAX_DIR_ENTRIES) return failure("TOO_LARGE", "$path has more than $MAX_DIR_ENTRIES entries.")
         val entries = listed.map { mapOf("name" to it.name, "isFile" to it.isRegularFile, "size" to it.attributes.size, "modifiedAt" to it.attributes.mtime * 1_000L) }
@@ -405,17 +485,19 @@ class SshModule : Module() {
   }
 
   /** Only our exclusive temporary file is removed on failure, never another upload's file. */
-  private fun uploadFile(connectionId: String, sourceUri: String, remoteDir: String, remoteName: String, maxBytes: Double): Map<String, Any?> {
+  private fun uploadFile(connectionId: String, sourceUri: String, remoteDir: String, remoteName: String, maxBytes: Double, root: String?): Map<String, Any?> {
     if (!maxBytes.isFinite() || maxBytes <= 0) return failure("SSH_ERROR", "The size limit must be positive.")
     if (remoteName.isEmpty() || remoteName.startsWith(".") || remoteName.any { it == '/' || it == '\\' || it == ':' || it == '\u0000' } || remoteName.endsWith(".part")) {
       return failure("SSH_ERROR", "Invalid upload name")
     }
     val directories = remoteDir.split('/').filter { it.isNotEmpty() && it != "." }
-    if (remoteDir.startsWith('/') || remoteDir.any { it == '\\' || it == ':' || it == '\u0000' } || directories.any { it == ".." }) {
+    if (root != null) {
+      if (UploadScope.directory(remoteDir, root) == null) return failure("SSH_ERROR", "Upload directory must be the uploads folder.")
+    } else if (remoteDir.startsWith('/') || remoteDir.any { it == '\\' || it == ':' || it == '\u0000' } || directories.any { it == ".." }) {
       return failure("SSH_ERROR", "Upload directory must be relative to home.")
     }
     val ssh = lease.connection(connectionId) ?: return notConnected()
-    val directory = directories.joinToString("/").ifEmpty { "." }
+    val directory = root ?: directories.joinToString("/").ifEmpty { "." }
     val path = "$directory/$remoteName"
     val part = "$path.part"
     return try {
@@ -440,7 +522,8 @@ class SshModule : Module() {
       } catch (e: Exception) { throw SourceUnreadable(e) }
       try {
         ssh.newSFTPClient().use { sftp ->
-          ensureUploadDirectory(sftp, directories)
+          // The host CLI created and verified an absolute root: only check it, never create it.
+          if (root != null) requireUploadRoot(sftp, root) else ensureUploadDirectory(sftp, directories)
           if (exists(sftp, path)) return failure("SSH_ERROR", "An upload named $remoteName already exists.")
           var created = false
           try {
@@ -500,10 +583,17 @@ class SshModule : Module() {
     }
   }
 
-  private fun removeFile(connectionId: String, path: String): Map<String, Any?> {
+  /** lstat, so a link standing in for the uploads folder is refused rather than followed. */
+  private fun requireUploadRoot(sftp: SFTPClient, root: String) {
+    if (sftp.lstat(root).type != FileMode.Type.DIRECTORY) throw IOException("Uploads folder is not a directory")
+  }
+
+  private fun removeFile(connectionId: String, path: String, root: String?): Map<String, Any?> {
+    if (if (root == null) !UploadScope.relative(path) else UploadScope.file(path, root) == null) return failure("SSH_ERROR", "Invalid file path.")
     val ssh = lease.connection(connectionId) ?: return notConnected()
     return try {
       ssh.newSFTPClient().use { sftp ->
+        if (root != null) requireUploadRoot(sftp, root)
         if (sftp.lstat(path).type != FileMode.Type.REGULAR) return failure("SSH_ERROR", "$path is not a regular file.")
         sftp.rm(path)
         mapOf("ok" to true)

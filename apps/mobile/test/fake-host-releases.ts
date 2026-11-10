@@ -1,7 +1,7 @@
 import type { HostReleaseRegistry, HostReleaseCache, ReleaseCacheEntry } from '../src/core/host-updates';
 export class FakeHostReleaseRegistry implements HostReleaseRegistry {
  calls = 0;
- value: string | undefined = '0.1.4';
+ value: string | undefined = '0.1.5';
  fail = false;
  async latest(): Promise<unknown> { this.calls++; if (this.fail) throw Error('offline'); return this.value; }
 }

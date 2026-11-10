@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkPi, checkInstallation, checkRegistry, checkPermissions, checkLinkServer, checkTailscale, checkForwarding, checkWindows, diagnose, type DoctorPorts } from "../../src/core/doctor.ts";
+import { checkPi, checkUploads, checkInstallation, checkRegistry, checkPermissions, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkWindows, diagnose, type DoctorPorts } from "../../src/core/doctor.ts";
 import { parseForwarding, pairingKeysAllowForwarding, parseWindowsAcl, parseDefaultShell, parseSshService } from "../../src/adapters/doctor.ts";
 import { parseArguments } from "../../src/arguments.ts";
 import { doctorCommand } from "../../src/doctor-command.ts";
@@ -13,11 +13,42 @@ function fake(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
 		registry: async () => ({ exists: true, entries: [{ name: "live.json", pid: 10 }], directoryMode: 0o700, modes: [0o600] }),
 		alive: () => true, acl: async () => ({ safe: true, administratorOwner: false }),
   keyLocks: async () => [],
-		tailscale: async () => "100.64.0.1", forwarding: async () => ({ allowed: true, keysAllowed: true }),
-		windows: async () => ({ service: true, shell: "cmd" }), ...overrides,
+		tailscale: async () => "100.64.0.1", zerotier: async () => [], zeroTierInterfaces: async () => [], firewall: async () => ({ ufw: "inactive", firewalld: "inactive" }), forwarding: async () => ({ allowed: true, keysAllowed: true }),
+		windows: async () => ({ service: true, shell: "cmd" }),
+		uploads: async () => ({ state: { ok: true, path: "/tmp/mars-ram-1000/uploads" }, legacy: false }), ...overrides,
 	};
 }
 const statuses = (results: { status: string }[]) => results.map((r) => r.status);
+
+describe("doctor attachments folder", () => {
+	const path = "/tmp/mars-ram-1000/uploads";
+	const lines = async (uploads: Awaited<ReturnType<DoctorPorts["uploads"]>>, spanish = false) => {
+		const printed: string[] = [];
+		await doctorCommand(fake({ spanish, uploads: async () => uploads }), (line) => printed.push(line));
+		return printed.filter((line) => /ttachments|adjuntos/.test(line));
+	};
+	it("reports the private folder", async () => {
+		expect(await lines({ state: { ok: true, path }, legacy: false })).toEqual([`ok: Attachments folder: ${path} (private).`]);
+		expect(await lines({ state: { ok: true, path }, legacy: false }, true)).toEqual([`ok: Carpeta de adjuntos: ${path} (privada).`]);
+	});
+	it("reports a folder not created yet without creating it", async () => {
+		expect(await lines({ state: { ok: false, error: "missing", path }, legacy: false })).toEqual([`ok: Attachments folder: ${path} (created with the first attachment).`]);
+	});
+	it("reports an unsafe folder as a problem with its reason and fix", async () => {
+		const unsafe = { ok: false, error: "unsafe_folder", path, component: "/tmp/mars-ram-1000", reason: "owner", message: "The attachments folder /tmp/mars-ram-1000 belongs to another user. Remove it and try again." } as const;
+		expect(await lines({ state: unsafe, legacy: false })).toEqual(["problem: Attachments folder /tmp/mars-ram-1000 belongs to another user; attachments will fail. Remove /tmp/mars-ram-1000 and try again."]);
+		// The status label follows the process locale; the finding follows the port.
+		expect((await lines({ state: unsafe, legacy: false }, true)).map((line) => line.replace(/^\w+: /, ""))).toEqual(["La carpeta de adjuntos /tmp/mars-ram-1000 pertenece a otro usuario; los adjuntos van a fallar. Eliminá /tmp/mars-ram-1000 y volvé a intentar."]);
+		expect((await diagnose(fake({ uploads: async () => ({ state: unsafe, legacy: false }) }))).code).toBe(1);
+		for (const [reason, en] of [["link", "is a link"], ["not_folder", "is not a folder"], ["permissions", "can be opened by other users"]] as const) {
+			expect((await checkUploads(fake({ uploads: async () => ({ state: { ...unsafe, reason }, legacy: false }) })))[0]?.finding).toContain(en);
+		}
+	});
+	it("warns about an unavailable folder and a leftover legacy folder", async () => {
+		expect(statuses(await checkUploads(fake({ uploads: async () => ({ state: { ok: false, error: "unavailable", path, message: "x (EACCES)." }, legacy: false }) })))).toEqual(["warning"]);
+		expect(await lines({ state: { ok: true, path }, legacy: true })).toEqual([`ok: Attachments folder: ${path} (private).`, "warning: Old attachments folder ~/.mars-ram/uploads still exists; nothing reads it anymore. Run mars-ram install to remove it."]);
+	});
+});
 
 describe("read-only doctor policy with fake ports", () => {
 	it("accepts doctor without options", () => {
@@ -91,6 +122,77 @@ describe("read-only doctor policy with fake ports", () => {
 	});
 	it("reports unavailable Tailscale", async () => {
 		expect(statuses(await checkTailscale(fake({ tailscale: async () => { throw Error("offline"); } })))).toEqual(["problem"]);
+	});
+	it("without ZeroTier, reports unavailable Tailscale as a problem and shows no ZeroTier line", async () => {
+		const report = await diagnose(fake({ tailscale: async () => { throw Error("offline"); } }));
+		expect(report.code).toBe(1);
+		expect(report.results.filter((r) => /Tailscale/.test(r.finding))).toEqual([{ status: "problem", finding: "Tailscale IPv4 unavailable.", fix: "Install Tailscale, sign in and connect; verify tailscale ip -4." }]);
+		expect(report.results.some((r) => /ZeroTier/.test(r.finding))).toBe(false);
+	});
+	it("with ZeroTier connected, reports missing Tailscale as a warning about private links and Siempre atento", async () => {
+		const ports = fake({ tailscale: async () => { throw Error("offline"); }, zerotier: async () => ["10.147.17.5"] });
+		expect(await checkTailscale(ports)).toEqual([{
+			status: "warning",
+			finding: "Tailscale IPv4 unavailable; this computer pairs over ZeroTier, but private links and Siempre atento need Tailscale.",
+			fix: "To use them, install Tailscale, sign in and connect; verify tailscale ip -4.",
+		}]);
+		const report = await diagnose(ports);
+		expect(report.code).toBe(0);
+		expect(report.results).toContainEqual({ status: "ok", finding: "ZeroTier: 10.147.17.5" });
+	});
+	it("shows ZeroTier next to a working Tailscale", async () => {
+		const report = await diagnose(fake({ zerotier: async () => ["10.147.17.5", "10.144.0.2"] }));
+		expect(report.code).toBe(0);
+		expect(report.results).toContainEqual({ status: "ok", finding: "Tailscale: 100.64.0.1" });
+		expect(report.results).toContainEqual({ status: "ok", finding: "ZeroTier: 10.147.17.5, 10.144.0.2" });
+	});
+	it("treats unreadable network interfaces as no ZeroTier", async () => {
+		const ports = fake({ tailscale: async () => { throw Error("offline"); }, zerotier: async () => { throw Error("uv_interface_addresses"); } });
+		expect(statuses(await checkTailscale(ports))).toEqual(["problem"]);
+		expect(await checkZeroTier(ports)).toEqual([]);
+	});
+	it("explains the ZeroTier warning in Spanish", async () => {
+		const [finding] = await checkTailscale(fake({ spanish: true, tailscale: async () => { throw Error("offline"); }, zerotier: async () => ["10.147.17.5"] }));
+		expect(finding).toEqual({
+			status: "warning",
+			finding: "IPv4 de Tailscale no disponible; esta computadora se empareja por ZeroTier, pero los enlaces privados y Siempre atento necesitan Tailscale.",
+			fix: "Para usarlos, instalá Tailscale, iniciá sesión y conectalo; verificá tailscale ip -4.",
+		});
+	});
+	it("warns that an active ufw may block ZeroTier and names the exact interface fix", async () => {
+		const ports = fake({ zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => ({ ufw: "active", firewalld: "inactive" }) });
+		expect(await checkFirewall(ports)).toEqual([{
+			status: "warning",
+			finding: "Firewall (ufw) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected).",
+			fix: "If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'",
+		}]);
+		const report = await diagnose(ports);
+		expect(report.code).toBe(0);
+		const lines: string[] = [];
+		await doctorCommand(ports, (line) => lines.push(line));
+		expect(lines).toContain("warning: Firewall (ufw) is on; it may block pairing and SSH over ZeroTier (Tailscale is not affected). If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'");
+	});
+	it("warns about firewalld in Spanish with its fix", async () => {
+		const ports = fake({ spanish: true, zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => ({ ufw: "inactive", firewalld: "active" }) });
+		expect(await checkFirewall(ports)).toEqual([{
+			status: "warning",
+			finding: "Firewall (firewalld) activo; puede bloquear el emparejamiento y SSH por ZeroTier (Tailscale no se ve afectado).",
+			fix: "Si el teléfono no conecta por ZeroTier, ejecutá: sudo firewall-cmd --permanent --zone=trusted --add-interface=ztexample0 && sudo firewall-cmd --reload",
+		}]);
+	});
+	it("says nothing about the firewall without ZeroTier, or with no active firewall", async () => {
+		const firewall = { firewall: async () => ({ ufw: "active" as const, firewalld: "active" as const }) };
+		const noZeroTier = fake(firewall);
+		expect(await checkFirewall(noZeroTier)).toEqual([]);
+		expect((await diagnose(noZeroTier)).results.some((r) => /firewall/i.test(r.finding))).toBe(false);
+		const ports = (state: { ufw: "active" | "inactive" | "unknown"; firewalld: "active" | "inactive" | "unknown" }) => fake({ zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => state });
+		expect(await checkFirewall(ports({ ufw: "inactive", firewalld: "inactive" }))).toEqual([]);
+		expect(await checkFirewall(ports({ ufw: "unknown", firewalld: "unknown" }))).toEqual([]);
+		expect(await checkFirewall(fake({ zerotier: async () => ["10.147.20.49"], zeroTierInterfaces: async () => ["ztexample0"], firewall: async () => { throw Error("no systemctl"); } }))).toEqual([]);
+	});
+	it("gives one fix per ZeroTier interface", async () => {
+		const ports = fake({ zerotier: async () => ["10.147.20.49", "10.144.0.2"], zeroTierInterfaces: async () => ["ztexample0", "zt1"], firewall: async () => ({ ufw: "active", firewalld: "inactive" }) });
+		expect((await checkFirewall(ports)).map((r) => r.fix)).toEqual(["If the phone cannot connect over ZeroTier, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'; sudo ufw allow in on zt1 comment 'ZeroTier'"]);
 	});
 	it("distinguishes sshd denial from restricted pairing keys", async () => {
 		expect(statuses(await checkForwarding(fake({ forwarding: async () => ({ allowed: false, keysAllowed: false }) })))).toEqual(["problem", "warning"]);

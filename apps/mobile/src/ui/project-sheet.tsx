@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, FlatList, Image, PanResponder, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { projectFileState, projectTreeEntries, type ProjectFileState, type ProjectTreeEntry } from "../core/project-file-state";
-import type { SavedHost } from "../core/host-catalog";
+import { hasTailscaleFeatures, type SavedHost } from "../core/host-catalog";
 import { formatAge, formatSize, highlightLine, textLines, hostFilePath, summarizeChanges, type Change, type Commit, type ProjectErrorCode, type ProjectFile, type ProjectOptions, type ProjectResult, type ProjectStatus, type ProjectTree, type ProjectValue, type ProjectVerb } from "../core/project";
 import { catalog, clipboard, createLinkService, projectBrowser } from "../services";
 import { usePreferences } from "./preferences";
@@ -232,7 +232,7 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
     const staged = await projectBrowser.run(computer, "stage-link", { path, ...(ws ? { workspace: ws } : {}) });
     return staged.ok ? { ok: true, staged: staged.value.staged, size } : { ok: false };
    });
-   if (!result.ok) { setNotice(p.linkFailed); return; }
+   if (!result.ok) { setNotice(result.code === "TAILSCALE_ONLY" ? p.tailscaleOnly : p.linkFailed); return; }
    await clipboard.writeText(result.value.url).catch(() => {}); setNotice(p.linkCreated);
   } finally { setBusy(false); }
  }, [computer, root, busy, paste, close, p, ws]);
@@ -266,7 +266,8 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
  function shareBar(path: string, size: number) {
   const action = (label: string, hint: string, glyph: keyof typeof Ionicons.glyphMap, primary: boolean, run: () => void) => <Pressable accessibilityRole="button" accessibilityLabel={`${label}. ${hint}`} disabled={busy} onPress={run} style={{ flex: 1, height: 40, borderRadius: 20, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", backgroundColor: primary ? c.accent : c.surfaceRaised, opacity: busy ? 0.6 : 1 }}>{icon(glyph, primary ? c.onAccent : c.text, 16)}<Text style={{ color: primary ? c.onAccent : c.text, fontSize: 13, fontWeight: "600" }}>{label}</Text></Pressable>;
   return <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderColor: c.border, backgroundColor: c.surface }}>
-   {action(p.createLink, p.createLinkHint, "link-outline", false, () => void share(path, size, "link"))}
+   {/* A ZeroTier computer serves no links (zerotier S3): the hint says so and the core refuses. */}
+   {action(p.createLink, computer && !hasTailscaleFeatures(computer) ? p.tailscaleOnly : p.createLinkHint, "link-outline", false, () => void share(path, size, "link"))}
    {action(p.sendChat, p.sendChatHint, "chatbubble-outline", true, () => void share(path, size, "chat"))}
   </View>;
  }

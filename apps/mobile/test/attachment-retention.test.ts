@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { UPLOADS_DIRECTORY } from "@workspace/protocol";
 import { cleanupUploads, type AttachmentRetention } from "../src/core/attachment-retention";
 import { HostConnections } from "../src/core/host-connections";
 import type { HostConnection } from "../src/core/ports";
-import { FakeSsh, failure, savedHost } from "./fakes";
+import { UPDATE_REQUIRED_MESSAGE } from "../src/core/uploads-folder";
+import { FakeSsh, FakeUploadsFolder, TEMP_UPLOADS, failure, savedHost } from "./fakes";
+
+const UPLOADS = TEMP_UPLOADS.sftpPath;
 
 const hour = 60 * 60 * 1000;
 const day = 24 * hour;
@@ -11,7 +13,7 @@ const now = 100 * day;
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const port = (ssh: FakeSsh) => ssh as unknown as HostConnection;
 function add(ssh: FakeSsh, name: string, age: number, isFile = true) {
-	ssh.uploadedFiles.set(`${UPLOADS_DIRECTORY}/${name}`, { name, isFile, size: 1, modifiedAt: now - age });
+	ssh.uploadedFiles.set(`${UPLOADS}/${name}`, { name, isFile, size: 1, modifiedAt: now - age });
 }
 
 describe("upload retention", () => {
@@ -21,8 +23,8 @@ describe("upload retention", () => {
 		add(ssh, "boundary.txt", retention * day);
 		add(ssh, "new.txt", 0);
 		add(ssh, "directory", 90 * day, false);
-		await cleanupUploads(port(ssh), "c", retention, () => now);
-		expect([...ssh.uploadedFiles.keys()]).toEqual(["boundary.txt", "new.txt", "directory"].map(name => `${UPLOADS_DIRECTORY}/${name}`));
+		await cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", retention, () => now);
+		expect([...ssh.uploadedFiles.keys()]).toEqual(["boundary.txt", "new.txt", "directory"].map(name => `${UPLOADS}/${name}`));
 	});
 	it.each([1, 7, 30, "never"] as const)("always removes stale .part files with choice %s, but not the exact hour boundary", async retention => {
 		const ssh = new FakeSsh();
@@ -30,28 +32,29 @@ describe("upload retention", () => {
 		add(ssh, "lost.PART", hour + 1);
 		add(ssh, "active.part", hour);
 		add(ssh, "keep.txt", 90 * day);
-		await cleanupUploads(port(ssh), "c", retention, () => now);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/lost.part`)).toBe(false);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/lost.PART`)).toBe(false);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/active.part`)).toBe(true);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/keep.txt`)).toBe(retention === "never");
+		await cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", retention, () => now);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/lost.part`)).toBe(false);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/lost.PART`)).toBe(false);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/active.part`)).toBe(true);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/keep.txt`)).toBe(retention === "never");
 	});
 	it("treats a missing directory as success, and continues after a refused or thrown removal", async () => {
 		const ssh = new FakeSsh();
 		const list = vi.spyOn(ssh, "listDir").mockResolvedValueOnce(failure("NOT_FOUND"));
-		await expect(cleanupUploads(port(ssh), "c", 7, () => now)).resolves.toBeUndefined();
+		await expect(cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", 7, () => now)).resolves.toBeUndefined();
 		for (const name of ["a", "b", "c"]) add(ssh, name, 90 * day);
 		const remove = vi.spyOn(ssh, "removeFile").mockResolvedValueOnce(failure("PERMISSION_DENIED")).mockRejectedValueOnce(new Error("disconnected"));
-		await cleanupUploads(port(ssh), "c", 7, () => now);
+		await cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", 7, () => now);
 		expect(remove).toHaveBeenCalledTimes(3);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/c`)).toBe(false);
-		expect(list).toHaveBeenCalledWith("c", UPLOADS_DIRECTORY);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/c`)).toBe(false);
+		expect(list).toHaveBeenCalledWith("c", UPLOADS, UPLOADS);
+		expect(remove).toHaveBeenLastCalledWith("c", `${UPLOADS}/c`, UPLOADS);
 	});
 	it("never uses listing names to leave the uploads directory", async () => {
 		const ssh = new FakeSsh();
 		vi.spyOn(ssh, "listDir").mockResolvedValue({ ok: true, entries: ["../outside", "..\\outside", "/outside"].map(name => ({ name, isFile: true, size: 0, modifiedAt: 0 })) });
 		const remove = vi.spyOn(ssh, "removeFile");
-		await cleanupUploads(port(ssh), "c", 7, () => now);
+		await cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", 7, () => now);
 		expect(remove).not.toHaveBeenCalled();
 	});
 	it("runs once per computer after success, reads the preference, and does not delay connection or turn cleanup failure into connection failure", async () => {
@@ -59,7 +62,7 @@ describe("upload retention", () => {
 		let finish!: (value: { ok: true; entries: [] }) => void;
 		const list = vi.spyOn(ssh, "listDir").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockRejectedValueOnce(new Error("offline"));
 		const retention = vi.fn<() => AttachmentRetention>(() => "never");
-		const connections = new HostConnections({ host: port(ssh), keyAlias: "k", unlock: async () => true, retention, clock: () => now });
+		const connections = new HostConnections({ host: port(ssh), uploadsFolder: new FakeUploadsFolder(), keyAlias: "k", unlock: async () => true, retention, clock: () => now });
 		ssh.refuse = failure("UNREACHABLE");
 		expect((await connections.connection(savedHost("a"))).ok).toBe(false);
 		expect(list).not.toHaveBeenCalled();
@@ -79,10 +82,42 @@ describe("upload retention", () => {
 		const ssh = new FakeSsh();
 		add(ssh, "old", 8 * day);
 		add(ssh, "recent", 2 * day);
-		const connections = new HostConnections({ host: port(ssh), keyAlias: "k", unlock: async () => true, clock: () => now });
+		const connections = new HostConnections({ host: port(ssh), uploadsFolder: new FakeUploadsFolder(), keyAlias: "k", unlock: async () => true, clock: () => now });
 		await connections.connection(savedHost("a"));
 		await flush();
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/old`)).toBe(false);
-		expect(ssh.uploadedFiles.has(`${UPLOADS_DIRECTORY}/recent`)).toBe(true);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/old`)).toBe(false);
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/recent`)).toBe(true);
+	});
+	it.each([
+		{ ok: false as const, code: "UPDATE_REQUIRED" as const, message: UPDATE_REQUIRED_MESSAGE },
+		{ ok: false as const, code: "PERMISSION_DENIED" as const, message: "Uploads folder refused: not private." },
+	])("skips silently without listing when the uploads folder lookup fails (%#)", async result => {
+		const ssh = new FakeSsh();
+		add(ssh, "old", 90 * day);
+		const folder = new FakeUploadsFolder();
+		folder.result = result;
+		const list = vi.spyOn(ssh, "listDir");
+		await expect(cleanupUploads(port(ssh), folder, "c", 7, () => now)).resolves.toBeUndefined();
+		expect(folder.calls).toEqual(["c"]);
+		expect(list).not.toHaveBeenCalled();
+		expect(ssh.uploadedFiles.has(`${UPLOADS}/old`)).toBe(true);
+	});
+	it("never fails or delays the connection when the lookup hangs or throws", async () => {
+		const ssh = new FakeSsh();
+		const folder = new FakeUploadsFolder();
+		const lookup = vi.spyOn(folder, "folder").mockImplementationOnce(() => new Promise(() => {})).mockRejectedValueOnce(new Error("offline"));
+		const connections = new HostConnections({ host: port(ssh), uploadsFolder: folder, keyAlias: "k", unlock: async () => true, clock: () => now });
+		expect((await connections.connection(savedHost("a"))).ok).toBe(true);
+		expect((await connections.connection(savedHost("b"))).ok).toBe(true);
+		await flush();
+		expect(lookup).toHaveBeenCalledTimes(2);
+	});
+	it("never touches the old home uploads folder", async () => {
+		const ssh = new FakeSsh();
+		ssh.uploadedFiles.set(".mars-ram/uploads/old", { name: "old", isFile: true, size: 1, modifiedAt: 0 });
+		const list = vi.spyOn(ssh, "listDir");
+		await cleanupUploads(port(ssh), new FakeUploadsFolder(), "c", 1, () => now);
+		expect(list.mock.calls).toEqual([["c", UPLOADS, UPLOADS]]);
+		expect(ssh.uploadedFiles.has(".mars-ram/uploads/old")).toBe(true);
 	});
 });

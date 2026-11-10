@@ -12,7 +12,7 @@ The system has three parts: an **Android app**, a **host side** that runs on the
 │          │ ports             │◄────────────►│        loopback HTTP + SSE, token       │
 │  adapters: SSH, tunnel,      │  over         │                                         │
 │  bridge client, SFTP,        │  Tailscale    │  Bridge registry   ~/.<appId>/bridges   │
-│  terminal, Keystore, picker  │               │  Uploads           ~/.<appId>/uploads   │
+│  terminal, Keystore, picker  │               │  Uploads  <tmp>/<appId>-<uid>/uploads   │
 └──────────────────────────────┘               │  Link server       tailnet IP only      │
                                                └─────────────────────────────────────────┘
 ```
@@ -23,6 +23,7 @@ The product is **Mars-RAM**, described as **Remote Agent Manager**.
 
 - Every technical identifier comes from one value, `APP_ID` = `mars-ram` in [`packages/protocol`](../packages/protocol/src/index.ts). It names the host folder (`~/.mars-ram/`, with the bridge registry in `~/.mars-ram/bridges`), the pairing links (`mars-ram://pair?p=…`), and the key comment in `authorized_keys`.
 - The Expo slug and URL scheme are `mars-ram`; the host command is `mars-ram pair`.
+- Pairing offers in `packages/protocol`: version 1 is a Tailscale offer (unchanged, optional MagicDNS name); version 2 is a ZeroTier offer with `network: "zerotier"`, an IPv4 literal address and no MagicDNS name. `decodeNetworkPairingUri` reads both and is what the app uses (`core/pairing.ts`, `core/pair-link.ts`); `decodePairingUri` reads only version 1 and asks for a newer app otherwise, like apps released before ZeroTier do.
 - The Android application ID is `com.marssall.marsram`. It is final: Google Play does not allow changing it after the first release.
 
 ## Always-attentive host notification ports (T6)
@@ -293,6 +294,51 @@ permission is declared. UI consent/SSH calls remain T3. Force-stop, process deat
 Doze, OEM restrictions and battery behaviour still require closed-test device
 measurement; no notices after force-stop/process death are promised (S5).
 
+**Phone network checks (connection wizard).** `phoneNetworkState()` reports
+`tailscaleInstalled` (PackageManager lookup of `com.tailscale.ipn`), `tailscaleOn`
+(a `TRANSPORT_VPN` network visible to the app with an IPv4 address in
+100.64.0.0/10), `zerotierInstalled` (lookup of `com.zerotier.one`), `vpnOn` (any
+`TRANSPORT_VPN` network visible to the app; Android does not tell which app owns
+it, and runs one VPN at a time) and `privateDnsActive` (`LinkProperties.isPrivateDnsActive` on any
+network, in automatic or provider-hostname mode: a tester's pairing hung with
+automatic mode on; omitted below Android 9). The pure rules live in
+`PhoneNetwork.kt` (JVM-tested). `installTailscale()` opens `market://` then the
+https Play page; `openTailscale()` launches the app or falls back to its store
+page; `installZeroTier()` and `openZeroTier()` do the same for ZeroTier;
+`openPrivateDnsSettings()` opens `ACTION_WIRELESS_SETTINGS`, then Settings,
+because Android has no public Private DNS screen. The config plugin
+`plugins/with-tailscale-queries.js` (registered in `app.config.ts`) adds
+`<queries>` entries for `com.tailscale.ipn` and `com.zerotier.one` (only those
+packages, never `QUERY_ALL_PACKAGES`) and declares the normal
+`ACCESS_NETWORK_STATE` permission explicitly; no runtime permission is requested.
+
+**Pairing transport per network.** A Tailscale offer (version 1) is unchanged: the
+app requires a MagicDNS name, probes the SSH port at the IP and then at the name
+(Private DNS check), and posts the key with `fetch` to
+`http://<magicdns>:<pairPort>/pair`, which the cleartext rule for `ts.net` allows.
+A ZeroTier offer (version 2) has no name, and Android's network security config
+cannot allow cleartext to IP ranges, so instead of opening cleartext app-wide the
+key goes through one narrow native function, `postPairingOverVpn(address, port,
+body, timeoutMs)` (`VpnPairing.kt`, a raw `Socket` like `probe`). It refuses
+(`INVALID_REQUEST`) anything but an IPv4 literal, a port in 1–65535, a positive
+wait and a body of at most 4 KiB; it refuses (`NOT_ON_VPN`) unless a
+`TRANSPORT_VPN` network visible to the app has an interface subnet or a specific
+route covering the address (a default route does not count, so a full-tunnel VPN
+does not qualify), and it binds the socket to that VPN network so the request
+cannot leave over Wi-Fi or mobile data. It sends exactly one `POST /pair` to the
+offer's address and pair port, never resolves a name and never follows a
+redirect; one absolute deadline (the offer's remaining lifetime, capped at ten
+minutes) covers connect, send and the wait for the user's answer at the
+computer; it reads at most 16 KiB and accepts a final HTTP/1.x status with a
+Content-Length, chunked (what Node sends) or close-delimited body in strict
+UTF-8. Every failure resolves (`UNREACHABLE`, `TIMEOUT`, `BAD_RESPONSE`); the
+app reads the body with the same `PairingResponse` decoder as Tailscale. Before
+sending, the app probes the SSH port at the offer's address. The QR's host-key
+pin and the computer's confirmation question are the same for both networks.
+The pure rules (IPv4 literal, prefix match, request bytes, response parsing and
+bounds) are JVM-tested in `VpnPairingTest.kt`. No new permission:
+`ACCESS_NETWORK_STATE` is already declared.
+
 ### Use cases
 
 | Use case | PRD | Ports it uses |
@@ -310,7 +356,7 @@ measurement; no notices after force-stop/process death are promised (S5).
 
 | Port | Responsibility | MVP adapter |
 |------|----------------|-------------|
-| HostCatalog | Store hosts and their pinned identities | JSON file in the app's private documents directory |
+| HostCatalog | Store hosts and their pinned identities, and each host's network (`network: "zerotier"`; missing means Tailscale, so older catalogs need no migration) | JSON file in the app's private documents directory |
 | Credentials | Create, store, and delete SSH keys; rotate a computer to a new key | Android Keystore; key generations and rotation state in private files (`core/key-security.ts`), the host-side `mars-ram key add|remove` run over SSH exec |
 | HostConnection | Connect, verify host identity, run commands, read files, open tunnels to the host's loopback | SSH native module ([README](../apps/mobile/modules/ssh/README.md)) |
 | SessionDiscovery | Find live sessions and their bridge instances | `discoverBridges` reads the registry over SFTP, which works the same on Linux and Windows hosts |
@@ -320,20 +366,32 @@ measurement; no notices after force-stop/process death are promised (S5).
 | NotificationRegistration | Register/revoke a phone via the existing authenticated host connection; secrets only on stdin | Installed node/CLI from host.json, fixed notify verbs, bounded SSH `execWithInput`; response identity must match the saved pin |
 | AttachmentTransfer | Copy files to the host's uploads folder, and remove old ones | SFTP in the SSH native module: `uploadFile` writes a private `.part` and renames it, `removeFile`, and listings with modification times |
 | LinkService | Create, list, and delete private links | The copy is staged by SFTP; the installed link server's `create`, `list`, `delete`, and `ensure` run over SSH exec with the paths from `host.json`, quoted for sh/fish or cmd; tokens never appear on a command line |
+
+ZeroTier phase 1 (`odd/tasks/zerotier.md` S3): the link server and Siempre atento listen on the Tailscale address, so the core refuses both for a ZeroTier computer (`hasTailscaleFeatures` in `core/host-catalog.ts`). `LinkService.create`/`createFromHost` return `TAILSCALE_ONLY` before connecting and `restore` does nothing; Siempre atento never registers such a computer and lists it as «Disponible solo con Tailscale». The UI shows the same note instead of the Archivos «Crear link» button and as the hint of the project sheet's link action, the least invasive change; «Mientras trabajan» still watches it over SSH.
 | Terminal | Run the computer's Herdr in a PTY and exchange its bytes: open with a size, write, resize, close, output and exit events | `TerminalChannel` in the SSH native module: a PTY plus an exec request (not a shell) limited to Herdr; see the [module README](../apps/mobile/modules/ssh/README.md) |
 | MediaSource | Gallery, camera, file picker | Android system pickers |
 | Clipboard | Read text, images, and files from the clipboard | Android clipboard |
 | HostReleaseRegistry | Read the latest published host release; no host or user data in the request | Bounded HTTPS GET of `https://registry.npmjs.org/mars-ram/latest` (`adapters/npm-host-release.ts`) |
 | HostReleaseCache | Persist the last registry attempt timestamp and last validated latest release | Private app JSON file (`adapters/file-host-release-cache.ts`); global metadata, not associated with a computer |
 | SeenBuildStore | Remember the last build whose «Novedades» were seen; tell a fresh install from an app used before the feature | Private app JSON file (`adapters/file-seen-build.ts`); "used before" means an earlier preference or catalog file exists |
+| TerminalFontStore | Persist the one terminal font size (8–28, 14 when missing or invalid) shared by Settings › Terminal and pinch zoom; `core/terminal-font.ts` reads it once before any terminal opens and coalesces fast pinch saves so the last size wins | Private app JSON file (`adapters/file-terminal-font.ts`) |
 | AppUpdateSource | Ask Google Play whether a newer version exists, start its flexible update, install it once downloaded | Google Play In-App Updates in the SSH native module (`checkAppUpdate`, `appUpdateProgress`, `startFlexibleUpdate`, `completeUpdate`, `onAppUpdateStatus`; `adapters/play-app-updates.ts`) |
 | AppUpdateCheckStore | Persist the last Play check time and its answer | Private app JSON file (`adapters/file-app-update-check.ts`) |
+| PhoneNetwork | The connection wizard's phone checks (Tailscale installed, Tailscale on, Private DNS active, ZeroTier installed, any VPN on) and the system screens it opens | SSH native module (`phoneNetworkState`, `installTailscale`, `openTailscale`, `installZeroTier`, `openZeroTier`, `openPrivateDnsSettings`; `adapters/native-phone-network.ts`). Malformed answers, failures and non-Android platforms read as the non-blocking state (Tailscale present and on, Private DNS unknown, ZeroTier facts left out so the core reads ZeroTier as unknown); opening a screen never rejects. Android does not say which app owns a VPN, so the core (`zeroTierPhone` in `core/phone-network.ts`) counts ZeroTier as on when a VPN is active and the phone has no Tailscale address |
+| NetworkChoiceStore | Remember the wizard's last network choice (Tailscale or ZeroTier; Tailscale until the user picks) | Private app JSON file (`adapters/file-network-choice.ts`); read and write failures never block the wizard (`core/network-choice.ts`) |
+| DictationEngine | Record and transcribe on the phone; download, verify and remove the voice model | whisper.rn (Parakeet) and the PCM recorder; the model's system download through Android's DownloadManager in the SSH native module (`startModelDownload`, `modelDownloadStatus`, `cancelModelDownload`; `adapters/on-device-dictation.ts`) |
 
 Two adapters must handle what the phone run taught us: HostConnection retries a failed tailnet name lookup and can fall back to the Tailscale IP; SessionBridge treats a changed bridge instance as a reconnect, not an error.
 
+### Voice model download (dictation)
+
+The voice model (356 MB, pinned Hugging Face URL, `DICTATION_MODEL` in `core/dictation.ts`) downloads in Android's **DownloadManager**, so it keeps going when the sheet closes, the screen changes, the app is in the background or closed; the system shows its progress in a notification and resumes it after interruptions. `ModelDownloads.kt` keeps one download: its id is saved in SharedPreferences, and a start returns the download already pending, running, paused or finished instead of starting a second one; only https and a plain file name are accepted (`validModelDownload`, JVM-tested with the status mapping). It writes `<file>.download` into `getExternalFilesDir(null)`, which needs no storage permission; `VISIBILITY_VISIBLE_NOTIFY_COMPLETED` needs no `DOWNLOAD_WITHOUT_NOTIFICATION`, and the notification is posted by the system's download provider, so no `POST_NOTIFICATIONS` is asked. No permission is added (INTERNET was already declared).
+
+The adapter verifies a finished file (size and MD5), copies it next to the model in the app's private documents folder and renames it into place, then removes the download from DownloadManager, which deletes its copy and its notification. A failed or mismatching download is removed and reported once as DOWNLOAD_FAILED. `modelReady()` does this first, so a download that finished while the app was closed is put in place when a mic mounts or Settings opens. `ModelDownload` in the core is what the sheet and the Settings card watch: watching polls the progress once a second, closing or unmounting only stops watching, and only «Cancelar descarga» calls `cancelDownload`; engine calls run one at a time, so a cancel pressed during the start removes what it began.
+
 ### Host update checks (R1/R2)
 
-`core/host-update.ts` owns bounded version JSON parsing, semantic-version ordering and `ok` / `soft` / `required` policy. `MINIMUM_HOST_VERSION` is **0.1.4**, the first release with `version --json`; bump it only when new app functionality requires a newer host. Missing legacy commands count as below a minimum ≥ 0.1.4; malformed/transport results are unknown and `dev` never warns. This is advisory: no command installs anything automatically or prevents sessions/terminals from working.
+`core/host-update.ts` owns bounded version JSON parsing, semantic-version ordering and `ok` / `soft` / `required` policy. `MINIMUM_HOST_VERSION` is **0.1.5**, the first release with `uploads-dir` (attachments) and `pair-zt` (ZeroTier); 0.1.4, the first with `version --json`, was the previous minimum. Bump it only when new app functionality requires a newer host. Missing legacy commands count as below a minimum ≥ 0.1.4; malformed/transport results are unknown and `dev` never warns. This is advisory: no command installs anything automatically or prevents sessions/terminals from working.
 
 `core/host-updates.ts` probes with HostConnection and the validated paths/quoting shared with the Herdr switcher. Every new pooled connection is probed independently of its maintenance callbacks; concurrent probes share a result, and focus/automatic refreshes have the existing 10-second floor. Host results are memory-only and keyed by saved computer, discarded when the saved catalog no longer includes it. Computadoras refreshes on focus; Inicio checks with its existing session refresh. Both show the shared `ui/host-update-notice.tsx`, using the existing selectable/copyable CommandBlock and directing users to the computer's terminal. Session summaries derive their independent `/reload` hint from registry `protocolVersion` minor versus the app's protocol.
 
@@ -363,9 +421,9 @@ The Sessions tab and the session screen use these modules in `apps/mobile/src`:
 | `core/terminal-controls.ts` | Messages between the screen and the offline xterm.js page in the WebView, the Ctrl state (tap arms one key, double tap locks) and the floating pill key row for each moment (normal ↑ ↓, keyboard open no arrows, PREFIX panel all four; ✥ always present). Width budgets include pill margins, borders and gaps at 360 dp. Enter and Backspace belong to the transparent D-pad cross. |
 | `core/herdr-keys.ts` | Reads the computer's Herdr `[keys]` (`prefix`, `previous_agent`, `next_agent`) from its `config.toml` over SSH and turns Herdr key specs into bytes; defaults to `ctrl+b` and unset agent keys, never guesses an unknown spec. |
 | `core/herdr-switcher.ts` | Runs `mars-ram herdr list` and `mars-ram herdr focus <workspace> [<tab>]` over SSH exec with the node and CLI paths from `host.json` (fixed verbs, validated ids, POSIX and cmd quoting) and parses the versioned JSON defensively; search and the Agentes grouping are pure functions. On the computer, `host/cli` runs Herdr's own CLI and `git rev-parse` with execFile (no shell), hard deadlines and bounded output (threat model). |
-| `core/servers.ts` | Runs `mars-ram servers list` over SSH exec with the node and CLI paths from `host.json`, validates the versioned JSON strictly, keeps the last list per computer while refreshing, decides which servers can be opened, and owns the viewer's tunnel (`forwardLocal` with remote host 127.0.0.1 or ::1, closed on close, unmount and disconnect). The viewer (`ui/server-viewer.tsx`) navigates only to `http://127.0.0.1:<tunnel port>/` (subresources are not filtered) in an incognito WebView with no JS bridge; Android allows cleartext only to loopback and to MagicDNS names under `ts.net`, which QR pairing uses for its key request (config plugin `plugins/with-loopback-network-security.js`). On the computer, `host/cli` reads `/proc` on Linux (no external binaries) and a fixed PowerShell script on Windows, keeps only the SSH user's own listeners, drops the bridge and link-server ports, and probes each port with one bounded HTTP request. |
-| `core/pair-link.ts`, `app/pair.tsx` | A pairing link (`<scheme>://pair?p=…`, any app scheme) is rebuilt into the QR's canonical `mars-ram://pair?p=…` URI and decoded on the phone without network; the route asks «¿Agregar esta computadora?» with the name and address, then runs the same `usePairingRunner` as the QR scan (`app/add-computer/index.tsx`). Unknown links land on `app/+not-found.tsx`. |
-| `app/session/terminal/[id].tsx`, `ui/floating-terminal-pad.tsx` | Design 05 presentation: cutout-aware camera-row name/▾ navigation to Sessions and status pill, floating rounded toolbar above safe-area/keyboard, left floating 💬 (tap inline chat, hold full chat; available for standalone terminals when the focused pane matches a live bridge), transparent D-pad with translucent keys and an always-visible edge tab. |
+| `core/servers.ts` | Runs `mars-ram servers list` over SSH exec with the node and CLI paths from `host.json`, validates the versioned JSON strictly, keeps the last list per computer while refreshing, decides which servers can be opened, and owns the viewer's tunnel (`forwardLocal` with remote host 127.0.0.1 or ::1, closed on close, unmount and disconnect). The viewer (`ui/server-viewer.tsx`) navigates only to `http://127.0.0.1:<tunnel port>/` (subresources are not filtered) in an incognito WebView with no JS bridge; Android allows cleartext only to loopback and to MagicDNS names under `ts.net`, which Tailscale QR pairing uses for its key request (config plugin `plugins/with-loopback-network-security.js`; ZeroTier pairing uses the native request above instead). On the computer, `host/cli` reads `/proc` on Linux (no external binaries) and a fixed PowerShell script on Windows, keeps only the SSH user's own listeners, drops the bridge and link-server ports, and probes each port with one bounded HTTP request. |
+| `core/pair-link.ts`, `app/pair.tsx` | A pairing link (`<scheme>://pair?p=…`, any app scheme) is rebuilt into the QR's canonical `mars-ram://pair?p=…` URI and decoded on the phone without network; the route asks «¿Agregar esta computadora?» with the name and address (the MagicDNS name, or the ZeroTier IPv4), then runs the same `usePairingRunner` as the QR scan (`app/add-computer/index.tsx`). Unknown links land on `app/+not-found.tsx`. |
+| `app/session/terminal/[id].tsx`, `ui/floating-terminal-pad.tsx` | Design 05 presentation: cutout-aware camera-row name/▾ navigation to Sessions and status pill, floating rounded toolbar above safe-area/keyboard, left floating 💬 (tap inline chat, hold full chat; available for standalone terminals when the focused pane matches a live bridge), transparent D-pad with translucent keys and an always-visible edge tab. The terminal WebView asks Android's keyboard for no suggestions or autocorrect (like Termux): xterm.js cannot replace text it already sent, so a picked suggestion duplicated input. HTML attributes do not stop Gboard, so `patches/react-native-webview@14.0.1.patch` sets the editor type to a visible password without suggestions, only for WebViews whose `applicationNameForUserAgent` contains `MarsRamTerminal`; the server viewer keeps normal suggestions. |
 | `ui/floating-session-chat.tsx`, `ui/use-composer-draft.ts`, `core/send-composer-draft.ts` | Floating chat reuses the terminal's existing `useLiveSession` stream and `send`, the full chat's `chat:<session>` draft and attachment picker/cards, and a shared send transaction. A per-session lock prevents duplicate sends; only an acknowledged unchanged draft is cleared, including across navigation and edits during send. Queued/returned labels come from bridge-backed conversation state. No speech dependency is installed; React Native's `Linking.sendIntent` only returns `Promise<void>`, not recognition results, so no microphone action is advertised. |
 | `ui/terminal-status.ts` | The strip's status from the live bridge state: working with the localized activity phase, waiting for an answer, done; connection text whenever the bridge state is not live. |
 | `adapters/bridge-http.ts`, `adapters/xhr-event-stream.ts`, `adapters/sse-parser.ts` | Bridge requests and the event stream through the tunnel. React Native's `fetch` cannot read a stream, so the stream uses `XMLHttpRequest` progress events. |
@@ -379,8 +437,8 @@ Attachments (PRD R5) reuse these modules:
 | Module | Does |
 |--------|------|
 | `core/attachment-draft.ts` | The attachments chosen for one draft: at most 10, each at most 25 MB, images told apart by type. Builds upload names that always pass the protocol's `UploadName` check: date, random part, and the cleaned original name. |
-| `core/attachment-uploads.ts` | Checks that the bridge speaks protocol 1.2, copies every file into `~/.mars-ram/uploads`, and only then lets the chat send the names, or the terminal paste their absolute paths. A failed upload sends nothing, removes what that batch already copied, and leaves the draft as it was. |
-| `core/attachment-retention.ts` | Once per computer per app opening, after the first connection, removes uploads older than the user's choice (1, 7, or 30 days, or never; 7 by default) and any `.part` older than an hour. It never delays or fails the connection. |
+| `core/attachment-uploads.ts` | Checks that the bridge speaks protocol 1.7 and asks the host for the folder with `mars-ram uploads-dir --json` (an older bridge or CLI gets «update the app and mars-ram» instead of attachments), copies every file into that absolute folder, and only then lets the chat send the names, or the terminal paste their absolute paths. A failed upload sends nothing, removes what that batch already copied, and leaves the draft as it was. |
+| `core/attachment-retention.ts` | Once per computer per app opening, after the first connection, removes uploads in the folder `mars-ram uploads-dir` names older than the user's choice (1, 7, or 30 days, or never; 7 by default) and any `.part` older than an hour. It never delays or fails the connection. |
 
 The app sends only upload names. The bridge turns them into paths on the computer, so Windows paths are built where they are used and image bytes cross the tunnel once.
 
@@ -406,7 +464,7 @@ Implemented in [`host/pi-bridge`](../host/pi-bridge/README.md), changed from the
 - User and assistant messages are sent whole; only tool output is shortened, to 500 characters.
 - The state reports when the session last changed, so the list can say how long ago something happened.
 - Since protocol 1.4, the core keeps the latest **activity phase id** and emits an `activity` event only when it changes (null clears). Agent start and settle clear it. The Pi adapter reads Gentle's optional process-local ODD registry using `sessionManager.getSessionId()`, feature-detects its `get` method, catches failures, and accepts only bounded phase ids. Without a valid registry phase, pure core inference uses read/search/list tools → `exploring`, edit/write → `implementing`, and recognizable bash test/typecheck/build commands → `checking`; other tools keep the previous phase. No phase is inferred from assistant prose or tool output.
-- Since protocol 1.2, messages and terminal text may name **attachments** in `~/.<appId>/uploads`. The bridge resolves each name inside that folder only: links, hard links, a linked folder, and unfinished `.part` files resolve to nothing, and a file is read through the handle that was checked. Images are attached natively when the model accepts them and Pi does not block images (up to 50 MB of images per message); every file's absolute path is appended to the text.
+- Since protocol 1.2, messages and terminal text may name **attachments** in the uploads folder (`~/.<appId>/uploads` until 1.6; since 1.7 the private temp folder, see below). The bridge resolves each name inside that folder only: links, hard links, a linked folder, and unfinished `.part` files resolve to nothing, and a file is read through the handle that was checked. Images are attached natively when the model accepts them and Pi does not block images (up to 50 MB of images per message); every file's absolute path is appended to the text.
 
 ### Terminal routes
 
@@ -432,7 +490,8 @@ The MVP supports **Linux** and **native Windows** hosts; WSL counts as Linux and
 | Port | Responsibility | Adapter |
 |------|----------------|---------|
 | InstallPorts | Find Pi homes (`~/.pi/agent`, `~/.gentle-shell/agent`), build the self-contained copy, register and remove it, keep the record | Files under `~/.mars-ram/` (`pi-bridge/`, `install.json`, fixed `pi-bridge.staging` and `pi-bridge.previous`), `pi install` / `pi remove` with `PI_CODING_AGENT_DIR` |
-| DoctorPorts | Read-only checks: Pi, install state, live bridges, permissions, Tailscale, SSH forwarding and paired keys, and on Windows the OpenSSH service and default shell | `execFile` without a shell, file reads, `sc.exe` and `reg.exe` |
+| PairingNetworkPorts | Where `pair` listens: the Tailscale IPv4 and MagicDNS name by default, or with `pair-zt` a ZeroTier IPv4 (`core/pairing-network.ts` decides none/one/several/`--address`) | `tailscale status --json`; `os.networkInterfaces()` filtered to ZeroTier interfaces (`zt*` Linux, `feth*` macOS, `ZeroTier One […]` Windows), no root |
+| DoctorPorts | Read-only checks: Pi, install state, live bridges, permissions, Tailscale (a warning, not a problem, when ZeroTier is connected), ZeroTier addresses, SSH forwarding and paired keys, and on Windows the OpenSSH service and default shell | `execFile` without a shell, file reads, `os.networkInterfaces()`, `sc.exe` and `reg.exe` |
 | Project workspace and Git | Resolve a Herdr workspace's active pane and read its Git metadata and changes | Bounded, shell-free Herdr and read-only Git subprocesses |
 | Project files | List and read files inside the resolved project and stage a private-link copy | Contained filesystem access, checked file handles, and the link server's staging directory |
 
@@ -456,6 +515,8 @@ Legacy route binding is retained when pane metadata is unavailable (older CLI wi
 
 ## Protocol
 
+- Protocol **1.7** moves attachments out of the home folder; requests and responses are unchanged. The host names the folder: `mars-ram uploads-dir --json` prints `{"v":1,"path":"<absolute>"}` (exit 0) or `{"v":1,"error":"unsafe_folder"|"unavailable","message":"…"}` (exit 1), decoded by `decodeUploadsDir`. The path policy in `@workspace/protocol/uploads-folder` is shared by the CLI and the bridge: `/tmp/mars-ram-<uid>/uploads` on Linux and macOS (`TMPDIR` ignored), each component created `0700` and then required to be a real folder owned by the user with no group/other bits (never `chmod`-ed into place); `%TEMP%\mars-ram\uploads` on Windows, refusing reparse points and relying on the user temp folder's ACL. The bridge re-checks the policy before each lookup and never reads `~/.<appId>/uploads`, so an app before 1.7 gets the usual `not_found` refusal for its attachments. The app uses attachments only when `supportsTempUploads(protocolVersion)` (minor ≥ `UPLOADS_IN_TEMP_MINOR`) and the host CLI answers `uploads-dir`; otherwise it asks to update the app and mars-ram. `UPLOADS_DIRECTORY` remains only as a deprecated export.
+
 - Protocol **1.6** adds optional `outcome: "completed" | "failed" | "aborted"` to `agent_settled`, retaining `aborted` and `pendingMessages`. The Pi adapter reads the last assistant in the latest `agent_end.messages`: `stop` (or compatible `end_turn`) means completed, `error` means failed, `aborted` means aborted; the settled `aborted` flag takes precedence. Other/missing stop reasons remain unknown (field omitted); an individual tool error is not a failed run. Evidence resets on agent start, settle, and session replacement. `/state` optionally carries `lastOutcome: { outcome, seq }` for the latest settle, even after its event leaves the replay buffer; an unknown latest settle clears it. The seq belongs only to this bridge instance, and a new run can be working while the snapshot still describes its preceding settle. App session lists and live views carry this evidence without changing UI status; old payloads remain valid and older clients ignore the additive fields.
 
 - Protocol **1.5** adds optional `terminalPane: string` to `/state`, retaining `terminal: boolean`. This is the Terminal port's inherited, validated pane id captured at session start (for example `w2G:p2`), not a new Herdr probe or request-selected target. It is absent outside Herdr and on older bridges. Same-major negotiation continues accepting older/newer minor versions; older clients ignore the new field. The Terminal port exposes this captured identity as optional read-only `paneId`.
@@ -473,8 +534,8 @@ Legacy route binding is retained when pane metadata is unavailable (older CLI wi
 | Which host is real | The host identity is pinned at first connection, shown as a fingerprint, and a change is never accepted silently (R1). |
 | Who may use a bridge | It listens only on `127.0.0.1`, behind a per-instance random token in a registry file readable only by the host user (mode `0600` on Linux, a user-only ACL on Windows). |
 | What a link exposes | One uploaded copy, on the tailnet only, for one day (R8). |
-| What the bridge can do | Only what the protocol defines: send, steer, stop, and read. No command execution. Its only file access is reading attachments by name inside the uploads folder. |
-| Where attachments live | `~/.<appId>/uploads`, created private by the app (`0700`, files `0600`; on Windows it inherits the user-only folder). Removed after the retention the user chose. |
+| What the bridge can do | Only what the protocol defines: send, steer, stop, and read. No command execution. Its only file access is reading attachments by name inside the uploads folder, after re-checking that folder's policy. |
+| Where attachments live | Since 1.7, outside the home folder: `/tmp/<appId>-<uid>/uploads` (Linux/macOS; `TMPDIR` is ignored so the CLI and the bridge agree), created `0700` by `mars-ram uploads-dir` and refused when linked, owned by someone else, or open to group/others; `%TEMP%\<appId>\uploads` on Windows, refused when a reparse point, under the user-only temp ACL. Files `0600` (`.part`, then rename without overwrite). Removed after the retention the user chose, by the system's temp cleanup, and by uninstall; `mars-ram install` deletes the legacy `~/.<appId>/uploads` (regular files only, never following links). |
 
 ## Testing strategy
 

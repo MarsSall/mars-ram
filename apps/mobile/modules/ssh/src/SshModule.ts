@@ -62,7 +62,22 @@ export type AppUpdateCheckResult = { available: boolean; versionCode?: number; d
 export type FlexibleUpdateResult = { started: boolean; downloaded: boolean };
 /** How a running flexible download ended. */
 export type AppUpdateStatusEvent = { status: "downloaded" | "failed" | "canceled" };
+/** Private DNS counts only in strict mode (a provider hostname), the mode that breaks MagicDNS names. */
+/** vpnOn: some VPN is active; Android does not say which app owns it. */
+export type NativePhoneNetworkState = { tailscaleInstalled: boolean; tailscaleOn: boolean; privateDnsActive?: boolean; zerotierInstalled: boolean; vpnOn: boolean };
+/** The ZeroTier pairing answer; every refusal or failure resolves, never rejects. */
+export type VpnPairingResult =
+	| { ok: true; status: number; body: string }
+	| { ok: false; code: "NOT_ON_VPN" | "INVALID_REQUEST" | "UNREACHABLE" | "TIMEOUT" | "BAD_RESPONSE" };
 export type AppBuildInfo = { versionCode: number | null; versionName: string | null };
+/** The one system download (Android DownloadManager) kept for the voice model. total is -1 until
+ * the server reports it; uri is the downloaded file, set once successful. */
+export type ModelDownloadNative = {
+	state: "none" | "pending" | "running" | "paused" | "successful" | "failed";
+	written: number;
+	total: number;
+	uri: string | null;
+};
 
 /** Native-only configuration. Supply each saved host's actual key generation, not the current setting's alias. */
 export type AlwaysNotifyRegistration = { secret: string; port: number };
@@ -97,6 +112,14 @@ declare class SshModule extends NativeModule<SshEvents> {
 	appUpdateProgress(): Promise<"none" | "downloading" | "downloaded">;
 	/** Installs the downloaded update; Play restarts the app. Never rejects. */
 	completeUpdate(): Promise<void>;
+	/** Starts a DownloadManager download (https only) into the app's external files folder, with a
+	 * system notification; returns the one already pending, running, paused or finished instead of
+	 * starting a second one. Needs no permission. Never rejects; failures are state "failed". */
+	startModelDownload(url: string, fileName: string, title: string, description: string): Promise<ModelDownloadNative>;
+	/** The kept download's state; "none" when there is none or the system dropped it. Never rejects. */
+	modelDownloadStatus(): Promise<ModelDownloadNative>;
+	/** Removes the kept download (DownloadManager deletes its file and notification) and forgets it. */
+	cancelModelDownload(): Promise<void>;
 	/** Explicit opt-in, while resumed; caller must first obtain notification permission (T3). */
 	startSessionWatch(config: SessionWatchConfig): Promise<SessionWatchStartResult>;
 	stopSessionWatch(): Promise<void>;
@@ -108,6 +131,18 @@ declare class SshModule extends NativeModule<SshEvents> {
 	isIgnoringBatteryOptimizations(): boolean;
 	/** Opens the general system screen; does not request the restricted exemption permission. */
 	openBatteryOptimizationSettings(): Promise<void>;
+	/** Read-only checks for the connection wizard; privateDnsActive is missing below Android 9. */
+	phoneNetworkState(): Promise<NativePhoneNetworkState>;
+	/** Play Store page of Tailscale (market://, then https). Rejects STORE_UNAVAILABLE. */
+	installTailscale(): Promise<void>;
+	/** Launches Tailscale, or its store page when it is not installed. Rejects STORE_UNAVAILABLE. */
+	openTailscale(): Promise<void>;
+	/** Play Store page of ZeroTier (market://, then https). Rejects STORE_UNAVAILABLE. */
+	installZeroTier(): Promise<void>;
+	/** Launches ZeroTier, or its store page when it is not installed. Rejects STORE_UNAVAILABLE. */
+	openZeroTier(): Promise<void>;
+	/** Network settings (no public Private DNS screen exists), then Settings. Rejects SETTINGS_UNAVAILABLE. */
+	openPrivateDnsSettings(): Promise<void>;
 	openTerminal(connectionId: string, command: string[], cols: number, rows: number, term?: string): Promise<{ ok: true; terminalId: string } | Failure>;
 	writeTerminal(terminalId: string, base64Data: string): Promise<{ ok: true } | Failure>;
 	resizeTerminal(terminalId: string, cols: number, rows: number): Promise<{ ok: true } | Failure>;
@@ -124,15 +159,22 @@ declare class SshModule extends NativeModule<SshEvents> {
 	isConnected(connectionId: string): boolean;
 	/** Whether an SSH server answers at host:port, reading only its greeting; never asks for an unlock. */
 	probe(host: string, port: number, timeoutMs: number): Promise<boolean>;
+	/**
+	 * ZeroTier pairing only: POST /pair with a JSON body over plain HTTP to exactly address:port. Refuses unless the
+	 * address is an IPv4 literal routed through an active VPN; waits at most timeoutMs in total; reads at most 16 KiB.
+	 */
+	postPairingOverVpn(address: string, port: number, body: string, timeoutMs: number): Promise<VpnPairingResult>;
 	/** SFTP realpath("."); Windows drive paths are returned in native backslash form. */
 	homeDirectory(connectionId: string): Promise<{ ok: true; path: string } | Failure>;
 	/** Paths are relative to the user's home on the host, on Linux and Windows alike. */
-	listDir(connectionId: string, path: string): Promise<ListResult>;
+	/** root: an absolute uploads folder; then path must equal it. null keeps paths relative to home. */
+	listDir(connectionId: string, path: string, root: string | null): Promise<ListResult>;
 	readFile(connectionId: string, path: string, maxBytes: number): Promise<ReadResult>;
-	/** All-or-nothing upload from a content:// or file:// URI; remoteDir is relative to home. Never overwrites an existing name. */
-	uploadFile(connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number): Promise<{ ok: true; size: number } | Failure>;
-	/** Removes one regular file, relative to home. */
-	removeFile(connectionId: string, path: string): Promise<{ ok: true } | Failure>;
+	/** All-or-nothing upload from a content:// or file:// URI; remoteDir is relative to home. Never overwrites an existing name.
+	 * With root, remoteDir must equal that existing absolute folder, which is never created. */
+	uploadFile(connectionId: string, sourceUri: string, remoteDir: string, remoteName: string, maxBytes: number, root: string | null): Promise<{ ok: true; size: number } | Failure>;
+	/** Removes one regular file, relative to home or directly inside root. */
+	removeFile(connectionId: string, path: string, root: string | null): Promise<{ ok: true } | Failure>;
 	/** Phone binds 127.0.0.1; the only remote destinations are 127.0.0.1 (default) and ::1. */
 	forwardLocal(connectionId: string, remotePort: number, remoteHost?: "127.0.0.1" | "::1"): Promise<ForwardResult>;
 	closeForward(forwardId: string): Promise<void>;

@@ -140,10 +140,10 @@ export const sshModuleHostConnection: HostConnection = {
 	disconnect: (connectionId) => Ssh.disconnect(connectionId),
 	isConnected: (connectionId) => Ssh.isConnected(connectionId),
 	homeDirectory: (connectionId) => Ssh.homeDirectory(connectionId),
-	listDir: (connectionId, path) => Ssh.listDir(connectionId, path),
+	listDir: (connectionId, path, root) => Ssh.listDir(connectionId, path, root ?? null),
 	readFile: (connectionId, path, maxBytes) => Ssh.readFile(connectionId, path, maxBytes),
-	uploadFile: (connectionId, sourceUri, remoteDir, remoteName, maxBytes) => Ssh.uploadFile(connectionId, sourceUri, remoteDir, remoteName, maxBytes),
-	removeFile: (connectionId, path) => Ssh.removeFile(connectionId, path),
+	uploadFile: (connectionId, sourceUri, remoteDir, remoteName, maxBytes, root) => Ssh.uploadFile(connectionId, sourceUri, remoteDir, remoteName, maxBytes, root ?? null),
+	removeFile: (connectionId, path, root) => Ssh.removeFile(connectionId, path, root ?? null),
 	forwardLocal: (connectionId, remotePort, remoteHost = "127.0.0.1") => Ssh.forwardLocal(connectionId, remotePort, remoteHost),
 	closeForward: (forwardId) => Ssh.closeForward(forwardId),
 };

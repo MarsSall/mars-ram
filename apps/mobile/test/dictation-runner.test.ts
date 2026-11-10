@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { DictationRunner, type DictationEngine } from "../src/core/dictation";
+import { DictationRunner } from "../src/core/dictation";
+import { fakeDictationEngine } from "./fake-dictation-engine";
 
 // The hook's effect runner (verify mvyl83hd-d-kw31 H1–H4): cancellation is never queued behind a
 // start-up, and nothing is delivered after the owner left.
 function fakeEngine() {
  let release!: () => void;
  const calls: string[] = [];
- const engine: DictationEngine = {
-  modelReady: async () => true, warm: async () => {}, removeModel: async () => {},
-  download: () => ({ promise: Promise.resolve({ ok: true }), cancel: async () => {} }),
+ const engine = fakeDictationEngine({
+  modelReady: async () => true,
   start: vi.fn(async () => { calls.push("start"); await new Promise<void>(resolve => { release = resolve; }); calls.push("opened"); return { ok: true as const }; }),
   cancel: vi.fn(async () => { calls.push("cancel"); }),
   abortTranscription: vi.fn(async () => { calls.push("abort"); }),
   finish: vi.fn(async () => { calls.push("finish"); return { ok: true as const, text: "git status", seconds: 1 }; }),
- };
+ });
  return { engine, calls, open: () => release() };
 }
 const tick = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };

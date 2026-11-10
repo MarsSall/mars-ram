@@ -64,6 +64,8 @@ describe("private links", () => {
   expect(ssh.commands[0]).toContain(" ensure --port 47811");
   expect(ssh.commands[1]).toMatch(/ create --staged [A-Za-z0-9._-]+ --port 47811$/);
   expect([...ssh.uploadedFiles.keys()][0]).toMatch(/^\.mars-ram\/links\/\.staging\//);
+  // Private links keep their home staging folder; they never ask for the temp uploads folder.
+  expect(ssh.commands.some(command => command.includes("uploads-dir"))).toBe(false);
   expect(await store.list("a")).toHaveLength(1);
   expect(await store.list("b")).toHaveLength(0);
  });
@@ -183,5 +185,29 @@ describe("private link from a project file (project-files S2, L9)", () => {
    expect(ssh.commands).toEqual([buildLinkCommand(config, "ensure")]);
    expect(await store.list("a")).toEqual([]);
   }
+ });
+});
+
+describe("private links on a ZeroTier computer (zerotier S3)", () => {
+ const zeroTier = savedHost("z", { network: "zerotier", address: "10.147.17.5" });
+ const tailscaleOnly = { ok: false, code: "TAILSCALE_ONLY", message: "Private links are available only with Tailscale." };
+ function zeroTierService(entries: LinkHistoryEntry[] = []) {
+  const ssh = new LinkSsh(); const connects: string[] = [];
+  const store = { list: async (computerId: string) => entries.filter(e => e.computerId === computerId), save: async () => { throw new Error("must not save"); }, remove: async () => {} };
+  const service = new LinkService({ host: ssh as unknown as HostConnection, connections: { connection: async h => { connects.push(h.id); return { ok: true, connectionId: "c" }; } }, history: store, clock: () => now, random: () => 0 }, zeroTier);
+  return { ssh, service, connects };
+ }
+ it("refuses to create a link from the phone or from a project file, without connecting", async () => {
+  const { ssh, service, connects } = zeroTierService(); let staged = false;
+  expect(await service.create(source)).toEqual(tailscaleOnly);
+  expect(await service.createFromHost(async () => { staged = true; return { ok: true, staged: "x.png", size: 1 }; })).toEqual(tailscaleOnly);
+  expect(staged).toBe(false);
+  expect(connects).toEqual([]);
+  expect(ssh.commands).toEqual([]);
+ });
+ it("does not restart a link server after connecting", async () => {
+  const { ssh, service } = zeroTierService([{ ...entry, computerId: "z" }]);
+  await service.restore("c");
+  expect(ssh.commands).toEqual([]);
  });
 });

@@ -1,4 +1,4 @@
-// The temporary HTTP endpoint the phone sends its key to, listening only on the tailnet address.
+// The temporary HTTP endpoint the phone sends its key to, listening only on the private network address pairing chose.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { PairingErrorCode, PairingResponse } from "@workspace/protocol";
@@ -6,7 +6,8 @@ import type { PairingSession } from "../core/pairing-session.ts";
 
 const STATUS: Record<PairingErrorCode, number> = { bad_code: 403, rejected: 403, bad_request: 400, expired: 410, closed: 409, internal: 500 };
 
-export type PairingEndpoint = { port: number; finished: Promise<PairingResponse>; close(): Promise<void> };
+/** address and port are where the endpoint actually listens. */
+export type PairingEndpoint = { address: string; port: number; finished: Promise<PairingResponse>; close(): Promise<void> };
 
 export async function startPairingEndpoint(options: { session: PairingSession; address: string; maxBodyBytes: number }): Promise<PairingEndpoint> {
 	const { session } = options;
@@ -61,8 +62,10 @@ export async function startPairingEndpoint(options: { session: PairingSession; a
 		server.once("error", reject);
 		server.listen(0, options.address, resolve);
 	});
+	const bound = server.address() as AddressInfo;
 	return {
-		port: (server.address() as AddressInfo).port,
+		address: bound.address,
+		port: bound.port,
 		finished,
 		close: async () => {
 			session.close();
@@ -73,8 +76,9 @@ export async function startPairingEndpoint(options: { session: PairingSession; a
 
 function send(res: ServerResponse, status: number, body: unknown) {
 	if (res.headersSent) return;
-	res.writeHead(status, { "content-type": "application/json", connection: "close" });
-	res.end(JSON.stringify(body));
+	const json = JSON.stringify(body);
+	res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(json), connection: "close" });
+	res.end(json);
 }
 
 async function readBody(req: IncomingMessage, maxBytes: number): Promise<string | null> {

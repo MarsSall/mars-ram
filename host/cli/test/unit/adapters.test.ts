@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { authorizeKey, buildKeyLine, keyTarget, parseWindowsPrivileges } from "../../src/adapters/authorized-keys.ts";
 import { fingerprintOfPublicKey } from "../../src/adapters/host-identity.ts";
 import { startPairingEndpoint } from "../../src/adapters/pairing-endpoint.ts";
+import { resolvePairingTarget } from "../../src/core/pairing-network.ts";
 import { parseTailscaleStatus } from "../../src/adapters/tailscale.ts";
 import { PairingSession } from "../../src/core/pairing-session.ts";
 
@@ -204,7 +205,12 @@ describe("pairing endpoint", () => {
 
 	it("answers anything other than POST /pair with 404 and an oversized body with 413", async () => {
 		const endpoint = await startPairingEndpoint({ session: startSession(true), address: "127.0.0.1", maxBodyBytes: 64 });
-		expect((await fetch(`http://127.0.0.1:${endpoint.port}/pair`)).status).toBe(404);
+		const notFound = await fetch(`http://127.0.0.1:${endpoint.port}/pair`);
+		expect(notFound.status).toBe(404);
+		// A fixed length, not chunked: the app's ZeroTier pairing reads replies with a small native parser.
+		const body = await notFound.text();
+		expect(notFound.headers.get("content-length")).toBe(String(Buffer.byteLength(body)));
+		expect(notFound.headers.get("transfer-encoding")).toBeNull();
 		expect((await post(endpoint.port, JSON.stringify({ pad: "x".repeat(200) }))).status).toBe(413);
 		await endpoint.close();
 	});
@@ -250,6 +256,27 @@ describe("pairing endpoint", () => {
 		release(true);
 		expect(await endpoint.finished).toMatchObject({ ok: false, error: "closed" });
 		expect(writes).toBe(0);
+	});
+
+	// Linux routes all of 127.0.0.0/8 to loopback, so two distinct local addresses stand in for ZeroTier and another interface.
+	it.skipIf(process.platform !== "linux")("listens only on the ZeroTier address chosen for pairing", async () => {
+		const target = resolvePairingTarget({ network: "zerotier", address: "127.0.0.2" }, { tailscale: () => ({ ok: false, message: "unused" }), zeroTierAddresses: () => ["127.0.0.3", "127.0.0.2"] });
+		if (!target.ok) throw new Error(target.message);
+		const endpoint = await startPairingEndpoint({ session: startSession(true), address: target.address, maxBodyBytes: 4096 });
+		expect(endpoint.address).toBe("127.0.0.2");
+		await expect(fetch(`http://127.0.0.1:${endpoint.port}/pair`, { method: "POST", body: "{}" })).rejects.toThrow();
+		await expect(fetch(`http://127.0.0.3:${endpoint.port}/pair`, { method: "POST", body: "{}" })).rejects.toThrow();
+		const res = await fetch(`http://127.0.0.2:${endpoint.port}/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: CODE, publicKey: FIXTURE_KEY, deviceName: "Phone" }) });
+		expect(res.status).toBe(200);
+		expect(await endpoint.finished).toMatchObject({ ok: true });
+	});
+
+	it("still listens on the Tailscale address by default", async () => {
+		const target = resolvePairingTarget({}, { tailscale: () => ({ ok: true, address: "127.0.0.1" }), zeroTierAddresses: () => { throw new Error("not read"); } });
+		if (!target.ok) throw new Error(target.message);
+		const endpoint = await startPairingEndpoint({ session: startSession(true), address: target.address, maxBodyBytes: 4096 });
+		expect(endpoint.address).toBe("127.0.0.1");
+		await endpoint.close();
 	});
 
 	it("answers a refusal at the computer with 403 and stops", async () => {

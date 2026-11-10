@@ -18,7 +18,7 @@ export function NotificationSettingsCard() {
   const subscription = AppState.addEventListener("change", s => { if (s === "active") refresh(); });
   return () => { clearInterval(timer); subscription.remove(); };
  }, []);
- const error = state.error === "WATCH_TIMEOUT" ? copy.timeout : state.error === "NOTIFICATIONS_DENIED" ? copy.denied : state.error === "TAILSCALE_REQUIRED" ? copy.tailscale : state.error === "APP_NOT_VISIBLE" || state.error === "START_NOT_ALLOWED" ? copy.visible : state.error === "NO_COMPUTERS" ? copy.empty : state.error ? copy.generic : null;
+ const error = state.error === "WATCH_TIMEOUT" ? copy.timeout : state.error === "NOTIFICATIONS_DENIED" ? copy.denied : state.error === "TAILSCALE_REQUIRED" ? copy.tailscale : state.error === "APP_NOT_VISIBLE" || state.error === "START_NOT_ALLOWED" ? copy.visible : state.error === "NO_COMPUTERS" ? copy.empty : state.error === "TAILSCALE_ONLY" ? null : state.error ? copy.generic : null;
  const text = { color: theme.colors.textMuted, marginTop: 8 };
  const button = (label: string, action: () => Promise<unknown>, changesMode = false) => <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={changesMode && state.busy} onPress={() => { setSettingsError(false); void action().catch(() => setSettingsError(true)); }} style={{ minHeight: 48, justifyContent: "center", opacity: changesMode && state.busy ? 0.5 : 1 }}><Text style={{ color: theme.colors.accentText }}>{label}</Text></Pressable>;
  const c = theme.colors;
@@ -30,7 +30,7 @@ export function NotificationSettingsCard() {
   {state.busy ? <Text accessibilityLiveRegion="polite" style={text}>{copy.loading}</Text> : null}
   {state.mode !== "off" ? <Text accessibilityLiveRegion="polite" style={text}>{state.status.state === "running" ? copy.running : state.status.state === "starting" ? copy.starting : copy.stopped}</Text> : null}
   {error ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger, marginTop: 8 }}>{error}</Text> : null}
-  {state.computers.map(c => <Text key={c.hostId} accessibilityLiveRegion="polite" style={{ ...text, color: c.result === "ok" ? theme.colors.textMuted : theme.colors.danger }}>{c.name}: {c.result === "ok" ? (state.mode === "while-working" ? copy.connected : copy.registered) : c.result === "PREPARATION_TIMEOUT" ? copy.timeout : c.result === "CONNECTION_FAILED" ? copy.connectionFailed : c.result === "UPDATE_REQUIRED" ? copy.update : copy.failed}</Text>)}
+  {state.computers.map(c => <Text key={c.hostId} accessibilityLiveRegion="polite" style={{ ...text, color: c.result === "ok" || c.result === "TAILSCALE_ONLY" ? theme.colors.textMuted : theme.colors.danger }}>{c.name}: {c.result === "ok" ? (state.mode === "while-working" ? copy.connected : copy.registered) : c.result === "PREPARATION_TIMEOUT" ? copy.timeout : c.result === "CONNECTION_FAILED" ? copy.connectionFailed : c.result === "UPDATE_REQUIRED" ? copy.update : c.result === "TAILSCALE_ONLY" ? copy.tailscaleOnly : copy.failed}</Text>)}
   {state.error === "NOTIFICATIONS_DENIED" ? button(copy.settings, notificationSystem.openSettings) : null}
   {state.mode !== "off" ? button(copy.retry, () => notifications.choose(state.mode), true) : null}
   {state.mode === "always" ? <>

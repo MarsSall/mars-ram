@@ -31,7 +31,7 @@ Always attentive needs Tailscale on and exclusion from battery optimization; it 
 
 ## Files on your computer
 
-Attachments are copied to `~/.mars-ram/uploads` on the selected computer. Cleanup is best effort when the app connects, according to your setting: 1, 7 or 30 days, or never. Private links use copies in `~/.mars-ram/links`; your computer serves them on your tailnet. Anyone on that tailnet with the link can open it until it expires or is deleted. Links expire after one day.
+Attachments are copied to a private folder of your user in the selected computer's temp directory (`/tmp/mars-ram-<uid>/uploads` on Linux, `%TEMP%\mars-ram\uploads` on Windows), not to your home folder. The computer refuses the folder if another user owns it or could open it. Cleanup is best effort when the app connects, according to your setting: 1, 7 or 30 days, or never; the system may also clear its temp directory, for example on restart. Updating the computer side with `mars-ram install` deletes the attachments that older versions kept in `~/.mars-ram/uploads`; `mars-ram uninstall` deletes both folders. Private links use copies in `~/.mars-ram/links`; your computer serves them on your tailnet. Anyone on that tailnet with the link can open it until it expires or is deleted. Links expire after one day.
 
 ## Delete data
 

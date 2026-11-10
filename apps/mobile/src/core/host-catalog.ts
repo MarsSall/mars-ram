@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 export const LEGACY_KEY_ALIAS = "app-ssh-key";
+export type HostNetwork = "tailscale" | "zerotier";
 export type RotationPhase = "pending" | "added" | "verified" | "done";
 export type KeyRotationError = { code: string; message: string };
 export type SavedHost = {
@@ -11,8 +12,11 @@ export type SavedHost = {
 	rotation?: { phase: RotationPhase; lastError?: KeyRotationError };
 	id: string;
 	name: string;
-	/** Tailscale IPv4 address, also the fallback when the name cannot be resolved. */
+	/** Tailscale or ZeroTier IPv4 address, also the fallback when the name cannot be resolved. */
 	address: string;
+	/** Missing for computers saved before ZeroTier: those are Tailscale computers. */
+	network?: HostNetwork;
+	/** MagicDNS name; never set for a ZeroTier computer. */
 	dnsName?: string;
 	sshPort: number;
 	user: string;
@@ -27,6 +31,15 @@ export interface HostCatalog {
 	save(host: SavedHost): Promise<void>;
 	/** Forgets the computer, including its pinned identity. */
 	remove(id: string): Promise<void>;
+}
+
+export function hostNetwork(host: Pick<SavedHost, "network">): HostNetwork {
+	return host.network ?? "tailscale";
+}
+
+/** Private links and Siempre atento listen on the Tailscale address; over ZeroTier they wait for phase 2. */
+export function hasTailscaleFeatures(host: Pick<SavedHost, "network">): boolean {
+	return hostNetwork(host) === "tailscale";
 }
 
 /** Name first, falling back to the address, as the app connects to it. */
@@ -45,6 +58,7 @@ const SavedHostSchema = Type.Object({
 	id: Type.String({ minLength: 1 }),
 	name: Type.String({ minLength: 1 }),
 	address: Type.String({ minLength: 1 }),
+	network: Type.Optional(Type.Union([Type.Literal("tailscale"), Type.Literal("zerotier")])),
 	dnsName: Type.Optional(Type.String()),
 	sshPort: Type.Integer({ minimum: 1, maximum: 65535 }),
 	user: Type.String({ minLength: 1 }),

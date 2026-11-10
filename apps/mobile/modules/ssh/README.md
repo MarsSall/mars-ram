@@ -21,6 +21,7 @@ Kotlin native module that gives the app SSH access to the user's computer: a key
 | `resizeTerminal(terminalId, cols, rows)` | Sends PTY window-change; returns `{ ok: true }` |
 | `closeTerminal(terminalId)` | Idempotently closes the channel, not the persistent Herdr session |
 | `closeForward`, `disconnect`, `isConnected` | Lifecycle; disconnecting closes the connection's tunnels and terminals |
+| `startModelDownload(url, fileName, title, description)`, `modelDownloadStatus()`, `cancelModelDownload()` | The voice model's one DownloadManager download (https only, into the app's external files folder, no permission): a start returns the kept download instead of a second one; status is `{ state, written, total, uri }`; cancel removes it with its file and notification. Never reject (see `docs/architecture.md`, Voice model download) |
 
 Expected failures are returned as `{ ok: false, code, message }`, never thrown. Codes: `KEY_MISSING`, `KEY_INVALIDATED`, `UNLOCK_REQUIRED`, `HOST_KEY_UNKNOWN`, `HOST_KEY_CHANGED` (both with `fingerprint`), `HOST_NOT_FOUND`, `UNREACHABLE`, `AUTH_FAILED`, `TIMEOUT`, `NOT_CONNECTED`, `NOT_FOUND`, `PERMISSION_DENIED`, `TOO_LARGE`, `SOURCE_UNREADABLE` (the selected local attachment cannot be opened or read), `SSH_ERROR`.
 

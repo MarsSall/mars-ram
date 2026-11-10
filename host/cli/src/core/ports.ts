@@ -39,3 +39,11 @@ export type HostInfo = {
 	hostKey: string;
 	pairPort: number;
 };
+
+/** Where pairing listens, read from each private network without administrator rights. */
+export type PairingNetworkPorts = {
+	/** This computer's Tailscale IPv4 address and MagicDNS name, or why there is none. */
+	tailscale(): { ok: true; address: string; dnsName?: string } | { ok: false; message: string };
+	/** IPv4 addresses of this computer's ZeroTier interfaces, each once. */
+	zeroTierAddresses(): string[];
+};

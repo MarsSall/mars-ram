@@ -107,4 +107,13 @@ describe("notification help behind a question mark", () => {
   expect(texts(inline)).toContain(notificationCopy.es.denied);
   expect(inline.some(n => n.type === "Pressable" && n.props.accessibilityLabel === notificationCopy.es.settings)).toBe(true);
  });
+ it("says Siempre atento is only for Tailscale on a ZeroTier computer", () => {
+  expect(notificationCopy.es.tailscaleOnly).toBe("Disponible solo con Tailscale");
+  expect(notificationCopy.en.tailscaleOnly).toBe("Available only with Tailscale");
+  f.state = { ...f.state, mode: "always", busy: false, error: "TAILSCALE_ONLY", computers: [{ hostId: "zt", name: "ZT", result: "TAILSCALE_ONLY" }] };
+  const { inline } = split(NotificationSettingsCard());
+  expect(texts(inline)).toContain(`ZT: ${notificationCopy.es.tailscaleOnly}`);
+  expect(texts(inline)).not.toContain(notificationCopy.es.generic);
+  expect(texts(inline)).not.toContain(notificationCopy.es.failed);
+ });
 });

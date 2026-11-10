@@ -1,4 +1,3 @@
-import { UPLOADS_DIRECTORY } from "@workspace/protocol";
 import { readHostRecord } from "./host-record";
 import { readHerdrKeys, parseHerdrKeys, type HerdrKeys } from "./herdr-keys";
 import type { SavedHost } from "./host-catalog";
@@ -6,6 +5,7 @@ import type { HostConnections } from "./host-connections";
 import type { Failure, HostConnection, TerminalChannel, TerminalExit } from "./ports";
 import type { Attachment } from "./attachment-draft";
 import { uploadTerminalAttachments, type AttachmentUploads, type UploadProgress } from "./attachment-uploads";
+import type { UploadsFolderLookup } from "./uploads-folder";
 
 /** Same allow-list as native: absolute safe path to Herdr, or the legacy bare name. */
 export function validHerdrPath(value: unknown): value is string {
@@ -25,6 +25,7 @@ export type HerdrDeps = {
  connections: Pick<HostConnections, "connection" | "drop">;
  channel: TerminalChannel;
  host: HostConnection;
+ uploadsFolder: UploadsFolderLookup;
  clock: () => number;
  random: () => number;
  history?: AttachmentUploads["history"];
@@ -220,17 +221,12 @@ export class HerdrTerminal {
    if (attachments.length) {
     const connection = await this.deps.connections.connection(this.computer);
     if (!connection.ok) return connection;
-    const home = await this.deps.host.homeDirectory(connection.connectionId);
-    if (!home.ok) return home;
-    let path = home.path.replace(/^\/([A-Za-z]:\/)/, "$1");
-    const windows = /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
-    if (windows) path = path.replace(/\//g, "\\");
-    if (!(windows || path.startsWith("/")) || /[\x00-\x1f\x7f]/.test(path)) return { ok: false, message: "The computer did not report an absolute home directory." };
-    const uploads = await uploadTerminalAttachments({ host: this.deps.host, connection: async () => connection, clock: this.deps.clock, random: this.deps.random, history: this.deps.history }, attachments, progress);
+    const uploads = await uploadTerminalAttachments({ host: this.deps.host, folder: this.deps.uploadsFolder, connection: async () => connection, clock: this.deps.clock, random: this.deps.random, history: this.deps.history }, attachments, progress);
     if (!uploads.ok) return uploads;
-    const separator = windows ? "\\" : "/";
+    // The host's absolute folder, in its native form: the agent reads these exact paths.
+    const { path, windows } = uploads.folder;
     paths = uploads.names.map(name => {
-     const absolute = `${path.replace(/[\\/]$/, "")}${separator}${UPLOADS_DIRECTORY.replace(/\//g, separator)}${separator}${name}`;
+     const absolute = `${path}${windows ? "\\" : "/"}${name}`;
      return !absolute.includes(" ") ? absolute : windows ? `"${absolute}"` : `'${absolute.replace(/'/g, "'\\''")}'`;
     });
    }

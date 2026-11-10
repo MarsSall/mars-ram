@@ -52,7 +52,7 @@ Ids are **12 base64url characters**, generated from 9 random bytes, non-secret a
 
 ### Listener and browser behavior
 
-Production obtains `Self.TailscaleIPs` and `Self.DNSName` from `tailscale status --json`, requires `BackendState: Running`, selects a Tailscale IPv4 (100.64.0.0/10), and strips the trailing DNS dot. It binds **only that IP**, never wildcard, LAN or loopback. Unavailable Tailscale or a failed bind exits nonzero. There is no bind flag or environment override; tests inject loopback into the HTTP adapter directly.
+Production obtains `Self.TailscaleIPs` and `Self.DNSName` from `tailscale status --json` (on macOS, when `tailscale` is not on PATH, from the CLI inside `/Applications/Tailscale.app`), requires `BackendState: Running`, selects a Tailscale IPv4 (100.64.0.0/10), and strips the trailing DNS dot. It binds **only that IP**, never wildcard, LAN or loopback. Unavailable Tailscale or a failed bind exits nonzero. There is no bind flag or environment override; tests inject loopback into the HTTP adapter directly.
 
 Only GET/HEAD with an exact raw `/l/<43-character-token>` target can serve a copy. Tokens are indexed by SHA-256 then compared with `timingSafeEqual`. Unknown, expired, path-like, encoded, query-bearing, or other routes return the same `404` / `Not found\n`; other methods also return 404. Invalid methods/routes are rejected before any storage access. HEAD uses registered size/type metadata without opening or reading content, and has no body. Every response includes:
 

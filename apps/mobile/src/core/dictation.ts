@@ -99,11 +99,27 @@ export type DictationStep = "stopping" | "loading" | "transcribing";
 /** Port for the on-device engine (adapters/parakeet-dictation.ts). */
 /** BUSY: another mic owns the recorder; CANCELLED: its owner cancelled while it was starting. */
 export type DictationFailure = "PERMISSION" | "NO_MODEL" | "NO_AUDIO" | "DOWNLOAD_FAILED" | "ENGINE_FAILED" | "BUSY" | "CANCELLED";
+/** The model's system download (Android's DownloadManager): it outlives the sheet, the screen and
+ * the app. waiting: queued or paused by the system (no network yet, retrying). failed: it failed or
+ * the file did not match (DOWNLOAD_FAILED); reported once, then it is gone. */
+export type ModelDownloadStatus =
+ | { state: "none" }
+ | { state: "downloading"; written: number; total: number; waiting: boolean }
+ | { state: "ready" }
+ | { state: "failed" };
 export interface DictationEngine {
+ /** Also finishes a download that completed while the app was closed. */
  modelReady(): Promise<boolean>;
  /** Loads the model ahead of the first press (no-op when missing or loaded). */
  warm(): Promise<void>;
- download(progress: (written: number, total: number) => void): { promise: Promise<{ ok: true } | { ok: false; code: DictationFailure }>; cancel(): Promise<void> };
+ /** Starts the system download with this notification text, or attaches to the one already
+ * running: never a second one. */
+ download(notice: { title: string; description: string }): Promise<ModelDownloadStatus>;
+ /** Where the system download stands; a finished one is verified (size and MD5) and put in place
+ * first (ready), a mismatching one is deleted (failed). */
+ downloadStatus(): Promise<ModelDownloadStatus>;
+ /** The explicit «Cancelar descarga»: stops the system download and deletes what it wrote. */
+ cancelDownload(): Promise<void>;
  removeModel(): Promise<void>;
  /** Asks for the microphone if needed, then records 16 kHz mono PCM for `owner` until it stops or
   * cancels. One owner at a time: another mic gets BUSY; a cancel during start-up wins. */
@@ -114,6 +130,60 @@ export interface DictationEngine {
  abortTranscription(): Promise<void>;
  /** Stops `owner`'s recording and transcribes what was heard, reporting each step. */
  finish(owner: symbol, step?: (step: DictationStep, seconds?: number) => void): Promise<{ ok: true; text: string; seconds: number } | { ok: false; code: DictationFailure }>;
+}
+
+export type ModelDownloadView =
+ | { phase: "checking" }
+ | { phase: "missing"; failed: boolean }
+ | { phase: "downloading"; written: number; total: number; waiting: boolean }
+ | { phase: "ready" };
+
+/** What the sheet and the Settings card show of the model download (one for the app). Leaving
+ * never cancels: watchers only subscribe, and progress is polled while someone watches. Engine
+ * calls run one at a time, so a cancel pressed during the start removes what the start began. */
+export class ModelDownload {
+ view: ModelDownloadView = { phase: "checking" };
+ private listeners = new Set<() => void>();
+ private queue: Promise<void> = Promise.resolve();
+ private timer: ReturnType<typeof setTimeout> | null = null;
+ constructor(private readonly engine: DictationEngine, private readonly pollMs = 1000) {}
+ readonly snapshot = (): ModelDownloadView => this.view;
+ readonly subscribe = (listener: () => void): (() => void) => {
+  // A new watcher (the sheet reopened, Settings shown) sees the download as it is now.
+  this.listeners.add(listener); void this.refresh();
+  return () => { this.listeners.delete(listener); if (!this.listeners.size) this.stopPolling(); };
+ };
+ refresh(): Promise<void> {
+  return this.run(async () => {
+   const status = await this.engine.downloadStatus().catch((): ModelDownloadStatus => ({ state: "none" }));
+   if (status.state !== "none") return this.apply(status);
+   const ready = await this.engine.modelReady().catch(() => false);
+   this.set(ready ? { phase: "ready" } : { phase: "missing", failed: this.view.phase === "missing" && this.view.failed });
+  });
+ }
+ start(notice: { title: string; description: string }): Promise<void> {
+  return this.run(async () => this.apply(await this.engine.download(notice).catch((): ModelDownloadStatus => ({ state: "failed" }))));
+ }
+ cancel(): Promise<void> {
+  return this.run(async () => { await this.engine.cancelDownload().catch(() => {}); this.set({ phase: "missing", failed: false }); });
+ }
+ private run(job: () => Promise<void>): Promise<void> {
+  const next = this.queue.then(job, job);
+  this.queue = next.catch(() => {});
+  return next;
+ }
+ private apply(status: ModelDownloadStatus) {
+  if (status.state === "downloading") this.set({ phase: "downloading", written: status.written, total: status.total, waiting: status.waiting });
+  else if (status.state === "ready") this.set({ phase: "ready" });
+  else this.set({ phase: "missing", failed: status.state === "failed" });
+ }
+ private set(view: ModelDownloadView) {
+  this.view = view;
+  for (const listener of [...this.listeners]) listener();
+  this.stopPolling();
+  if (view.phase === "downloading" && this.listeners.size) this.timer = setTimeout(() => { this.timer = null; void this.refresh(); }, this.pollMs);
+ }
+ private stopPolling() { if (this.timer) clearTimeout(this.timer); this.timer = null; }
 }
 
 /** Runs the gesture's effects against the engine for one mic (the hook in ui/dictation.tsx is a

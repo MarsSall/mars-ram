@@ -2,8 +2,8 @@
 import { APP_ID } from '@workspace/protocol';
 import { hostCliPrefix } from './herdr-switcher';
 
-/** First host release with `version --json`. Bump only when the app requires newer host capabilities. */
-export const MINIMUM_HOST_VERSION = '0.1.4';
+/** 0.1.5: attachments need `uploads-dir`, ZeroTier needs `pair-zt`. Bump only when the app requires newer host capabilities. */
+export const MINIMUM_HOST_VERSION = '0.1.5';
 export type HostRelease = string; // semver | missing (legacy CLI) | dev | unknown (no evidence)
 export type HostUpdateStatus = 'ok' | 'soft' | 'required';
 function semver(value: unknown): { numbers: number[]; pre: string[] } | null {
@@ -41,6 +41,7 @@ export function parseHostVersion(text: string): HostRelease {
 }
 export function hostUpdateStatus(release: unknown, minimum: string, latest?: string): HostUpdateStatus {
  if (release === 'dev' || typeof release !== 'string' || !semver(minimum)) return 'ok';
+ // `missing` = no `version --json`, which first shipped in 0.1.4: such a host is at most 0.1.3.
  if (release === 'missing') return (compareSemver(minimum, '0.1.4') ?? -1) >= 0 ? 'required' : 'ok';
  if (!semver(release)) return 'ok';
  if (compareSemver(release, minimum) === -1) return 'required';

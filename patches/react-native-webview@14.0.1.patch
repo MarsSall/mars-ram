@@ -1,0 +1,65 @@
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+index 80c68034b193a47bedb56ca527352de9548e8ac6..783ac06c91b84c4a104d5aa4861a37a14095e8f3 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+@@ -3,12 +3,15 @@ package com.reactnativecommunity.webview;
+ import android.annotation.SuppressLint;
+ import android.graphics.Rect;
+ import android.net.Uri;
++import android.text.InputType;
+ import android.text.TextUtils;
+ import android.view.ActionMode;
+ import android.view.Menu;
+ import android.view.MenuItem;
+ import android.view.MotionEvent;
+ import android.view.View;
++import android.view.inputmethod.EditorInfo;
++import android.view.inputmethod.InputConnection;
+ import android.webkit.JavascriptInterface;
+ import android.webkit.ValueCallback;
+ import android.webkit.WebChromeClient;
+@@ -78,6 +81,8 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+     protected boolean hasScrollEvent = false;
+     protected boolean nestedScrollEnabled = false;
+     protected ProgressChangedFilter progressChangedFilter;
++    // Mars RAM patch: terminal WebViews ask the keyboard for no suggestions (like Termux).
++    protected boolean noKeyboardSuggestions = false;
+ 
+     /**
+      * WebView must be created with an context of the current activity
+@@ -91,6 +96,22 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+         progressChangedFilter = new ProgressChangedFilter();
+     }
+ 
++    public void setNoKeyboardSuggestions(boolean noKeyboardSuggestions) {
++        this.noKeyboardSuggestions = noKeyboardSuggestions;
++    }
++
++    @Override
++    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
++        InputConnection connection = super.onCreateInputConnection(outAttrs);
++        if (noKeyboardSuggestions && connection != null) {
++            outAttrs.inputType = InputType.TYPE_CLASS_TEXT
++                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
++                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
++            outAttrs.imeOptions |= EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN;
++        }
++        return connection;
++    }
++
+     public void setBasicAuthCredential(RNCBasicAuthCredential credential) {
+         mRNCWebViewClient.setBasicAuthCredential(credential);
+     }
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+index f83033b3597a425da159555233bacce250ccfce0..17f88e8056c4eec7566ae2649cca0af3cd661636 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+@@ -229,6 +229,8 @@ class RNCWebViewManagerImpl(private val newArch: Boolean = false) {
+     }
+ 
+     fun setApplicationNameForUserAgent(viewWrapper: RNCWebViewWrapper, applicationName: String?) {
++        // Mars RAM patch: opt-in marker for the terminal WebView only.
++        viewWrapper.webView.setNoKeyboardSuggestions(applicationName?.contains("MarsRamTerminal") == true)
+         when {
+             applicationName != null -> {
+                 val defaultUserAgent = WebSettings.getDefaultUserAgent(viewWrapper.webView.context)

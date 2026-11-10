@@ -4,6 +4,7 @@
 import { connectTarget, type HostCatalog, type SavedHost } from "./host-catalog";
 import type { Failure, HostConnection } from "./ports";
 import { cleanupUploads, type AttachmentRetention } from "./attachment-retention";
+import type { UploadsFolderLookup } from "./uploads-folder";
 
 const CONNECTION_TIMEOUT_MS = 30_000;
 class ConnectionTimeout extends Error {}
@@ -26,6 +27,8 @@ export type ConnectionDeps = {
 	unlock: () => Promise<boolean>;
 	/** Read at the first successful connection per computer per app opening. Defaults to seven days. */
 	retention?: () => AttachmentRetention;
+	/** Where retention cleans up; without it there is nothing to clean. */
+	uploadsFolder?: UploadsFolderLookup;
 	clock?: () => number;
 	/** Observe every fresh connection (e.g. version probe), independently of ongoing maintenance. */
 	onConnected?: (computer: SavedHost, connectionId: string) => Promise<void>;
@@ -124,7 +127,8 @@ export class HostConnections {
 			this.cleaned.add(saved.id);
 			void Promise.resolve().then(() => this.deps.afterFirstConnect?.(saved, connectionId))
 				.catch(() => { /* Opening maintenance must not fail the connection. */ });
-			void Promise.resolve().then(() => cleanupUploads(this.deps.host, connectionId, this.deps.retention?.() ?? 7, this.deps.clock ?? Date.now))
+			const folders = this.deps.uploadsFolder;
+			if (folders) void Promise.resolve().then(() => cleanupUploads(this.deps.host, folders, connectionId, this.deps.retention?.() ?? 7, this.deps.clock ?? Date.now))
 				.catch(() => { /* Maintenance failure must never become a connection failure. */ });
 		}
 		return { ok: true, connectionId: result.connectionId };

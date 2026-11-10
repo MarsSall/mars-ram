@@ -179,3 +179,22 @@ describe("doctor read-only adapters", () => {
 		for (const output of ["", "100.64.999.1", "100.64.0.1\n100.64.0.2", "192.168.1.1"]) expect(() => readTailscaleIp(() => output)).toThrow();
 	});
 });
+
+describe.skipIf(process.platform === "win32")("doctor attachments folder observation", () => {
+	it("checks the temp folder without creating it and notices the legacy folder", async () => {
+		const { mkdirSync, mkdtempSync, realpathSync, rmSync, existsSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "doctor-uploads-")));
+		try {
+			const uploadsHost = { platform: process.platform, tmpdir: root, uid: process.getuid!() };
+			const adapter = createDoctorAdapter({ home: join(root, "home"), uploadsHost });
+			const path = join(root, `mars-ram-${uploadsHost.uid}`, "uploads");
+			expect(await adapter.uploads()).toEqual({ state: { ok: false, error: "missing", path }, legacy: false });
+			expect(existsSync(join(root, `mars-ram-${uploadsHost.uid}`))).toBe(false);
+			mkdirSync(join(root, "home", ".mars-ram", "uploads"), { recursive: true });
+			mkdirSync(path, { recursive: true, mode: 0o700 });
+			expect(await adapter.uploads()).toEqual({ state: { ok: true, path }, legacy: true });
+		} finally { rmSync(root, { recursive: true, force: true }); }
+	});
+});

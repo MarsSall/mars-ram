@@ -59,6 +59,28 @@ describe("notification preparation deadlines", () => {
  });
 });
 describe("notification opt-in state machine", () => {
+ it("never registers Siempre atento on a ZeroTier computer and says it needs Tailscale (zerotier S3)", async () => {
+  const f = fake(); const zeroTier: SavedHost = { ...host, id: "zt", name: "ZT", address: "10.147.17.5", network: "zerotier" };
+  f.ports.hosts = async () => [host, zeroTier];
+  let config: unknown; f.ports.start = async c => { config = c; return { ok: true }; };
+  const model = new NotificationSettings(f.ports); await model.choose("always");
+  expect(f.calls).not.toContain("register:zt");
+  expect(model.snapshot().computers).toEqual([{ hostId: "pc", name: "PC", result: "ok" }, { hostId: "zt", name: "ZT", result: "TAILSCALE_ONLY" }]);
+  expect(config).toMatchObject({ mode: "always", hosts: [{ hostId: "pc" }] });
+  expect((config as { hosts: unknown[] }).hosts).toHaveLength(1);
+ });
+ it("does not start Siempre atento when every computer is on ZeroTier", async () => {
+  const f = fake(); f.ports.hosts = async () => [{ ...host, network: "zerotier" }];
+  const model = new NotificationSettings(f.ports); await model.choose("always");
+  expect(f.calls).not.toContain("register:pc"); expect(f.calls).not.toContain("start:always");
+  expect(model.snapshot()).toMatchObject({ error: "TAILSCALE_ONLY", computers: [{ hostId: "pc", result: "TAILSCALE_ONLY" }] });
+ });
+ it("still watches a ZeroTier computer while working, over SSH", async () => {
+  const f = fake(); f.ports.hosts = async () => [{ ...host, network: "zerotier", address: "10.147.17.5" }];
+  let config: unknown; f.ports.start = async c => { config = c; return { ok: true }; };
+  await new NotificationSettings(f.ports).choose("while-working");
+  expect(config).toMatchObject({ mode: "while-working", hosts: [{ hostId: "pc", connection: { host: "10.147.17.5", fallbackHost: null } }] });
+ });
  it("starts only prepared computers and reports failures independently", async () => {
   const f = fake(); const second = { ...host, id: "offline", name: "Offline" }; const third = { ...host, id: "broken", name: "Broken" };
   f.ports.hosts = async () => [host, second, third];

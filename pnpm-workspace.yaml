@@ -34,3 +34,6 @@ trustPolicyExclude:
 overrides:
   node-forge: 1.4.1
   undici: 8.12.2
+
+patchedDependencies:
+  react-native-webview@14.0.1: patches/react-native-webview@14.0.1.patch
