@@ -110,7 +110,7 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Then run `mars-ram pair`. See the [full installation guide](./docs/install.md) for prerequisites, inspecting the installer before running it, and troubleshooting.
 
-**Update:** run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`. App build 9 needs mars-ram 0.1.5 and gives you the update commands; after updating, type `/reload` in each running Pi session. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
+**Update:** run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`. App build 10 needs mars-ram 0.1.6 and gives you the update commands. Coming from 0.1.5, running Pi sessions need no `/reload` (the protocol is still 1.7); from an older version, type `/reload` in each running Pi session. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
 
 **Diagnose:** run `mars-ram doctor` for read-only setup checks.
 
@@ -160,9 +160,9 @@ Once your phone is paired:
 | **Guided connection** | Add a computer step by step over Tailscale or ZeroTier; if the scan fails, the app says what to check. |
 | **ZeroTier as an alternative** | Pair with `mars-ram pair-zt` for sessions, the terminal, files, private links and Siempre atento. |
 | **Live agent sessions** | Read, answer and stop a session from the phone. |
-| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. The text size is remembered; change it with a pinch or in Settings. |
+| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. Reorder the bar and the floating D-pad by dragging, pick keys from a list or make your own buttons (Settings › Customize keys). The text size is remembered; change it with a pinch or in Settings. |
 | **Guided shortcuts** | Open Gentle Shell, Pi or OpenCode in a repository. |
-| **Project files** | Browse files with their git state, diffs and history. |
+| **Project files** | Browse files with their git state, diffs and history. Secret files such as `.env` and private keys stay hidden until you tap Show. |
 | **On-device dictation** | Turn speech into text on your phone; audio is not sent over the network. The voice model downloads in the background, even if you close the app. |
 | **Photos and files** | Attach them to a session (they land in a private per-user temp folder on the computer), or share a copy through a private link on your Tailscale or ZeroTier network. |
 | **QR or link pairing** | The SSH private key stays in the Android Keystore, with device unlock required by default. |

@@ -110,7 +110,7 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Después ejecutá `mars-ram pair`. La [guía de instalación completa](./docs/install.es.md) explica los requisitos, cómo revisar el instalador antes de ejecutarlo y cómo resolver problemas.
 
-**Actualizar:** ejecutá de nuevo `pnpm add -g mars-ram` (o `npm i -g mars-ram`) y después `mars-ram install`. La versión 9 de la app necesita mars-ram 0.1.5 y te da los comandos para actualizar; después, escribí `/reload` en cada sesión de Pi que ya esté abierta. Si `mars-ram doctor` sigue diciendo que hay copias desactualizadas, ejecutá `mars-ram install` otra vez. Mirá el [registro de cambios](./CHANGELOG.md) (en inglés).
+**Actualizar:** ejecutá de nuevo `pnpm add -g mars-ram` (o `npm i -g mars-ram`) y después `mars-ram install`. La versión 10 de la app necesita mars-ram 0.1.6 y te da los comandos para actualizar. Si venís de la 0.1.5, las sesiones de Pi abiertas no necesitan `/reload` (el protocolo sigue en 1.7); si venís de una versión anterior, escribí `/reload` en cada sesión de Pi que ya esté abierta. Si `mars-ram doctor` sigue diciendo que hay copias desactualizadas, ejecutá `mars-ram install` otra vez. Mirá el [registro de cambios](./CHANGELOG.md) (en inglés).
 
 **Diagnosticar:** ejecutá `mars-ram doctor` para revisar la configuración sin modificarla.
 
@@ -160,9 +160,9 @@ Una vez vinculado el teléfono:
 | **Conexión guiada** | Agregá una computadora paso a paso por Tailscale o ZeroTier; si el escaneo falla, la app te dice qué revisar. |
 | **ZeroTier como alternativa** | Vinculá con `mars-ram pair-zt` para las sesiones, la terminal, los archivos, los links privados y Siempre atento. |
 | **Sesiones de agentes en vivo** | Leé, respondé y frená una sesión desde el teléfono. |
-| **Terminal completa** | Usá cualquier agente o programa en Herdr, con una barra de teclas pensada para una mano y sin sugerencias del teclado. Recuerda el tamaño de letra; cambialo pellizcando o en Ajustes. |
+| **Terminal completa** | Usá cualquier agente o programa en Herdr, con una barra de teclas pensada para una mano y sin sugerencias del teclado. Ordená la barra y el D-pad flotante arrastrando, elegí teclas de una lista o creá tus propios botones (Ajustes › Personalizar teclas). Recuerda el tamaño de letra; cambialo pellizcando o en Ajustes. |
 | **Atajos guiados** | Abrí Gentle Shell, Pi u OpenCode en un repositorio. |
-| **Archivos del proyecto** | Explorá archivos con su estado en git, diffs e historial. |
+| **Archivos del proyecto** | Explorá archivos con su estado en git, diffs e historial. Los archivos secretos, como `.env` y las claves privadas, quedan ocultos hasta que tocás Mostrar. |
 | **Dictado en el dispositivo** | Convertí voz en texto en tu teléfono; el audio no se envía por la red. El modelo de voz se descarga en segundo plano, aunque cierres la app. |
 | **Fotos y archivos** | Adjuntalos a una sesión (quedan en una carpeta temporal privada de tu usuario en la computadora) o compartí una copia con un link privado en tu red de Tailscale o ZeroTier. |
 | **Vinculación por QR o link** | La clave privada SSH queda en el Keystore de Android y, por defecto, requiere desbloquear el dispositivo. |
