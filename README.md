@@ -33,7 +33,7 @@
 
 <p align="center">Your agents are running at your desk. You don't have to stay there.<br /><strong>Follow live agent sessions, reply from chat or a full terminal, and pick up again at your computer.</strong></p>
 
-<p align="center"><sub><strong>BUILT FOR CODING AGENTS</strong> &nbsp;·&nbsp; Tailscale &nbsp;·&nbsp; No Mars-RAM account &nbsp;·&nbsp; No operator-run cloud</sub></p>
+<p align="center"><sub><strong>BUILT FOR CODING AGENTS</strong> &nbsp;·&nbsp; Tailscale or ZeroTier &nbsp;·&nbsp; No Mars-RAM account &nbsp;·&nbsp; No operator-run cloud</sub></p>
 
 <p align="center"><img src="./docs/assets/brand/divider.svg" width="480" alt="" /></p>
 
@@ -68,7 +68,7 @@
 
 ## What is it
 
-Mars-RAM (Remote Agent Manager) connects your Android phone to your own computers over SSH on your Tailscale network. Follow live agent sessions, answer from chat or the full terminal, and pick up again at your desk.
+Mars-RAM (Remote Agent Manager) connects your Android phone to your own computers over SSH on your Tailscale network, or on ZeroTier as an alternative. Follow live agent sessions, answer from chat or the full terminal, and pick up again at your desk.
 
 Live sessions with chat: Pi today; more agents are planned. The full Herdr terminal works with any agent or program.
 
@@ -85,7 +85,7 @@ No Mars-RAM account, no operator-run cloud service. Your computers run the sessi
 **On your computer**, you need:
 
 - [Node.js](https://nodejs.org) **24 or newer** and [Pi](https://pi.dev) for live sessions with chat.
-- [Tailscale](https://tailscale.com) on both the computer and the phone.
+- [Tailscale](https://tailscale.com) on both the computer and the phone (or ZeroTier, see below). On macOS the Tailscale app is enough: Mars-RAM finds its command inside `Tailscale.app`.
 - An SSH server: Linux `sshd`, macOS **Remote Login**, or Windows **OpenSSH Server**.
 
 Install the host command with pnpm (recommended):
@@ -110,9 +110,11 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Then run `mars-ram pair`. See the [full installation guide](./docs/install.md) for prerequisites, inspecting the installer before running it, and troubleshooting.
 
-**Update:** run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`.
+**Update:** run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`. App build 9 needs mars-ram 0.1.5 and gives you the update commands; after updating, type `/reload` in each running Pi session. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
 
 **Diagnose:** run `mars-ram doctor` for read-only setup checks.
+
+**Phone can't find the computer over Tailscale?** Android's Private DNS bypasses Tailscale's MagicDNS. Turn it off (Settings › Connections › More connection settings › Private DNS › Off) and scan a new code; the app warns you when it detects this.
 
 **Uninstall:** run `mars-ram uninstall`, then `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`). This removes the integration and package, not shared files or the phone's authorization on the computer; see [Privacy and local data](#privacy-and-local-data).
 
@@ -155,12 +157,14 @@ Once your phone is paired:
 
 | Feature | What you can do |
 | --- | --- |
+| **Guided connection** | Add a computer step by step over Tailscale or ZeroTier; if the scan fails, the app says what to check. |
+| **ZeroTier as an alternative** | Pair with `mars-ram pair-zt` for sessions, the terminal and files; private links and Siempre atento still need Tailscale. |
 | **Live agent sessions** | Read, answer and stop a session from the phone. |
-| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand. |
+| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. The text size is remembered; change it with a pinch or in Settings. |
 | **Guided shortcuts** | Open Gentle Shell, Pi or OpenCode in a repository. |
 | **Project files** | Browse files with their git state, diffs and history. |
-| **On-device dictation** | Turn speech into text on your phone; audio is not sent over the network. |
-| **Photos and files** | Attach them to a session, or share a copy through a private link on your tailnet. |
+| **On-device dictation** | Turn speech into text on your phone; audio is not sent over the network. The voice model downloads in the background, even if you close the app. |
+| **Photos and files** | Attach them to a session (they land in a private per-user temp folder on the computer), or share a copy through a private link on your tailnet. |
 | **QR or link pairing** | The SSH private key stays in the Android Keystore, with device unlock required by default. |
 
 <p align="center"><img src="./docs/assets/brand/divider.svg" width="480" alt="" /></p>
@@ -189,7 +193,7 @@ The app, host components and protocol follow hexagonal boundaries: rules in the 
 - **No analytics, advertising or tracking.** Mars-RAM does not operate a backend. Tailscale and any agent or model provider you use have their own policies; content you send to a session reaches those programs on your computer.
 - **Phone data.** Saved computers, pinned host identities, settings and the downloaded voice model stay in app storage; the SSH private key stays in Android Keystore. Drafts and dictation audio are held in memory. Chosen photos and files may be cached.
 - **Voice.** Transcription runs on-device. Downloading the optional voice model contacts Hugging Face and any download hosts reached by redirects; they can see ordinary request information, including your IP address.
-- **Computer data.** Attachments go to a private per-user folder in the system temp directory (`/tmp/mars-ram-<uid>/uploads` on Linux, `%TEMP%\mars-ram\uploads` on Windows), never to your home folder, with best-effort cleanup when the app connects (1, 7 or 30 days, or never) and whatever the system's temp cleanup removes. `mars-ram install` deletes the old `~/.mars-ram/uploads`. Private links serve copies from `~/.mars-ram/links` for one day; anyone on the tailnet with the link can open it until it expires or you delete it.
+- **Computer data.** Attachments go to a private per-user folder in the system temp directory (`/tmp/mars-ram-<uid>/uploads` on Linux and macOS, `%TEMP%\mars-ram\uploads` on Windows), never to your home folder, with best-effort cleanup when the app connects (1, 7 or 30 days, or never) and whatever the system's temp cleanup removes. `mars-ram install` deletes the old `~/.mars-ram/uploads`. Private links serve copies from `~/.mars-ram/links` for one day; anyone on the tailnet with the link can open it until it expires or you delete it.
 - **Removal.** Uninstalling the Android app removes its app data and key, not copies on your computers. Forgetting a computer does not revoke its authorized public key. `mars-ram uninstall` retains shared files, link data, phone authorization keys and the session registry; remove unwanted copies and keys separately.
 
 Read the [full privacy policy](./docs/privacy.md).

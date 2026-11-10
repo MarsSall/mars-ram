@@ -8,7 +8,7 @@ Mars-RAM on your phone talks to `mars-ram` on your computer. Install it once wit
 | --- | --- |
 | [Node.js](https://nodejs.org) 24 or newer | runs mars-ram |
 | [Pi](https://pi.dev) | the sessions you see on the phone |
-| [Tailscale](https://tailscale.com) on the computer and the phone | the private network between them |
+| [Tailscale](https://tailscale.com) on the computer and the phone | the private network between them (on macOS the Tailscale app is enough: mars-ram finds its command inside `Tailscale.app`) |
 | An SSH server | Linux: OpenSSH (`sshd`). macOS: System Settings › General › Sharing › Remote Login. Windows: the OpenSSH Server optional feature |
 
 `mars-ram doctor` checks all of them after installing.
@@ -97,7 +97,7 @@ sh install.sh
 ## Later
 
 - `mars-ram doctor` checks the whole setup and says what to fix.
-- To update, run `pnpm add -g mars-ram` (or `npm i -g mars-ram`, or `bun add -g mars-ram`), then `mars-ram install`. If you installed earlier with the `curl` script and `mars-ram install` still runs the old version, run `mars-ram uninstall` first, then `mars-ram install`. With the script only, run the `curl` command again.
+- To update, run `pnpm add -g mars-ram` (or `npm i -g mars-ram`, or `bun add -g mars-ram`), then `mars-ram install`. If you installed earlier with the `curl` script and `mars-ram install` still runs the old version, run `mars-ram uninstall` first, then `mars-ram install`. With the script only, run the `curl` command again. If `mars-ram doctor` still reports outdated copies after updating, run `mars-ram install` again.
 - `mars-ram uninstall` removes what `mars-ram install` added; the package stays. Then remove it with `pnpm remove -g mars-ram`, `npm uninstall -g mars-ram` or `bun remove -g mars-ram`.
 
 ## If something goes wrong

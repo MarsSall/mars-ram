@@ -8,7 +8,7 @@ Mars-RAM en tu teléfono habla con `mars-ram` en tu computadora. Instalalo una v
 | --- | --- |
 | [Node.js](https://nodejs.org) 24 o más nuevo | ejecuta mars-ram |
 | [Pi](https://pi.dev) | las sesiones que ves en el teléfono |
-| [Tailscale](https://tailscale.com) en la computadora y en el teléfono | la red privada entre los dos |
+| [Tailscale](https://tailscale.com) en la computadora y en el teléfono | la red privada entre los dos (en macOS alcanza con la app de Tailscale: mars-ram encuentra su comando dentro de `Tailscale.app`) |
 | Un servidor SSH | Linux: OpenSSH (`sshd`). macOS: Configuración del Sistema › General › Compartir › Sesión remota. Windows: la característica opcional Servidor OpenSSH |
 
 `mars-ram doctor` revisa todo esto después de instalar.
@@ -57,7 +57,11 @@ Abrí una terminal nueva y ejecutá:
 mars-ram pair
 ```
 
-Escaneá el código con la app.
+Escaneá el código con la app. En Windows, si tu usuario es administrador, ejecutá `mars-ram pair` en una terminal de administrador: la computadora te pide ahí que autorices el teléfono.
+
+¿Usás ZeroTier en vez de Tailscale? Uní la computadora a tu red de ZeroTier, autorizala en ZeroTier Central y ejecutá `mars-ram pair-zt`; si la computadora está en varias redes de ZeroTier, te muestra sus direcciones y elegís una con `--address <ipv4>`. Necesita una versión de la app compatible con ZeroTier. Por ZeroTier tenés las sesiones por SSH, la terminal y los archivos; los links privados y Siempre atento siguen necesitando Tailscale. En Linux, un firewall (ufw o firewalld) bloquea ZeroTier hasta que lo dejes pasar: si hay uno activo, `mars-ram pair-zt` y `mars-ram doctor` muestran el comando exacto con el nombre de la interfaz, como `sudo ufw allow in on <interfaz de ZeroTier> comment 'ZeroTier'` (Tailscale no lo necesita).
+
+En la app, **Agregar computadora** primero te pregunta qué red usás, Tailscale (recomendado) o ZeroTier, y lo recuerda; lo podés cambiar en el primer paso. Después te guía paso a paso: revisa Tailscale y el DNS privado en el teléfono (o, con ZeroTier, que la app de ZeroTier esté instalada y encendida; Android usa una sola VPN a la vez) y sigue solo cuando están bien, te muestra estos comandos para Linux, macOS o Windows con botones para copiar y, si el escaneo falla o se traba, **Ver qué pasa** te dice la causa probable y cómo arreglarla. **Ya sé, escanear** va directo a la cámara; **Agregar a mano** sigue disponible desde el paso de escaneo.
 
 ## Qué hace el instalador
 
@@ -93,7 +97,7 @@ sh install.sh
 ## Más adelante
 
 - `mars-ram doctor` revisa toda la instalación y dice qué arreglar.
-- Para actualizar, ejecutá `pnpm add -g mars-ram` (o `npm i -g mars-ram`, o `bun add -g mars-ram`) y después `mars-ram install`. Si antes instalaste con el script `curl` y `mars-ram install` sigue ejecutando la versión vieja, ejecutá primero `mars-ram uninstall` y después `mars-ram install`. Si usás solo el script, ejecutá de nuevo el comando `curl`.
+- Para actualizar, ejecutá `pnpm add -g mars-ram` (o `npm i -g mars-ram`, o `bun add -g mars-ram`) y después `mars-ram install`. Si antes instalaste con el script `curl` y `mars-ram install` sigue ejecutando la versión vieja, ejecutá primero `mars-ram uninstall` y después `mars-ram install`. Si usás solo el script, ejecutá de nuevo el comando `curl`. Si después de actualizar `mars-ram doctor` dice que hay copias desactualizadas, ejecutá `mars-ram install` otra vez.
 - `mars-ram uninstall` quita lo que agregó `mars-ram install`; el paquete queda. Después quitalo con `pnpm remove -g mars-ram`, `npm uninstall -g mars-ram` o `bun remove -g mars-ram`.
 
 ## Si algo sale mal
@@ -102,4 +106,5 @@ sh install.sh
 - **«mars-ram: command not found»**: abrí una terminal nueva. Con pnpm, ejecutá `pnpm setup` una vez si dice que la carpeta global de binarios no está configurada. En Linux y macOS con el script, agregá `~/.local/bin` al PATH si te lo indicó.
 - **Node.js es muy viejo**: instalá Node.js 24 o más nuevo y ejecutá de nuevo el comando de instalación.
 - **Windows dice que la terminal se ejecuta como administrador**: abrí una terminal normal y ejecutá el comando de nuevo.
+- **La vinculación dice que el teléfono no encuentra la computadora por su nombre de Tailscale**: el DNS privado de Android saltea el MagicDNS de Tailscale. Apagalo en el teléfono (Ajustes › Conexiones › Más ajustes de conexión › DNS privado › Desactivado) y escaneá un código nuevo.
 - **La descarga no coincide con la suma de verificación**: no lo instales. Probá más tarde y avisanos si se repite.
