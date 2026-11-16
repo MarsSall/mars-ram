@@ -5,6 +5,7 @@ import { pairingFailureMessage } from "../../core/pair-link";
 import type { PairingFailureCode, PairingProgress as PairingStage } from "../../core/pairing";
 import { pair } from "../../services";
 import { usePreferences } from "../preferences";
+import { pairThenTour } from "../tour/start";
 
 export type PairingPhase =
 	| { kind: "idle" }
@@ -29,11 +30,9 @@ export function usePairingRunner() {
 			computerName = progress.computerName;
 			setPhase({ kind: "pairing", stage: progress.stage, since: Date.now(), computerName: progress.computerName, deviceName: progress.deviceName });
 		};
-		const result = await pair(uri, t.add.unlockTitle, onProgress);
-		if (result.ok) {
-			router.replace({ pathname: "/computer/[id]", params: { id: result.host.id } });
-			return;
-		}
+		// The first computer also starts the tour, once its screen has opened.
+		const result = await pairThenTour(() => pair(uri, t.add.unlockTitle, onProgress), paired => router.replace({ pathname: "/computer/[id]", params: { id: paired.host.id } }));
+		if (result.ok) return;
 		setPhase({ kind: "failed", message: pairingFailureMessage(result, t.add), code: result.code, computerName, network: result.network });
 	};
 	/** Back to scanning; only after a failure, since a running pairing cannot be stopped. */

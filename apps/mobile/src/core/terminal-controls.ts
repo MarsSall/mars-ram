@@ -95,13 +95,14 @@ export type TerminalMessage = { type: "output"; bytes: Uint8Array } | { type: "f
 export function encodeTerminalMessage(message: TerminalMessage): string {
  return JSON.stringify(message.type === "output" ? { type: "output", data: base64(message.bytes) } : message);
 }
-export type WebTerminalMessage = { type: "ready" } | { type: "input"; bytes: Uint8Array } | { type: "size"; cols: number; rows: number } | { type: "cursorMode"; enabled: boolean } | { type: "selection"; text: string } | { type: "fontSize"; value: number };
+export type WebTerminalMessage = { type: "ready" | "tap" } | { type: "input"; bytes: Uint8Array } | { type: "size"; cols: number; rows: number } | { type: "cursorMode"; enabled: boolean } | { type: "selection"; text: string } | { type: "fontSize"; value: number };
 export function decodeWebMessage(raw: string): WebTerminalMessage | null {
  if (raw.length > 90000) return null;
  try {
   const m = JSON.parse(raw);
   if (!m || typeof m !== "object") return null;
   if (m.type === "ready") return { type: "ready" };
+  if (m.type === "tap") return { type: "tap" };
   if (m.type === "input" && typeof m.data === "string") { const bytes = unbase64(m.data); return bytes ? { type: "input", bytes } : null; }
   if (m.type === "size" && [m.cols, m.rows].every(n => Number.isInteger(n) && n >= 1 && n <= 1000)) return { type: "size", cols: m.cols, rows: m.rows };
   if (m.type === "cursorMode" && typeof m.enabled === "boolean") return { type: "cursorMode", enabled: m.enabled };

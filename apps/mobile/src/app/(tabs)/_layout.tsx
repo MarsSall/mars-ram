@@ -1,7 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs } from "expo-router";
+import { BottomTabBar } from "expo-router/js-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePreferences } from "../../ui/preferences";
+import { TourAnchor } from "../../ui/tour/anchors";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -15,6 +17,8 @@ export default function TabsLayout() {
 		};
 	return (
 		<Tabs
+			// The real tab bar, marked for the tour: a tap on a tab still navigates.
+			tabBar={props => <TourAnchor id="tabs.bar"><BottomTabBar {...props} /></TourAnchor>}
 			screenOptions={{
 				headerShown: false,
 				tabBarActiveTintColor: theme.colors.tabActive,

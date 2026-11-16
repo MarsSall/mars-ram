@@ -79,8 +79,9 @@ let main = installed;
 if (!installed) ({ main, dir } = extract());
 
 // MARS_RAM_PACKAGE_BIN tells `mars-ram install` that this package's bin is the command, so it writes no launcher of
-// its own (one earlier on PATH would keep running the old version).
-child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', main, ...args], { stdio: 'inherit', shell: false, env: { ...process.env, MARS_RAM_PACKAGE_BIN: import.meta.filename } });
+// its own (one earlier on PATH would keep running the old version). MARS_RAM_LAUNCHER_PID is this process: on Windows
+// the `mars-ram update` window waits for it to exit before the package manager replaces mars-ram.cmd.
+child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', main, ...args], { stdio: 'inherit', shell: false, env: { ...process.env, MARS_RAM_PACKAGE_BIN: import.meta.filename, MARS_RAM_LAUNCHER_PID: String(process.pid) } });
 child.on('error', error => {
  cleanup();
  fail(say(`mars-ram could not start Node: ${error.message}`, `mars-ram no pudo iniciar Node: ${error.message}`));

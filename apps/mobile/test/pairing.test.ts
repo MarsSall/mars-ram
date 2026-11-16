@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { encodePairingUri, PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
+import { encodeCompactPairingUri, encodePairingUri, PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
 import { pairWithComputer, type PairingDeps } from "../src/core/pairing";
 import type { HostConnection, HostTarget } from "../src/core/ports";
 import type { SavedHost } from "../src/core/host-catalog";
@@ -104,6 +104,21 @@ describe("pairWithComputer", () => {
 		};
 		expect(saved).toEqual([host]);
 		expect(result).toEqual({ ok: true, host });
+	});
+
+	it("pairs from a compact version 3 QR exactly like from a version 1 one", async () => {
+		// The compact offer carries the key and code as bytes, so they are canonical like the computer's.
+		const compact: PairingOffer = { ...offer, hostKey: `SHA256:${"B".repeat(42)}A`, code: "q7Hn2vJk9sLp4xWc8bZr5w" };
+		postReply = { status: 200, json: { ok: true, user: "mars", hostKey: compact.hostKey } };
+		connectReply = { ok: true, connectionId: "c1", fingerprint: compact.hostKey, address: compact.dnsName! };
+		const result = await pairWithComputer(deps, encodeCompactPairingUri(compact)!);
+		expect(posts).toEqual([
+			{ url: "http://devbox.example-tailnet.ts.net:47123/pair", body: { code: compact.code, publicKey: PUBLIC_KEY, deviceName: "Galaxy S24 Ultra" }, timeoutMs: 9_000 },
+		]);
+		expect(connects).toEqual([
+			{ host: "devbox.example-tailnet.ts.net", fallbackHost: "100.64.0.10", port: 22, username: "mars", keyAlias: "app-key", expectedFingerprint: compact.hostKey },
+		]);
+		expect(result).toMatchObject({ ok: true, host: { name: "devbox", address: "100.64.0.10", dnsName: "devbox.example-tailnet.ts.net", hostKey: compact.hostKey } });
 	});
 
 	it("asks to unlock the key after the computer accepts it, so the unlock is fresh when connecting", async () => {

@@ -394,9 +394,11 @@ export function decodeEvent(data: unknown): DecodedEvent {
 // The computer shows a QR with a pairing offer; the phone answers with its public key.
 // Version 1 is a Tailscale offer; version 2 names its network and has no MagicDNS name, so apps that know
 // only version 1 ask to be updated instead of asking for MagicDNS.
+// Version 3 is the same two offers in a compact binary form, for a smaller QR (see encodeCompactPairingUri).
 
 export const PAIRING_VERSION = 1;
 export const ZEROTIER_PAIRING_VERSION = 2;
+export const COMPACT_PAIRING_VERSION = 3;
 const PAIRING_PREFIX = `${APP_ID}://pair?p=`;
 
 export type PairingNetwork = "tailscale" | "zerotier";
@@ -485,8 +487,10 @@ export type NetworkPairingUriResult =
 const NEWER_APP = { ok: false as const, message: "This pairing code needs a newer version of the app." };
 const DAMAGED = { ok: false as const, message: "This pairing code is damaged. Show a new one on the computer." };
 
-/** Reads a Tailscale or a ZeroTier offer; any other version asks for a newer app. */
+/** Reads a Tailscale or a ZeroTier offer, as version 1, 2 or 3; any other version asks for a newer app. */
 export function decodeNetworkPairingUri(uri: string): NetworkPairingUriResult {
+	const compact = readCompactPayload(uri);
+	if (compact) return compact;
 	const payload = readPairingPayload(uri);
 	if (!payload.ok) return payload;
 	const { data } = payload;
@@ -518,6 +522,156 @@ function readPairingPayload(uri: string): { ok: true; data: unknown } | { ok: fa
 
 function hasVersionOtherThan(data: unknown, ...versions: number[]): boolean {
 	return typeof data === "object" && data !== null && "v" in data && !versions.includes(data.v as number);
+}
+
+// ---- Compact pairing offer (version 3) ----
+// The same link, `mars-ram://pair?p=<base64url>`, so the phone's camera still opens the app (the scheme stays
+// lower case) and the link route is unchanged; the payload is bytes instead of JSON. All integers are big-endian:
+//   0      version (3)
+//   1      flags: 1 ZeroTier, 2 MagicDNS name follows, 4 the name's «.ts.net» is left out,
+//          8 the name's first label, the computer's name in ASCII lower case, and its dot are left out
+//   2-5    IPv4 address
+//   6-7    SSH port, 8-9 pair port
+//   10-15  expiry, milliseconds since 1970
+//   16-47  host key SHA256 fingerprint, 48-63 one-time code
+//   then   name, user and, with flag 2, the rest of the MagicDNS name, each as one length byte and UTF-8
+// Nothing may follow. A JSON payload starts with «{», so a first byte below 0x20 that is not JSON whitespace
+// marks a compact version; versions after 3 ask for a newer app.
+
+const ZEROTIER_FLAG = 1;
+const DNS_FLAG = 2;
+const TS_NET_FLAG = 4;
+const NAME_LABEL_FLAG = 8;
+const TS_NET = ".ts.net";
+const FINGERPRINT_PREFIX = "SHA256:";
+const CODE_BYTES = 16;
+const FIXED_BYTES = 64;
+
+/**
+ * The offer as a version 3 link, or null when version 3 cannot carry it exactly (a code that is not 16 bytes in
+ * canonical base64url, a Tailscale address that is not IPv4, a text over 255 bytes): then show encodePairingUri's.
+ */
+export function encodeCompactPairingUri(offer: NetworkPairingOffer): string | null {
+	const zerotier = "network" in offer && offer.network === "zerotier";
+	if (!(zerotier ? Value.Check(ZeroTierPairingOffer, offer) : Value.Check(PairingOffer, offer))) return null;
+	if (!new RegExp(IPV4_PATTERN).test(offer.address) || !Number.isSafeInteger(offer.expiresAt) || offer.expiresAt < 0 || offer.expiresAt >= 2 ** 48) return null;
+	let hostKey: Uint8Array;
+	let code: Uint8Array;
+	try {
+		hostKey = fromBase64Url(offer.hostKey.slice(FINGERPRINT_PREFIX.length).replace(/\+/g, "-").replace(/\//g, "_"));
+		code = fromBase64Url(offer.code);
+	} catch {
+		return null;
+	}
+	if (code.length !== CODE_BYTES) return null;
+
+	let flags = zerotier ? ZEROTIER_FLAG : 0;
+	let dnsRest = zerotier ? undefined : (offer as PairingOffer).dnsName;
+	if (dnsRest !== undefined) {
+		flags |= DNS_FLAG;
+		if (dnsRest.endsWith(TS_NET) && dnsRest.length > TS_NET.length) {
+			flags |= TS_NET_FLAG;
+			dnsRest = dnsRest.slice(0, -TS_NET.length);
+		}
+		const label = nameLabel(offer.name);
+		if (label && dnsRest.startsWith(label) && dnsRest.length > label.length) {
+			flags |= NAME_LABEL_FLAG;
+			dnsRest = dnsRest.slice(label.length);
+		}
+	}
+	const bytes: number[] = [COMPACT_PAIRING_VERSION, flags, ...offer.address.split(".").map(Number)];
+	for (const port of [offer.sshPort, offer.pairPort]) bytes.push(port >> 8, port & 0xff);
+	for (let shift = 40; shift >= 0; shift -= 8) bytes.push(Math.floor(offer.expiresAt / 2 ** shift) % 256);
+	bytes.push(...hostKey, ...code);
+	for (const value of dnsRest === undefined ? [offer.name, offer.user] : [offer.name, offer.user, dnsRest]) {
+		const utf8 = new TextEncoder().encode(value);
+		if (utf8.length > 255) return null;
+		bytes.push(utf8.length, ...utf8);
+	}
+	const uri = PAIRING_PREFIX + toBase64Url(Uint8Array.from(bytes));
+	// Exactly or not at all: the phone must read back this very offer.
+	const back = decodeNetworkPairingUri(uri);
+	return back.ok && sameOffer(back.value, offer) ? uri : null;
+}
+
+/** The first MagicDNS label Tailscale makes from an ASCII computer name, with its dot; none for other names. */
+function nameLabel(name: string): string | null {
+	return /^[\x20-\x7e]+$/.test(name) ? `${name.toLowerCase()}.` : null;
+}
+
+function sameOffer(a: NetworkPairingOffer, b: NetworkPairingOffer): boolean {
+	const fields = ["v", "network", "name", "address", "dnsName", "sshPort", "user", "hostKey", "pairPort", "code", "expiresAt"] as const;
+	return fields.every((field) => (a as Record<string, unknown>)[field] === (b as Record<string, unknown>)[field]);
+}
+
+/** null when the URI does not hold a compact payload; then it is read as JSON, as before version 3. */
+function readCompactPayload(uri: string): NetworkPairingUriResult | null {
+	if (!uri.startsWith(PAIRING_PREFIX)) return null;
+	const text = uri.slice(PAIRING_PREFIX.length);
+	let bytes: Uint8Array;
+	try {
+		bytes = fromBase64Url(text);
+	} catch {
+		return null;
+	}
+	const version = bytes[0];
+	if (version === undefined || version < COMPACT_PAIRING_VERSION || version >= 0x20 || version === 0x09 || version === 0x0a || version === 0x0d) return null;
+	if (version !== COMPACT_PAIRING_VERSION) return NEWER_APP;
+	// One payload, one spelling: unused bits in the last character must be zero.
+	if (toBase64Url(bytes) !== text) return DAMAGED;
+	try {
+		return readCompactOffer(bytes);
+	} catch {
+		return DAMAGED;
+	}
+}
+
+function readCompactOffer(bytes: Uint8Array): NetworkPairingUriResult {
+	if (bytes.length < FIXED_BYTES) return DAMAGED;
+	const flags = bytes[1]!;
+	const zerotier = (flags & ZEROTIER_FLAG) !== 0;
+	const hasDns = (flags & DNS_FLAG) !== 0;
+	const rebuilds = (flags & (TS_NET_FLAG | NAME_LABEL_FLAG)) !== 0;
+	if (flags & ~(ZEROTIER_FLAG | DNS_FLAG | TS_NET_FLAG | NAME_LABEL_FLAG) || (zerotier && hasDns) || (rebuilds && !hasDns)) return DAMAGED;
+	const uint = (at: number, length: number) => bytes.subarray(at, at + length).reduce((sum, byte) => sum * 256 + byte, 0);
+	const utf8 = new TextDecoder("utf-8", { fatal: true });
+	let at = FIXED_BYTES;
+	const nextText = (): string => {
+		const length = bytes[at];
+		if (length === undefined || at + 1 + length > bytes.length) throw new Error("Truncated");
+		const value = utf8.decode(bytes.subarray(at + 1, at + 1 + length));
+		at += 1 + length;
+		return value;
+	};
+	const name = nextText();
+	const user = nextText();
+	let dnsName = hasDns ? nextText() : undefined;
+	if (at !== bytes.length) return DAMAGED;
+	if (dnsName !== undefined && rebuilds) {
+		if (dnsName === "") return DAMAGED;
+		if (flags & NAME_LABEL_FLAG) {
+			const label = nameLabel(name);
+			if (!label) return DAMAGED;
+			dnsName = label + dnsName;
+		}
+		if (flags & TS_NET_FLAG) dnsName += TS_NET;
+	}
+	const common = {
+		name,
+		address: Array.from(bytes.subarray(2, 6)).join("."),
+		sshPort: uint(6, 2),
+		user,
+		hostKey: FINGERPRINT_PREFIX + toBase64Url(bytes.subarray(16, 48)).replace(/-/g, "+").replace(/_/g, "/"),
+		pairPort: uint(8, 2),
+		code: toBase64Url(bytes.subarray(48, 64)),
+		expiresAt: uint(10, 6),
+	};
+	if (zerotier) {
+		const value = { v: ZEROTIER_PAIRING_VERSION, network: "zerotier", ...common };
+		return Value.Check(ZeroTierPairingOffer, value) ? { ok: true, network: "zerotier", value } : DAMAGED;
+	}
+	const value = { v: PAIRING_VERSION, ...common, ...(dnsName === undefined ? {} : { dnsName }) };
+	return Value.Check(PairingOffer, value) ? { ok: true, network: "tailscale", value } : DAMAGED;
 }
 
 // Base64url without padding, written out so it behaves the same in Node and React Native.

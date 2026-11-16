@@ -52,6 +52,13 @@ export function updateCommand(target: string): string {
  if (!semver(target)) throw Error('Invalid update release');
  return `pnpm add -g ${APP_ID}@${target}\n${APP_ID} install`;
 }
+/** 0.1.7: the first host with `mars-ram update`, which picks the package manager and runs `install` itself. */
+export const FIRST_HOST_WITH_UPDATE_COMMAND = '0.1.7';
+/** `manual`: the host predates `mars-ram update`, so the pinned commands are typed one per line in a normal terminal. */
+export function hostUpdateInstructions(release: HostRelease, target: string): { command: string; manual: boolean } {
+ const pinned = updateCommand(target);
+ return (compareSemver(release, FIRST_HOST_WITH_UPDATE_COMMAND) ?? -1) >= 0 ? { command: `${APP_ID} update`, manual: false } : { command: pinned, manual: true };
+}
 export function needsBridgeReload(version: string, app: string): boolean {
  const pattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
  const host = pattern.exec(version), phone = pattern.exec(app);

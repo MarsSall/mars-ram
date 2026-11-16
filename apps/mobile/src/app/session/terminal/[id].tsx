@@ -1,11 +1,12 @@
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AppState, Keyboard, KeyboardAvoidingView, PanResponder, Pressable, StatusBar, Text, View, useWindowDimensions } from "react-native";
+import { AppState, Keyboard, KeyboardAvoidingView, PanResponder, Pressable, StatusBar, Text, TextInput, View, useWindowDimensions, type TextInputInstance } from "react-native";
 import { WebView } from "react-native-webview";
 import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-context";
 import { terminalHtml } from "../../../../assets/terminal/page";
 import type { HerdrState, HerdrTerminal } from "../../../core/herdr-terminal";
 import { applyTerminalCtrl, tapTerminalCtrl, decodeWebMessage, encodeTerminalMessage, terminalChromeInsets, type TerminalCtrlState, type TerminalMessage } from "../../../core/terminal-controls";
+import { proxyKeyBytes, proxyTextBytes, terminalKeyboard } from "../../../core/terminal-keyboard";
 import { CUSTOM_HOLD_MS, catalogKeyBytes, terminalKeyInfo, type KeyId } from "../../../core/terminal-keys";
 import { addAttachment, type Attachment } from "../../../core/attachment-draft";
 import type { AttachmentSource } from "../../../core/media-source";
@@ -21,12 +22,17 @@ import { herdrKeyBytes, parseHerdrKeys, type HerdrKeys } from "../../../core/her
 
 import { fullChatMetadata } from "../../../core/pane-chat";
 import { usePaneChat } from "../../../ui/use-pane-chat";
+import { useShellBlurClose } from "../../../ui/use-shell-blur-close";
+import { terminalScreenPlan } from "../../../core/terminal-screen-plan";
 import { useLiveSession } from "../../../ui/use-live-session";
 import { terminalActivityStatus } from "../../../ui/terminal-status";
 import { TerminalActivity } from "../../../ui/terminal-activity";
 import { HerdrSwitcherDrawer } from "../../../ui/herdr-switcher";
 import { ServerViewer, type ServerSelection } from "../../../ui/server-viewer";
 import { ProjectSheet, type SheetMode } from "../../../ui/project-sheet";
+import { TourAnchor } from "../../../ui/tour/anchors";
+import { useFirstVisitTip } from "../../../ui/tour/tips";
+import { terminalTips } from "../../../ui/tour/tip-gate";
 import { terminalDictation } from "../../../core/dictation";
 import { DictationMic, DictationModelSheet, DictationStatus, dictationVisible, useDictation } from "../../../ui/dictation";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -35,7 +41,7 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 const page = { html: terminalHtml, baseUrl: "about:blank" };
 export default function TerminalScreen() {
  const router = useRouter();
- const params = useLocalSearchParams<{ id: string; standalone?: string; project?: string; cwd?: string; computer?: string; focusWorkspace?: string; focusTab?: string }>();
+ const params = useLocalSearchParams<{ id: string; standalone?: string; project?: string; cwd?: string; computer?: string; focusWorkspace?: string; focusTab?: string; shell?: string }>();
  const { id } = params;
  const { theme, t } = usePreferences(); const s = t.terminal; const c = theme.colors;
  const insets = useSafeAreaInsets();
@@ -53,12 +59,14 @@ export default function TerminalScreen() {
   bottom: Math.max(insets.bottom, previous?.bottom ?? 0, initialMatches ? initial.insets.bottom : 0),
  };
  safe.current[orientation] = stableInsets;
- const routeSessionKey = params.standalone === "1" ? undefined : id;
- const hostId = params.standalone === "1" ? id : id.split("/")[0];
- const { sessionKey, session: chatSession, refresh: refreshPaneChat } = usePaneChat(hostId, routeSessionKey);
+ // The plain terminal (shell): the computer's login shell in the home folder, with no Herdr or Pi discovery.
+ const plan = terminalScreenPlan(params);
+ const { hostId, routeSessionKey, shell } = plan;
+ const { sessionKey, session: chatSession, refresh: refreshPaneChat } = usePaneChat(hostId, routeSessionKey, plan.paneChat);
  const live = useLiveSession(sessionKey);
  const web = useRef<WebView<{}>>(null); const focused = useRef(true);
  const [terminal, setTerminal] = useState<HerdrTerminal | null>(null);
+ const terminalRef = useRef<HerdrTerminal | null>(null); terminalRef.current = terminal;
  const [state, setState] = useState<HerdrState>({ status: "connecting" });
  const [ready, setReady] = useState(false); const [pageFailed, setPageFailed] = useState(false); const [attempt, setAttempt] = useState(0);
  // One stored size for every terminal; Settings changes reach an open terminal live.
@@ -82,10 +90,22 @@ export default function TerminalScreen() {
  // Dictation types at the prompt as one bracketed paste, never Enter (voice-dictation 04).
  const dictating = useDictation(text => { void write(terminalDictation(text)); });
  const switcherActive = useRef(false);
+ // Hidden native input: the key bar's keyboard button opens the Android keyboard on it and its typing goes to the terminal (terminal-keyboard-first-press).
+ const proxy = useRef<TextInputInstance>(null); const [proxyActive, setProxyActive] = useState(false);
+ const [kbd] = useState(() => terminalKeyboard({
+  proxyFocused: () => proxy.current?.isFocused() ?? false,
+  keyboardVisible: () => Keyboard.isVisible(),
+  focusProxy: () => proxy.current?.focus(),
+  blurProxy: () => proxy.current?.blur(),
+  dismiss: () => Keyboard.dismiss(),
+  focusTerminal: () => { if (switcherActive.current) return; web.current?.requestFocus(); web.current?.postMessage(encodeTerminalMessage({ type: "focus" })); },
+ }));
+ useEffect(() => kbd.dispose, [kbd]);
  const blurTerminal = useCallback(() => {
+  kbd.release();
   web.current?.postMessage(encodeTerminalMessage({ type: "blur" }));
   Keyboard.dismiss();
- }, []);
+ }, [kbd]);
  const openSwitcher = useCallback(() => {
   switcherActive.current = true;
   blurTerminal(); setSwitcherOpen(true);
@@ -106,12 +126,20 @@ export default function TerminalScreen() {
  const [progress, setProgress] = useState<[number, number] | null>(null);
  const [error, setError] = useState<string | null>(null); const [detail, setDetail] = useState<string | null>(null);
  const [details, setDetails] = useState(false); const [selection, setSelection] = useState("");
- const sendPage = useCallback((message: TerminalMessage) => { if (message.type === "focus" && switcherActive.current) return; if (message.type === "focus") web.current?.requestFocus(); web.current?.postMessage(encodeTerminalMessage(message)); }, []);
+ // Focus waits for the page's `ready` and keeps the hidden input when it owns the keyboard.
+ const sendPage = useCallback((message: TerminalMessage) => { if (message.type === "focus") { if (!switcherActive.current) kbd.focus(); return; } web.current?.postMessage(encodeTerminalMessage(message)); }, [kbd]);
  function updateCtrl(value: TerminalCtrlState) { ctrl.current = value; setCtrlState(value); }
  useFocusEffect(useCallback(() => {
   const entry = StatusBar.pushStackEntry({ hidden: true });
   return () => StatusBar.popStackEntry(entry);
  }, []));
+ // First-visit tips (S6): one at a time, none under another overlay or behind a pushed screen.
+ const [screenFocused, setScreenFocused] = useState(true);
+ useFocusEffect(useCallback(() => { setScreenFocused(true); return () => setScreenFocused(false); }, []));
+ const tips = terminalTips({ focused: screenFocused, chatOpen: chatOpen && Boolean(sessionKey), switcherOpen, sheetOpen: project !== null, serverOpen: serverSelection !== null, modelOpen: dictating.needsModel });
+ useFirstVisitTip("terminal", tips.terminal);
+ useFirstVisitTip("chatFloating", tips.chatFloating);
+ useFirstVisitTip("projectSheet", tips.projectSheet);
  useEffect(() => {
   if (!terminal || state.status !== "open") { setKeysReady(false); return; }
   let alive = true;
@@ -137,12 +165,12 @@ export default function TerminalScreen() {
    const computer = hosts.find(host => host.id === hostId);
    if (!computer) { setState({ status: "closed", reason: s.missingComputer }); return; }
    setComputerName(computer.name);
-   current = createHerdrTerminal(computer, { cols: 80, rows: 24, sessionKey: routeSessionKey });
+   current = createHerdrTerminal(computer, { cols: 80, rows: 24, sessionKey: routeSessionKey, shell });
    current.setActive(focused.current && AppState.currentState === "active");
    unsubscribe = current.subscribe(setState); setTerminal(current);
   }).catch(() => { if (alive) setState({ status: "closed", reason: s.error }); });
   return () => { alive = false; unsubscribe?.(); void current?.close(); };
- }, [hostId, routeSessionKey, attempt, s.missingComputer, s.error]);
+ }, [hostId, routeSessionKey, shell, attempt, s.missingComputer, s.error]);
 
  // Each visible/ready emulator owns output. Subscribe before the first PTY open;
  // later attachments reset the page and ask the core for a debounced full redraw.
@@ -167,25 +195,30 @@ export default function TerminalScreen() {
   setKeyboard(Keyboard.isVisible());
   const active = AppState.addEventListener("change", value => { if (value === "active") setKeyboard(Keyboard.isVisible()); });
   const show = Keyboard.addListener("keyboardDidShow", () => setKeyboard(true));
-  const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboard(false));
+  const hide = Keyboard.addListener("keyboardDidHide", () => { setKeyboard(false); kbd.keyboardHidden(); });
   return () => { show.remove(); hide.remove(); active.remove(); };
- }, []));
+ }, [kbd]));
  useEffect(() => { if (ready) sendPage({ type: "fontSize", value: fontSize }); }, [ready, fontSize, sendPage]);
 
+ // Leaving a plain shell ends it; returning opens a fresh one.
+ const restartShell = useCallback(() => setAttempt(n => n + 1), []);
+ useShellBlurClose(plan.closeOnBlur, terminalRef, restartShell);
+
  const pendingFocus = useRef<string | null>(null);
+ const focusWorkspace = plan.routeFocus?.workspace; const focusTab = plan.routeFocus?.tab;
  useEffect(() => {
-  if (state.status !== "open" || !params.focusWorkspace) return;
-  const target = `${hostId}/${params.focusWorkspace}/${params.focusTab ?? ""}`;
+  if (state.status !== "open" || !focusWorkspace) return;
+  const target = `${hostId}/${focusWorkspace}/${focusTab ?? ""}`;
   if (pendingFocus.current === target) return;
   pendingFocus.current = target;
   let alive = true;
   void catalog.list().then(async hosts => {
    const computer = hosts.find(h => h.id === hostId);
-   const result = computer ? await herdrSwitcher.focus(computer, params.focusWorkspace!, params.focusTab) : { ok: false as const, code: "HERDR_FAILED" as const };
+   const result = computer ? await herdrSwitcher.focus(computer, focusWorkspace, focusTab) : { ok: false as const, code: "HERDR_FAILED" as const };
    if (!result.ok && alive) { setError(t.switcher[result.code]); pendingFocus.current = null; }
   }).catch(() => { if (alive) { setError(t.switcher.HERDR_FAILED); pendingFocus.current = null; } });
   return () => { alive = false; };
- }, [state.status, hostId, params.focusWorkspace, params.focusTab, t.switcher]);
+ }, [state.status, hostId, focusWorkspace, focusTab, t.switcher]);
  const open = state.status === "open" && ready;
  async function write(bytes: Uint8Array) {
   if (!terminal || !open) return false;
@@ -249,7 +282,7 @@ export default function TerminalScreen() {
  };
  function reconnect() { sessions.allowUnlockAgain(); if (!ready) web.current?.reload(); setAttempt(n => n + 1); }
  const reason = state.status === "closed" || state.status === "unlock-required" ? state.reason : null;
- const status = pageFailed ? s.error : state.status === "open" ? null : state.status === "connecting" ? s.connecting : state.status === "reconnecting" ? s.reconnecting : state.status === "unlock-required" ? t.sessions.locked : reason === "Herdr se cerró" ? s.normalExit : s.closed;
+ const status = pageFailed ? s.error : state.status === "open" ? null : state.status === "connecting" ? s.connecting : state.status === "reconnecting" ? s.reconnecting : state.status === "unlock-required" ? t.sessions.locked : reason === "Herdr se cerró" ? s.normalExit : reason === "SHELL_CLOSED" ? s.shellExit : reason === "SHELL_DISCONNECTED" ? s.shellDisconnected : s.closed;
 
  const activityStatus = terminalActivityStatus(Boolean(sessionKey) && open && !pageFailed, live.view, s.activity);
 
@@ -259,18 +292,22 @@ export default function TerminalScreen() {
  <ServerViewer topInset={stableInsets.top} selection={serverSelection} close={() => setServerSelection(null)}>
   <View style={{ height: chrome.stripHeight, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, backgroundColor: c.terminalBackground }}>
    <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", overflow: "hidden" }}>
+    <TourAnchor id="terminal.selector" style={{ flex: 1, minWidth: 0 }}>
     <Pressable accessibilityRole="button" accessibilityLabel={`${computerName} · ${s.switchSession}`} accessibilityState={{ expanded: switcherOpen }} onPressIn={openSwitcher} onPress={event => { event.stopPropagation(); openSwitcher(); }} onResponderTerminationRequest={() => false} style={{ flex: 1, minWidth: 0, height: chrome.stripHeight, flexDirection: "row", alignItems: "center" }}>
      <Text numberOfLines={1} ellipsizeMode="tail" style={{ flexShrink: 1, color: c.text, fontSize: 15, fontFamily: theme.font.mono }}>{computerName}</Text><Text accessible={false} style={{ color: c.textMuted, fontSize: 12 }}> ▾</Text>
     </Pressable>
+    </TourAnchor>
    </View>
    <View pointerEvents="none" style={{ width: chrome.cameraGap }} />
    <View style={{ flex: 1, minWidth: 0, overflow: "hidden", flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
    <View style={{ flexShrink: 1, minWidth: 0, backgroundColor: c.surfaceRaised, borderRadius: 14, paddingHorizontal: 8, paddingVertical: 6 }}>
     {activityStatus ? <TerminalActivity status={activityStatus} color={c[activityStatus.kind]} /> : <Text accessibilityLiveRegion="polite" numberOfLines={1} ellipsizeMode="tail" style={{ color: open ? c.textMuted : c.attention, fontSize: 11 }}>{open ? "● " : state.status === "connecting" || state.status === "reconnecting" ? "◌ " : "× "}{status ?? (open ? s.connected : s.connecting)}</Text>}
    </View>
+   <TourAnchor id="terminal.project">
    <Pressable accessibilityRole="button" accessibilityLabel={t.project.open} accessibilityState={{ expanded: project !== null }} hitSlop={6} onPress={() => { blurTerminal(); setProject("sheet"); }} style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: c.attention }}>
     <Ionicons name="git-branch-outline" size={20} color={c.onAccent} />
    </Pressable>
+   </TourAnchor>
    </View>
   </View>
   <View style={{ flex: 1, backgroundColor: c.terminalBackground, overflow: "hidden" }} onLayout={event => { setBounds(event.nativeEvent.layout); sendPage({ type: "fit" }); }}>
@@ -282,12 +319,13 @@ export default function TerminalScreen() {
     allowsInlineMediaPlayback={false} mediaPlaybackRequiresUserAction
     // Opt-in marker for patches/react-native-webview: Android keyboard without suggestions (text already sent cannot be replaced).
     applicationNameForUserAgent="MarsRamTerminal"
-    onError={() => { setReady(false); setPageFailed(true); }}
-    onRenderProcessGone={() => { setReady(false); setPageFailed(true); }}
-    onContentProcessDidTerminate={() => { setReady(false); setPageFailed(true); }}
+    onError={() => { kbd.pageReady(false); setReady(false); setPageFailed(true); }}
+    onRenderProcessGone={() => { kbd.pageReady(false); setReady(false); setPageFailed(true); }}
+    onContentProcessDidTerminate={() => { kbd.pageReady(false); setReady(false); setPageFailed(true); }}
     onMessage={event => {
      const message = decodeWebMessage(event.nativeEvent.data); if (!message) return;
-     if (message.type === "ready") { setReady(true); setPageFailed(false); mode.current = false; }
+     if (message.type === "ready") { setReady(true); setPageFailed(false); mode.current = false; kbd.pageReady(true); }
+     else if (message.type === "tap") kbd.terminalTapped();
      else if (message.type === "input" && !switcherActive.current) input(message.bytes);
      else if (message.type === "size") terminal?.resize(message.cols, message.rows);
      else if (message.type === "cursorMode") mode.current = message.enabled;
@@ -297,7 +335,7 @@ export default function TerminalScreen() {
    {status ? <View style={{ position: "absolute", left: theme.spacing(1), right: theme.spacing(1), top: theme.spacing(1), padding: theme.spacing(2), backgroundColor: c.surfaceRaised, borderRadius: theme.radius.small }}>
     <Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{status}</Text>
     {pageFailed || state.status === "closed" || state.status === "unlock-required" ? <>
-     {reason && reason !== "Herdr se cerró" ? <Text selectable style={{ color: c.text }}>{reason === "HERDR_NOT_FOUND" ? s.herdrNotFound : reason}</Text> : null}
+     {reason && !["Herdr se cerró", "SHELL_CLOSED", "SHELL_DISCONNECTED"].includes(reason) ? <Text selectable style={{ color: c.text }}>{reason === "HERDR_NOT_FOUND" ? s.herdrNotFound : reason}</Text> : null}
      {button(state.status === "unlock-required" ? s.unlock : s.reconnect, reconnect)}
     </> : null}
    </View> : null}
@@ -322,20 +360,20 @@ export default function TerminalScreen() {
   {progress ? <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>{t.attachments.uploading(...progress)}</Text> : null}
   {dictationVisible(dictating) ? <View style={{ marginHorizontal: 10, marginTop: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface }}><DictationStatus d={dictating} terminal /></View> : null}
   <View style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 8 }}>
-  {sessionKey && !chatOpen ? <View pointerEvents="box-none" style={{ position: "absolute", top: -4, left: 0, right: 0, alignItems: "center", zIndex: 2 }}><ChatHandle state="closed" change={next => { if (next === "full") fullChat(); else if (next === "floating") { blurTerminal(); setChatOpen(true); } }} /></View> : null}
+  {sessionKey && !chatOpen ? <View pointerEvents="box-none" style={{ position: "absolute", top: -4, left: 0, right: 0, alignItems: "center", zIndex: 2 }}><TourAnchor id="terminal.chatHandle"><ChatHandle state="closed" change={next => { if (next === "full") fullChat(); else if (next === "floating") { blurTerminal(); setChatOpen(true); } }} /></TourAnchor></View> : null}
   <View accessibilityLabel={s.toolbar} style={{ flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0, padding: 6, borderWidth: 1, borderRadius: 30, borderColor: c.border, backgroundColor: c.surface }}>
-   {terminalBarItems(keys, { keyboard, prefixPanel }).map(({ id: name, info }) => <View key={name} style={{ width: info.width, flexGrow: 1, flexShrink: 1, height: 44, alignItems: "center", justifyContent: "center" }}>
+   {terminalBarItems(keys, { keyboard, prefixPanel }).filter(item => !shell || item.id !== "prefix").map(({ id: name, info }) => <View key={name} style={{ width: info.width, flexGrow: 1, flexShrink: 1, height: 44, alignItems: "center", justifyContent: "center" }}>
     {name === "attach" ? <>
      <AttachmentButton compact label={s.attach} disabled={!open || sending} busy={sending} select={attach} />
     </> : name === "ctrl" ? <>
      {button(ctrlState.mode === "locked" ? s.ctrlLocked : s.ctrlArmed, () => { updateCtrl(tapTerminalCtrl(ctrl.current, Date.now())); }, "Ctrl", !open, ctrlState.mode !== "off", undefined, true)}
      {ctrlState.mode === "locked" ? <View pointerEvents="none" accessible={false} style={{ position: "absolute", top: 1, right: 1 }}><Ionicons name="lock-closed" size={10} color={c.accentText} /></View> : null}
     </>
-     : name === "prefix" ? <Pressable accessibilityRole="button" accessibilityLabel={prefixWaiting ? s.prefixWaiting : "PREFIX"} accessibilityState={{ expanded: prefixPanel, selected: prefixWaiting }} disabled={!open || sending || !keysReady} hitSlop={{ top: 2, bottom: 2 }} onPressIn={() => { prefixLongPress.current = false; }} onLongPress={() => { prefixLongPress.current = true; setChatOpen(false); Keyboard.dismiss(); setPrefixPanel(value => !value); }} onPress={() => { if (!prefixLongPress.current) { if (herdrKeyBytes(herdrKeys.prefix)) void sendPrefix(); else setError(s.bindingUnavailable); } }} style={{ height: 44, width: "100%", paddingHorizontal: 1, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: c.surfaceRaised, borderBottomWidth: prefixWaiting ? 2 : 0, borderColor: c.attention, opacity: open && keysReady ? 1 : 0.4 }}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: prefixWaiting ? c.attention : c.text, fontWeight: "700", fontSize: 10 }}>PREFIX</Text></Pressable>
+     : name === "prefix" ? <TourAnchor id="terminal.prefix" style={{ width: "100%" }}><Pressable accessibilityRole="button" accessibilityLabel={prefixWaiting ? s.prefixWaiting : "PREFIX"} accessibilityState={{ expanded: prefixPanel, selected: prefixWaiting }} disabled={!open || sending || !keysReady} hitSlop={{ top: 2, bottom: 2 }} onPressIn={() => { prefixLongPress.current = false; }} onLongPress={() => { prefixLongPress.current = true; setChatOpen(false); Keyboard.dismiss(); setPrefixPanel(value => !value); }} onPress={() => { if (!prefixLongPress.current) { if (herdrKeyBytes(herdrKeys.prefix)) void sendPrefix(); else setError(s.bindingUnavailable); } }} style={{ height: 44, width: "100%", paddingHorizontal: 1, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: c.surfaceRaised, borderBottomWidth: prefixWaiting ? 2 : 0, borderColor: c.attention, opacity: open && keysReady ? 1 : 0.4 }}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: prefixWaiting ? c.attention : c.text, fontWeight: "700", fontSize: 10 }}>PREFIX</Text></Pressable></TourAnchor>
      : name === "dpad" ? button(padOpen ? s.closeDpad : s.openDpad, () => setPadOpen(value => !value), "", false, padOpen, padOpen, true, <Ionicons name="move-outline" size={20} color={padOpen ? c.onAccent : c.text} />)
      : name === "mic" ? <DictationMic d={dictating} variant="key" disabled={!open || sending} />
      : name === "paste" ? button(s.paste, () => void pasteClipboard(), "", !open || sending, false, undefined, true, <Ionicons name="clipboard-outline" size={20} color={c.text} />)
-     : name === "keyboard" ? button(keyboard ? s.hideKeyboard : s.showKeyboard, () => { if (keyboard) Keyboard.dismiss(); else { setChatOpen(false); sendPage({ type: "focus" }); } }, "", false, false, undefined, true, <MaterialCommunityIcons name="keyboard-outline" size={21} color={c.text} />)
+     : name === "keyboard" ? button(keyboard || proxyActive ? s.hideKeyboard : s.showKeyboard, () => { setKeyboard(Keyboard.isVisible()); if (kbd.press()) setChatOpen(false); }, "", false, false, undefined, true, <MaterialCommunityIcons name="keyboard-outline" size={21} color={c.text} />)
      : info.kind === "custom" ? customKey(name)
      : key(name, keyName(info, s), info.label, info.send !== null && "binding" in info.send && !keysReady)}
    </View>)}
@@ -343,9 +381,17 @@ export default function TerminalScreen() {
   </View>
  </ServerViewer>
  </View>
+ {/* Keyboard target after a key-bar open: text, Backspace and Enter go to the terminal. */}
+ <View pointerEvents="none" importantForAccessibility="no-hide-descendants" style={{ position: "absolute", left: 0, bottom: 0, width: 1, height: 1, opacity: 0 }}>
+  <TextInput ref={proxy} keyboardType="visible-password" autoCapitalize="none" autoCorrect={false} autoComplete="off" spellCheck={false} importantForAutofill="no" caretHidden contextMenuHidden submitBehavior="submit"
+   onFocus={() => setProxyActive(true)} onBlur={() => setProxyActive(false)}
+   onChangeText={text => { if (!text) return; input(proxyTextBytes(text)); proxy.current?.clear(); }}
+   onKeyPress={({ nativeEvent }) => { if (nativeEvent.key === "Backspace") input(proxyKeyBytes("Backspace")!); }}
+   onSubmitEditing={() => input(proxyKeyBytes("Enter")!)} style={{ width: 1, height: 1, padding: 0 }} />
+ </View>
  <View {...edgeSwipe.panHandlers} style={{ position: "absolute", left: 0, top: chrome.stripHeight, bottom: 80, width: 18 }} />
  <HerdrSwitcherDrawer visible={switcherOpen} hostId={hostId} close={closeSwitcher} chooseServer={(computer, server) => { blurTerminal(); setServerSelection({ computer, server }); }} choose={async (computer, workspace, tab) => {
-  if (computer.id === hostId) {
+  if (computer.id === hostId && !shell) {
    const result = await herdrSwitcher.focus(computer, workspace, tab);
    if (result.ok) refreshPaneChat();
    return result;

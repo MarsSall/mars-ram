@@ -28,6 +28,16 @@ describe("terminal channel", () => {
   await sshModuleHostConnection.forwardLocal("conn", 3000, "::1");
   expect(native.forwardLocal).toHaveBeenLastCalledWith("conn", 3000, "::1");
  });
+	it("refuses malformed commands before the native module", async () => {
+		native.openTerminal.mockClear();
+		for (const command of [[""], [" "], ["\t"], ["herdr", " "], [null], [undefined], [1], ["herdr", "--session", "\n"], null, undefined, "herdr", {}] as unknown[]) {
+			expect(await sshModuleTerminalChannel.open("conn", command as string[], 80, 24)).toEqual({ ok: false, code: "SSH_ERROR", message: "Only Herdr or a login shell can be opened" });
+		}
+		expect(native.openTerminal).not.toHaveBeenCalled();
+		expect(await sshModuleTerminalChannel.open("conn", [], 80, 24)).toEqual({ ok: true, terminalId: "term" });
+		expect(native.openTerminal).toHaveBeenLastCalledWith("conn", [], 80, 24, "xterm-256color");
+		await sshModuleTerminalChannel.close("term");
+	});
 	it("adapts arbitrary binary bytes and scopes/removes native subscriptions", async () => {
 		const terminal = sshModuleTerminalChannel;
 		expect(await terminal.open("conn", ["herdr"], 80, 24)).toEqual({ ok: true, terminalId: "term" });
@@ -236,9 +246,11 @@ describe("terminal channel", () => {
 
 	it("fake rejects command injection, invalid sizes and oversized writes", async () => {
 		const terminal = new FakeTerminalChannel();
-		for (const command of [["sh"], ["herdr;whoami"], ["herdr", "--session", "a b"], ["herdr", "--session", "a".repeat(65)], ["herdr", "extra"]]) {
-			expect(await terminal.open("conn", command, 80, 24)).toMatchObject({ ok: false, code: "SSH_ERROR", message: "Only Herdr can be opened" });
+		for (const command of [["sh"], [""], ["herdr;whoami"], ["herdr", "--session", "a b"], ["herdr", "--session", "a".repeat(65)], ["herdr", "extra"]]) {
+			expect(await terminal.open("conn", command, 80, 24)).toMatchObject({ ok: false, code: "SSH_ERROR", message: "Only Herdr or a login shell can be opened" });
 		}
+		// An empty command is the login shell (native startShell).
+		expect(await terminal.open("conn", [], 80, 24)).toMatchObject({ ok: true });
 		for (const size of [0, 1001, 1.5, NaN]) expect(await terminal.open("conn", ["herdr"], size, 24)).toMatchObject({ ok: false, code: "SSH_ERROR" });
 		const opened = await terminal.open("conn", ["herdr"], 1, 1000);
 		if (!opened.ok) throw new Error("open failed");

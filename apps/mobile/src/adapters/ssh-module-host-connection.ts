@@ -108,6 +108,10 @@ const captures = new Map<string, ReturnType<typeof captureTerminal>>();
 
 export const sshModuleTerminalChannel: TerminalChannel = {
 	open: async (connectionId, command, cols, rows, term = "xterm-256color") => {
+		// Exactly [] (login shell) or non-blank strings; native applies the Herdr rule on top.
+		if (!Array.isArray(command) || !command.every((part: unknown) => typeof part === "string" && part.trim() !== "")) {
+			return { ok: false, code: "SSH_ERROR", message: "Only Herdr or a login shell can be opened" };
+		}
 		const capture = captureTerminal();
 		try {
 			const result = await Ssh.openTerminal(connectionId, command, cols, rows, term);

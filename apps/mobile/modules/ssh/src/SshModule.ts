@@ -151,6 +151,7 @@ declare class SshModule extends NativeModule<SshEvents> {
 	openZeroTier(): Promise<void>;
 	/** Network settings (no public Private DNS screen exists), then Settings. Rejects SETTINGS_UNAVAILABLE. */
 	openPrivateDnsSettings(): Promise<void>;
+	/** `[]` starts the login shell (SSH shell request); otherwise only `[herdrPath]` or `[herdrPath, "--session", name]`. */
 	openTerminal(connectionId: string, command: string[], cols: number, rows: number, term?: string): Promise<{ ok: true; terminalId: string } | Failure>;
 	writeTerminal(terminalId: string, base64Data: string): Promise<{ ok: true } | Failure>;
 	resizeTerminal(terminalId: string, cols: number, rows: number): Promise<{ ok: true } | Failure>;

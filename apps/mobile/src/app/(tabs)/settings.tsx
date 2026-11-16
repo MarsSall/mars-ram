@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Constants from "expo-constants";
-import { appBuild } from "../../services";
+import { appBuild, startTour } from "../../services";
 import { AppUpdateNotice } from "../../ui/app-update-notice";
 import { getLocales } from "expo-localization";
 import { privacyUrl, SOURCE_URL } from "../../core/about";
@@ -14,6 +14,8 @@ import { SecretFilesSetting } from "../../ui/secret-files-setting";
 import { TerminalFontSettings } from "../../ui/terminal-font-settings";
 import { TerminalKeysEntry } from "../../ui/terminal-keys-entry";
 import { useKeySecurity } from "../../ui/use-key-security";
+import { TourAnchor } from "../../ui/tour/anchors";
+import { useTourScroll } from "../../ui/tour/scroll";
 import { Card, Screen, SectionTitle, Segmented } from "../../ui/components";
 import { type LanguageChoice, usePreferences } from "../../ui/preferences";
 import type { ThemeName } from "../../ui/theme";
@@ -23,6 +25,7 @@ export default function SettingsScreen() {
 	const { theme, setTheme, language, setLanguage, t, showEmpty, setShowEmpty, retention, setRetention } = usePreferences();
 	const [preferenceError, setPreferenceError] = useState(false);
 	const security = useKeySecurity();
+	const tourScroll = useTourScroll();
 	const pending = security.status?.perComputer.some(computer => computer.phase !== "done") ?? false;
 	const changeUnlock = (value: boolean) => {
 		if (value) { void security.change(true); return; }
@@ -41,7 +44,7 @@ export default function SettingsScreen() {
 	);
 	return (
 		<Screen title={t.settings.title}>
-			<ScrollView contentContainerStyle={{ paddingBottom: theme.spacing(8) }}>
+			<ScrollView {...tourScroll.props} contentContainerStyle={{ paddingBottom: theme.spacing(8) }}>
 				<SectionTitle>{t.settings.appearance}</SectionTitle>
 				<Card>
 					{label(t.settings.theme)}
@@ -65,7 +68,7 @@ export default function SettingsScreen() {
 				<TerminalFontSettings><TerminalKeysEntry open={() => router.push("/terminal-keys")} /></TerminalFontSettings>
 				<SecretFilesSetting />
 				<DictationSettings />
-				<NotificationSettingsCard />
+				<TourAnchor id="settings.notifications" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.notifications")}><NotificationSettingsCard /></TourAnchor>
 				<SectionTitle>{t.settings.security}</SectionTitle>
 				<Card>
 					<View style={{ flexDirection: "row", alignItems: "center", minHeight: 48 }}>
@@ -87,11 +90,15 @@ export default function SettingsScreen() {
 				</Card>
 				<SectionTitle>{t.settings.about}</SectionTitle>
 				<AppUpdateNotice />
+				<TourAnchor id="settings.about" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.about")}>
 				<Card>
 					{row(t.settings.version, appBuild.version ?? Constants.expoConfig?.version ?? t.settings.unknownVersion)}
 					{row(t.settings.build, appBuild.build === null ? t.settings.unknownVersion : String(appBuild.build))}
 					<Pressable accessibilityRole="button" onPress={() => router.push("/whats-new")} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.whatsNew.open}</Text>
+					</Pressable>
+					<Pressable accessibilityRole="button" onPress={() => { void startTour(); }} style={{ minHeight: 48, justifyContent: "center" }}>
+						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.tour.open}</Text>
 					</Pressable>
 					<Pressable accessibilityRole="link" onPress={() => openLink(privacyUrl(language, getLocales()[0]?.languageCode ?? undefined))} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.settings.privacy}</Text>
@@ -100,6 +107,7 @@ export default function SettingsScreen() {
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.settings.source}</Text>
 					</Pressable>
 				</Card>
+				</TourAnchor>
 				{__DEV__ ? <>
 				<SectionTitle>{t.settings.prototype}</SectionTitle>
 				<Card>

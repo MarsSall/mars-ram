@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { decodeNetworkPairingUri, encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION } from "@workspace/protocol";
-import { PairingSession } from "../../src/core/pairing-session.ts";
+import { encode } from "uqr";
+import { PairingSession, pairingUri } from "../../src/core/pairing-session.ts";
 import type { PairingPorts } from "../../src/core/ports.ts";
 
 const CODE = "q7Hn2vJk9sLp4xWc8bZr5t";
@@ -54,6 +55,36 @@ describe("offer", () => {
 		const offer = zerotier.offer();
 		expect(offer).toEqual({ v: ZEROTIER_PAIRING_VERSION, network: "zerotier", name: "devbox", address: "10.147.17.5", sshPort: 22, user: "mars", hostKey: host.hostKey, pairPort: 47123, code: CODE, expiresAt: 61_000 });
 		expect(decodeNetworkPairingUri(encodePairingUri(offer))).toEqual({ ok: true, network: "zerotier", value: offer });
+	});
+});
+
+describe("pairing URI", () => {
+	// Like main.ts: 16 random bytes in base64url, and a real host's lengths (devbox, L2).
+	const code = "q7Hn2vJk9sLp4xWc8bZr5w";
+	const realHost = { ...host, address: "100.101.102.103", hostKey: "SHA256:qRVphWsodSTgaiccfTUZnEG1F5sNV42gPqC+/Bl35B8", dnsName: "devbox.tail1234ab.ts.net" };
+	const sessionOver = (network: "tailscale" | "zerotier", address = realHost.address) =>
+		new PairingSession({ host: { ...realHost, address }, network, ports: { ...ports(), clock: () => 1_800_000_000_000, randomCode: () => code }, ttlMs: 5 * 60_000, maxBadAttempts: 5 });
+	const version = (uri: string) => Buffer.from(uri.split("?p=")[1]!, "base64url")[0];
+
+	it.each([
+		["tailscale", undefined],
+		["zerotier", "10.147.17.5"],
+	] as const)("prints the compact version 3 offer over %s, which reads back as the same offer", (network, address) => {
+		const pairing = sessionOver(network, address);
+		const uri = pairingUri(pairing.offer());
+		expect(version(uri)).toBe(3);
+		expect(decodeNetworkPairingUri(uri)).toEqual({ ok: true, network, value: pairing.offer() });
+	});
+
+	it("fits a typical Tailscale offer in a 45×45 QR, down from 65×65", () => {
+		const offer = sessionOver("tailscale").offer();
+		expect(encode(encodePairingUri(offer), { border: 0 }).size).toBe(65);
+		expect(encode(pairingUri(offer), { border: 0 }).size).toBeLessThanOrEqual(45);
+	});
+
+	it("falls back to the version 1 offer when the compact one cannot carry it exactly", () => {
+		const offer = { ...sessionOver("tailscale").offer(), code: CODE };
+		expect(pairingUri(offer)).toBe(encodePairingUri(offer));
 	});
 });
 

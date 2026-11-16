@@ -172,4 +172,21 @@ describe("bundled changelog", () => {
   expect(note.es.new.join("\n")).toContain("Mostrar");
   expect(note.en.new.join("\n")).toContain("Show");
  });
+
+ it("build 11 names the tour, Abrir terminal, the smaller QR and mars-ram update of 0.1.7, in plain words", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 11)!;
+  expect(note).toBeDefined();
+  expect(RELEASE_NOTES[0]).toBe(note);
+  for (const side of [note.es, note.en]) {
+   const text = [...side.new, ...side.fixes].join("\n");
+   for (const word of ["QR", "mars-ram 0.1.7", "mars-ram update", "Tailscale", "ZeroTier"]) expect(text).toContain(word);
+   expect(text).not.toMatch(/SSH|SFTP|bridge|protocol|PTY|\bIME\b|base64|\bv3\b|JSON|--network|pair-zt/i);
+   expect(side.new).toHaveLength(4);
+   expect(side.fixes).toHaveLength(2);
+  }
+  expect(note.es.new.join("\n")).toContain("«Abrir terminal»");
+  expect(note.es.new.join("\n")).toContain("«Ver tutorial»");
+  expect(note.en.new.join("\n")).toContain("«Open terminal»");
+  expect(note.en.new.join("\n")).toContain("«Show tutorial»");
+ });
 });

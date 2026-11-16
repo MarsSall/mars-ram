@@ -8,6 +8,9 @@ import { catalog, herdrSwitcher, servers, sessions } from "../services";
 import { usePreferences } from "./preferences";
 import { en } from "./i18n/en";
 import { AgentIcon } from "./agent-icon";
+import { TourAnchor } from "./tour/anchors";
+import { MODAL_TIPS } from "./tour/tip-gate";
+import { TipLayer, useFirstVisitTip } from "./tour/tips";
 
 const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 function StatusGlyph({ status, frame }: { status: HerdrStatus; frame: string }) {
@@ -41,6 +44,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
  const [catalogError, setCatalogError] = useState(false); const [catalogAttempt, setCatalogAttempt] = useState(0);
  const [reduceMotion, setReduceMotion] = useState(true); const [frame, setFrame] = useState(0);
  const search = useRef<ComponentRef<typeof TextInput>>(null);
+ useFirstVisitTip("sessionSelector", visible);
  function dismissInput() { search.current?.blur(); Keyboard.dismiss(); }
  function dismissDrawer() { dismissInput(); close(); }
  const active = useRef(false); const generation = useRef(0); const pending = useRef(new Set<string>());
@@ -169,7 +173,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
       <Text accessibilityRole="header" style={{ color: c.textMuted, fontWeight: "700", fontSize: 13, letterSpacing: .6, marginVertical: 16 }}>{s.spaces.toLocaleUpperCase()} · {workspaces.length}</Text>
       {computer ? message(computer) : !catalogError && !catalogLoaded ? <Text style={{ color: c.textMuted }}>{s.loading("")}</Text> : null}
       {entry?.state === "ok" && !workspaces.length ? <Text style={{ color: c.textMuted, padding: 12 }}>{entry.workspaces.length ? s.noMatches : s.empty}</Text> : null}
-      {computer ? workspaces.map(w => <View key={w.id}>{row(computer, w)}{w.tabs.map(tab => row(computer, w, tab))}</View>) : null}
+      {computer ? workspaces.map((w, i) => <View key={w.id}>{i === 0 ? <TourAnchor id="selector.list">{row(computer, w)}</TourAnchor> : row(computer, w)}{w.tabs.map(tab => row(computer, w, tab))}</View>) : null}
      </> : <>
       {computers.map(h => <View key={h.id}>{message(h)}</View>)}
       {(["blocked", "working", "done", "idle"] as const).map(status => <View key={status}><Text accessibilityRole="header" style={{ color: c.textMuted, fontSize: 13, fontWeight: "700", letterSpacing: .6, marginVertical: 16 }}>{s[status].toLocaleUpperCase()} · {groups[status].length}</Text>{groups[status].map(({ computer, workspace, tab }) => row(computer, workspace, tab, true))}</View>)}
@@ -177,6 +181,8 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
      </>}
     </ScrollView>
    </View>
+   {/* Above the drawer: the root tip layer would sit under this Modal. */}
+   <TipLayer tips={MODAL_TIPS} />
   </View>
  </Modal>;
 }

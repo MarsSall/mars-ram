@@ -141,6 +141,16 @@ describe("pane discovery", () => {
   http.states.set(1234, state("a", { protocolVersion: "1.4" }));
   expect((await lister.list([linux]))[0].sessions[0]).not.toHaveProperty("terminalPane");
  });
+ it("marks a session that runs in a terminal even when its bridge does not report the pane", async () => {
+  host.registry(linux.address, entry("a", 1234, "/work/a"));
+  // A Pi session started before its bridge reported terminalPane still drives its Herdr pane.
+  http.states.set(1234, state("a", { terminal: true }));
+  const [listed] = (await lister.list([linux]))[0].sessions;
+  expect(listed).toMatchObject({ terminal: true });
+  expect(listed).not.toHaveProperty("terminalPane");
+  http.states.set(1234, state("a"));
+  expect((await lister.list([linux]))[0].sessions[0]).not.toHaveProperty("terminal");
+ });
 });
 
 describe("attention-first session groups", () => {

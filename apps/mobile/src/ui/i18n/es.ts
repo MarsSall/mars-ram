@@ -5,6 +5,22 @@ export const es: Strings = {
   title: "Novedades", open: "Novedades", version: (version: string, build: number | null) => build === null ? `Versión ${version}` : `Versión ${version} (${build})`,
   new: "Nuevo", fixes: "Arreglos", done: "Entendido", empty: "Esta versión no trae notas.",
  },
+ tour: {
+  open: "Ver tutorial", skip: "Saltar recorrido", start: "Empezar", next: "Siguiente",
+  counter: (n: number, total: number) => `${n} de ${total}`,
+  hints: { area: "Tocá el área para seguir", bar: "Tocá la barra para seguir", control: "Tocalo para seguir", card: "Tocá la tarjeta para seguir" },
+  dialog: (n: number, total: number) => `Recorrido, paso ${n} de ${total}`,
+  explainContext: "En la terminal de una sesión",
+  steps: {
+   sessions: "Acá vas a ver tus sesiones activas.", openTerminal: "Acá abrís una terminal en la computadora que elijas.", tabs: "Con estas pestañas te movés por la app.", diffs: "Acá ves los cambios y diffs del proyecto.", selector: "Tocá acá para ver agentes y workspaces.",
+   addComputer: "Tocá + para agregar otra computadora.", createLink: "«Crear link» te da un link privado por 24 h.", notifications: "Acá elegís los avisos, como Siempre atento.", about: "En Acerca de, «Ver tutorial» repite este recorrido.", done: "Listo: ya sabés dónde está cada cosa.",
+  },
+ },
+ tips: {
+  label: (screen: string) => `Sugerencia · ${screen}`, done: "Entendido", dialog: "Sugerencia de primera vez",
+  names: { terminal: "Terminal", chatFloating: "Chat flotante", projectSheet: "Archivos y Git del proyecto", sessionSelector: "Selector de sesiones" },
+  lines: { terminal: ["Deslizá hacia arriba para el chat.", "PREFIX envía la tecla de Herdr."], chatFloating: ["Lo que escribas acá le llega al agente."], projectSheet: ["Acá ves archivos, cambios y ramas del proyecto."], sessionSelector: ["Tocá el nombre para cambiar de sesión."] },
+ },
  appUpdate: {
   available: "Hay una versión nueva de Mars-RAM", update: "Actualizar", dismiss: "Ahora no",
   downloading: "Descargando la actualización en Google Play… Podés seguir usando la app.",
@@ -15,6 +31,8 @@ export const es: Strings = {
   required: 'Esta computadora necesita una actualización',
   soft: 'Hay una versión más nueva para la computadora',
   terminal: 'Ejecutá estos comandos en la terminal de la computadora (Linux o Windows):',
+  terminalOne: 'Ejecutá este comando en la terminal de la computadora (Linux o Windows):',
+  manual: 'Hacelo en una terminal normal, no de administrador, y escribí los dos comandos de a uno: cada uno en su línea, con Enter al final.',
   reload: 'Escribí /reload en esta sesión para usar lo nuevo',
  },
  shortcuts: {
@@ -110,6 +128,11 @@ export const es: Strings = {
 	tabs: { home: "Inicio", sessions: "Sesiones", computers: "Computadoras", files: "Archivos", settings: "Ajustes" },
 	status: { attention: "Necesita tu atención", working: "Trabajando", done: "Terminó" },
 	freshness: { live: "Al día", stale: "Desactualizado" },
+	networkHint: {
+		short: (network: string) => `Prendé ${network}`,
+		switch: (network: string, active: string) => `Vinculada por ${network}; en el teléfono está prendido ${active}. Prendé ${network}.`,
+		turnOn: (network: string) => `Prendé ${network} en el teléfono para llegar a esta computadora.`,
+	},
 	sessions: {
 		title: "Sesiones",
 		needsYou: "Necesita tu atención",
@@ -161,6 +184,7 @@ export const es: Strings = {
 		toolbar: "Teclas del terminal", toolbarHint: "Deslizá la barra para ver más teclas →",
 		chat: "Chat", switchSession: "Ir a Sesiones", floatingChat: "Chat flotante", closeChat: "Cerrar chat", openChat: "Abrir chat", expandChat: "Abrir chat completo", backToTerminal: "Volver a la terminal", chatGestureHint: "Deslizá hacia arriba para abrir el chat; más lejos o rápido para el chat completo.", fullChatHint: "Deslizá hacia arriba para el chat completo o hacia abajo para cerrar. También podés tocar el símbolo.", openDpad: "Abrir D-pad", closeDpad: "Cerrar D-pad", moveDpad: "Arrastrar D-pad", dpadSpace: "Girá el teléfono u ocultá el teclado para hacer lugar al D-pad.",
 		copy: "Copiar selección", reconnect: "Reconectar", unlock: "Desbloquear y reconectar", normalExit: "Herdr se cerró", herdrNotFound: "No encontré Herdr en esta computadora: corré mars-ram install de nuevo", closed: "Terminal cerrada", missingComputer: "Esta computadora ya no está guardada.",
+		shellExit: "La terminal se cerró", shellDisconnected: "Se cortó la conexión y esta terminal se cerró. Reconectá para abrir una nueva en tu carpeta personal.",
 		notHerdr: "Esta sesión no corre en Herdr: abrila dentro de Herdr para ver su terminal",
 		title: "Terminal", connecting: "Conectando…", reconnecting: "Reconectando… Conservamos la última pantalla; puede estar desactualizada.",
 		error: "No pudimos conectar con la terminal. Revisá la conexión e intentá de nuevo.",
@@ -225,6 +249,15 @@ export const es: Strings = {
 		createButton: "Crear botón", updateButton: "Guardar botón", afterCreate: "Queda en «Mis botones» del catálogo, listo para ubicar.",
 		delete: "Borrar botón", deleteTitle: (name: string) => `¿Borrar «${name}»?`, deleteBody: "También se saca de la barra y del D-pad.",
 		customKey: (name: string, text: string, enter: boolean) => `Botón propio ${name}: ${enter ? "envía" : "escribe"} ${text}${enter ? " y Enter" : ""}`,
+	},
+	openers: {
+		button: "Abrir terminal", chooseComputer: "Elegí una computadora", chooseOpener: "¿Qué abrís?",
+		checking: "Revisando qué se puede abrir en esta computadora…", loading: "Cargando computadoras…", noComputers: "No hay computadoras vinculadas.",
+		failed: "No se pudieron cargar tus computadoras. Volvé a intentar.", back: "Volver", retry: "Reintentar", more: "Más opciones a medida que sumemos soporte",
+		names: { herdr: "Herdr", shell: "Terminal" },
+		descriptions: { herdr: "Tus sesiones de Herdr, como «Abrir Herdr»", shell: "Una terminal común en tu carpeta personal" },
+		herdrMissing: (computer: string) => `Herdr no está instalado en ${computer}. Elegí otra opción, o instalá Herdr y corré mars-ram install de nuevo.`,
+		unavailable: "No disponible",
 	},
 	launcher: {
 		open: (name: string) => `Abrir Herdr en ${name}`, choose: (name: string) => `Elegir terminal en ${name}`,

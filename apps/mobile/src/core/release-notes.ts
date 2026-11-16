@@ -7,6 +7,34 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 11,
+  version: "1.0.0",
+  es: {
+   new: [
+    "Un recorrido corto te muestra, sobre las pantallas de la app, dónde está cada cosa. Lo repetís cuando quieras desde Ajustes › Acerca de › «Ver tutorial». La primera vez que entrás a algunas pantallas te aparece una sugerencia.",
+    "En Inicio, «Abrir terminal» abre Herdr o una terminal común en la compu que elijas.",
+    "El QR para conectar una compu es mucho más chico y se escanea más fácil. Lo muestra mars-ram 0.1.7, y para escanearlo necesitás esta versión de la app. Además, la compu detecta sola si usás Tailscale o ZeroTier, y si están los dos te pregunta cuál.",
+    "Con mars-ram 0.1.7 en la compu, actualizarla es un solo comando: mars-ram update. La app te lo muestra cuando hay una versión nueva.",
+   ],
+   fixes: [
+    "El botón del teclado en la terminal abre el teclado al primer toque.",
+    "Si una compu no responde porque falta prender Tailscale o ZeroTier en el teléfono, la app te dice cuál prender.",
+   ],
+  },
+  en: {
+   new: [
+    "A short tour shows you, on the app's own screens, where everything is. Repeat it whenever you want from Settings › About › «Show tutorial». The first time you open some screens, a tip appears.",
+    "On Home, «Open terminal» opens Herdr or a plain terminal on the computer you choose.",
+    "The QR code for connecting a computer is much smaller and easier to scan. mars-ram 0.1.7 shows it, and you need this version of the app to scan it. Also, the computer detects on its own whether you use Tailscale or ZeroTier, and asks which one when both are on.",
+    "With mars-ram 0.1.7 on the computer, updating it is a single command: mars-ram update. The app shows it to you when a new version is out.",
+   ],
+   fixes: [
+    "The keyboard button in the terminal opens the keyboard on the first tap.",
+    "When a computer doesn't answer because Tailscale or ZeroTier is off on the phone, the app tells you which one to turn on.",
+   ],
+  },
+ },
+ {
   build: 10,
   version: "1.0.0",
   es: {

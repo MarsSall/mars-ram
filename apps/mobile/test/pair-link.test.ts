@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
+import { encodeCompactPairingUri, encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type PairingOffer } from "@workspace/protocol";
 import { pairingFailureMessage, pairingUriFromLink, readPairLink } from "../src/core/pair-link";
 import { en } from "../src/ui/i18n/en";
 import { es } from "../src/ui/i18n/es";
@@ -70,6 +70,28 @@ describe("pairing link", () => {
 			ok: true,
 			offer: { name: "devbox", address: "10.147.17.5", expiresAt: 10_000, uri },
 		});
+	});
+});
+
+describe("compact pairing link (version 3)", () => {
+	// The compact offer carries the key and code as bytes, so they are canonical like the computer's.
+	const compact: PairingOffer = { ...offer, hostKey: `SHA256:${"B".repeat(42)}A`, code: "q7Hn2vJk9sLp4xWc8bZr5w" };
+	const after = (uri: string) => uri.slice(uri.indexOf("p=") + 2);
+
+	it("summarizes a Tailscale offer with its MagicDNS name and keeps the URI the QR carries", () => {
+		const uri = encodeCompactPairingUri(compact)!;
+		expect(pairingUriFromLink(after(uri))).toBe(uri);
+		expect(readPairLink(after(uri), 1_000)).toEqual({ ok: true, offer: { name: "devbox", address: "devbox.example-tailnet.ts.net", expiresAt: 10_000, uri } });
+	});
+
+	it("summarizes a ZeroTier offer with its ZeroTier address", () => {
+		const { dnsName: _, ...rest } = compact;
+		const uri = encodeCompactPairingUri({ ...rest, v: ZEROTIER_PAIRING_VERSION, network: "zerotier", address: "10.147.17.5" })!;
+		expect(readPairLink(after(uri), 1_000)).toEqual({ ok: true, offer: { name: "devbox", address: "10.147.17.5", expiresAt: 10_000, uri } });
+	});
+
+	it("refuses an expired compact offer", () => {
+		expect(readPairLink(after(encodeCompactPairingUri(compact)!), 10_001)).toEqual({ ok: false, reason: "expired", code: "CODE_EXPIRED" });
 	});
 });
 

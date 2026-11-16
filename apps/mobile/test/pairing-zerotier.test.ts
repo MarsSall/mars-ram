@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type PairingOffer, type ZeroTierPairingOffer } from "@workspace/protocol";
+import { encodeCompactPairingUri, encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type PairingOffer, type ZeroTierPairingOffer } from "@workspace/protocol";
 import { pairWithComputer, type PairingDeps, type VpnPairReply } from "../src/core/pairing";
 import { pairingFailureMessage } from "../src/core/pair-link";
 import { diagnose, diagnosisOffered } from "../src/core/connect-wizard";
@@ -93,6 +93,17 @@ beforeEach(() => {
 const pair = (scanned: ZeroTierPairingOffer = offer) => pairWithComputer(deps, encodePairingUri(scanned));
 
 describe("pairing over ZeroTier", () => {
+	it("pairs from a compact version 3 QR exactly like from a version 2 one", async () => {
+		// The compact offer carries the key and code as bytes, so they are canonical like the computer's.
+		const compact: ZeroTierPairingOffer = { ...offer, hostKey: `SHA256:${"B".repeat(42)}A`, code: "q7Hn2vJk9sLp4xWc8bZr5w" };
+		vpnReply = { ok: true, status: 200, body: JSON.stringify({ ok: true, user: "mars", hostKey: compact.hostKey }) };
+		deps.host = { ...deps.host, connect: async (target: HostTarget) => (connects.push(target), { ok: true, connectionId: "c1", fingerprint: compact.hostKey, address: compact.address }) } as unknown as HostConnection;
+		const result = await pairWithComputer(deps, encodeCompactPairingUri(compact)!);
+		expect(vpnPosts).toEqual([{ address: "10.147.17.5", port: 47123, body: { code: compact.code, publicKey: PUBLIC_KEY, deviceName: "Galaxy S24 Ultra" }, timeoutMs: 9_000 }]);
+		expect(connects).toEqual([{ host: "10.147.17.5", fallbackHost: null, port: 22, username: "mars", keyAlias: "app-key", expectedFingerprint: compact.hostKey }]);
+		expect(result).toMatchObject({ ok: true, host: { name: "devbox", address: "10.147.17.5", network: "zerotier", hostKey: compact.hostKey } });
+	});
+
 	it("probes only the offer's address, sends the key natively to exactly its address and pair port, and saves a ZeroTier computer", async () => {
 		const result = await pair();
 		expect(probes).toEqual([{ address: "10.147.17.5", port: 22 }]);
@@ -243,5 +254,26 @@ describe("ZeroTier pairing failure text", () => {
 		}
 		// A Tailscale failure keeps today's text.
 		expect(pairingFailureMessage({ code, message: "x" }, en.add)).toBe(code === "UNREACHABLE" ? en.add.unreachable : en.add.failures.SEND_FAILED);
+	});
+});
+
+describe("a ZeroTier offer that cannot reach the computer", () => {
+	const failures = [
+		["UNREACHABLE", () => void (probeAnswer = false)],
+		["SEND_FAILED", () => void (vpnReply = new Error("socket closed"))],
+		["SEND_FAILED", () => void (vpnReply = { ok: false, code: "SEND_FAILED" })],
+	] as const;
+
+	it.each(failures)("says %s over ZeroTier, never Tailscale, in Spanish and English", async (code, fail) => {
+		fail();
+		const result = await pair();
+		if (result.ok) throw new Error("pairing should fail");
+		expect(result).toMatchObject({ code, network: "zerotier" });
+		for (const strings of [es.add, en.add]) {
+			const text = pairingFailureMessage(result, strings);
+			expect(text).toBe(strings.zeroTierFailures[code]);
+			expect(text).not.toMatch(/Tailscale|tailnet/i);
+		}
+		expect(diagnosisOffered(result.code)).toBe(true);
 	});
 });

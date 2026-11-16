@@ -3,6 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { groupSessions, type ComputerSessions, type SessionGroups, type SessionSummary } from "../../core/session-list";
 import { buildHome } from "../../core/home";
+import { hostNetwork } from "../../core/host-catalog";
+import { unreachableHint } from "../../core/network-hint";
+import { networkHintText } from "../../ui/network-hint";
+import { usePhoneNetworkState } from "../../ui/use-phone-network-state";
 import { HomeHeading, HomeWelcome } from "../../ui/home-welcome";
 import type { SessionRefreshReason } from "../../core/session-order";
 import { Card, EmptyState, Screen, SectionTitle, StatusPill } from "../../ui/components";
@@ -12,11 +16,16 @@ import { useSessions } from "../../ui/use-sessions";
 import { ShortcutsSection } from "../../ui/shortcuts";
 import { HostUpdateNotice } from '../../ui/host-update-notice';
 import { AppUpdateNotice } from "../../ui/app-update-notice";
+import { TourAnchor } from "../../ui/tour/anchors";
+import { useTourScroll } from "../../ui/tour/scroll";
 
 export default function HomeScreen() {
 	const router = useRouter();
 	const { theme, t } = usePreferences();
 	const { data, refreshing, refresh } = useSessions();
+	const tourScroll = useTourScroll();
+	// Read again with every session refresh: the user may switch VPNs from the quick settings without leaving the app.
+	const phone = usePhoneNetworkState(data);
 	const [ordered, setOrdered] = useState<SessionGroups>({ computers: [], needsYou: [], groupOrder: {} });
 	const nextOrder = useRef<SessionRefreshReason>("focus");
 
@@ -79,11 +88,18 @@ export default function HomeScreen() {
 		</Card>
 	);
 
+	// Only an unreachable computer can get a hint; its own network on or an unknown phone keeps «no responde».
+	const hintOf = (computer: ComputerSessions) => {
+		const host = data?.hosts.find((h) => h.id === computer.hostId);
+		const hint = host ? unreachableHint(hostNetwork(host), phone, computer.state !== "unreachable") : null;
+		return hint ? networkHintText(t, hint) : null;
+	};
+
 	const notice = (computer: ComputerSessions) => {
 		const text = {
 			ok: null,
 			"no-pi": t.sessions.noPi,
-			unreachable: t.sessions.unreachable,
+			unreachable: hintOf(computer)?.full ?? t.sessions.unreachable,
 			locked: t.sessions.locked,
 			"identity-changed": t.sessions.identityChanged,
 		}[computer.state];
@@ -97,12 +113,12 @@ export default function HomeScreen() {
 	return (
 		<Screen>
 			<ScrollView
+				{...tourScroll.props}
 				contentContainerStyle={{ paddingBottom: theme.spacing(6) }}
 				refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshByHand} tintColor={c.accentText} colors={[c.accentText]} progressBackgroundColor={c.surfaceRaised} />}
 			>
 				<HomeHeading />
 				<AppUpdateNotice />
-				{data === null ? <EmptyState message={t.sessions.loading} /> : null}
 				{home && home.needsYou.length > 0 ? (
 					<>
 						<SectionTitle right={count(t.sessions.sessionCount(ordered.needsYou.length))}>{t.home.needsYou}</SectionTitle>
@@ -110,16 +126,23 @@ export default function HomeScreen() {
 					</>
 				) : null}
 				{home && data ? <ShortcutsSection hosts={data.hosts} /> : null}
+				{/* The tour's first step: the same area whether it is loading, empty or full. */}
+				<TourAnchor id="home.sessions" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("home.sessions")}>
+				{data === null ? <EmptyState message={t.sessions.loading} /> : null}
 				{home ? <SectionTitle>{t.home.activeSessions}</SectionTitle> : null}
 				{home?.emptySessions ? <EmptyState message={t.home.empty} hint={t.home.emptyHint} /> : null}
-				{home?.computers.map((computer) => (
+				{home?.computers.map((computer) => {
+					const hint = hintOf(computer);
+					return (
 					<View key={computer.hostId}>
-						<Text style={{ color: c.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2) }}>{computer.name} · {t.home.computerStatus[computer.status]}</Text>
+						<Text accessibilityLabel={hint ? `${computer.name} · ${hint.full}` : undefined} style={{ color: c.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingVertical: theme.spacing(2) }}>{computer.name} · {hint?.short ?? t.home.computerStatus[computer.status]}</Text>
 						<HostUpdateNotice update={data?.updates[computer.hostId]} />
 						{notice(computer)}
 						{computer.sessions.map((s) => row(s))}
 					</View>
-				))}
+					);
+				})}
+				</TourAnchor>
 				{data !== null && data.hosts.length > 0 ? (
 					<Text style={{ color: c.textMuted, fontSize: 12, textAlign: "center", marginTop: theme.spacing(4) }}>{t.sessions.updated(formatTime(data.updatedAt))}</Text>
 				) : null}

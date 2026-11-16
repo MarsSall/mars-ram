@@ -6,6 +6,7 @@ import { fileHostCatalog } from "./adapters/file-host-catalog";
 import { fileLinkHistory } from "./adapters/file-link-history";
 import { fileShortcuts } from "./adapters/file-shortcuts";
 import { ShortcutHost } from "./core/shortcuts";
+import { TerminalOpenerHost } from "./core/terminal-openers";
 import { fileKeySecurity } from "./adapters/file-key-security";
 import { KeySecurity, type KeyGeneration } from "./core/key-security";
 import { LinkService } from "./core/links";
@@ -36,6 +37,8 @@ import { nativeNotifications } from "./adapters/native-notifications";
 import { WhatsNew } from "./core/whats-new";
 import { AppUpdates } from "./core/app-updates";
 import { fileSeenBuild } from "./adapters/file-seen-build";
+import { fileTourFlags } from "./adapters/file-tour-flags";
+import { AppTour, findTourSession, pairAndCheckTour, type TourListing } from "./core/tour";
 import { fileAppUpdateCheck } from "./adapters/file-app-update-check";
 import { playAppUpdates, readAppBuild } from "./adapters/play-app-updates";
 import { nativePhoneNetwork } from "./adapters/native-phone-network";
@@ -76,6 +79,8 @@ export const secretFiles = new SecretFilesPreference(fileSecretFiles);
 export const appBuild = readAppBuild();
 /** «Novedades»: bundled notes shown once per build. */
 export const whatsNew = new WhatsNew({ store: fileSeenBuild, current: appBuild });
+/** The guided tour (once after the first pairing, or «Ver tutorial») and the first-visit tips. */
+export const appTour = new AppTour({ store: fileTourFlags });
 /** Google Play update notice: at most once per start and once a day; silent without Play. */
 export const appUpdates = new AppUpdates({ source: playAppUpdates, store: fileAppUpdateCheck, clock: Date.now, build: appBuild.build });
 
@@ -202,6 +207,7 @@ export const notificationSystem = {
 export const herdrSwitcher = new HerdrSwitcher({ connections, host: sshModuleHostConnection });
 export const shortcuts = fileShortcuts;
 export const shortcutHost = new ShortcutHost({ connections, host: sshModuleHostConnection });
+export const terminalOpenerHost = new TerminalOpenerHost({ connections, host: sshModuleHostConnection });
 export const newShortcutId = newId;
 export const servers = new Servers({ connections, host: sshModuleHostConnection });
 export const projectBrowser = new ProjectBrowser({ connections, host: sshModuleHostConnection });
@@ -253,6 +259,9 @@ function sessionUploads(key: string): AttachmentUploads {
 	};
 }
 
+/** The latest session list (what Inicio shows), for the tour's steps 3-4. */
+let lastListing: TourListing | null = null;
+
 export const sessions = {
 	/** null is unknown/unreachable, not evidence that a session is outside Herdr. */
 	terminalCapability: async (key: string): Promise<boolean | null> => {
@@ -275,6 +284,7 @@ export const sessions = {
 		// Version checks never delay the session list; their results show on the next refresh.
 		const reachable = new Set(computers.filter(c => c.state === 'ok' || c.state === 'no-pi').map(c => c.hostId));
 		const updates = hostUpdates.snapshot(hosts.filter(h => reachable.has(h.id)));
+		lastListing = { hosts, computers };
 		return { hosts, computers, updates };
 	},
 	/** A refresh by hand: after a cancelled unlock, the next connection may ask again. */
@@ -288,3 +298,19 @@ export const sessions = {
 			endpoint: (fresh) => sessionEndpoint(key, fresh),
 		}),
 };
+
+// ---- Tour ----
+
+const TOUR_SESSION_MS = 5_000;
+
+/** Wraps a pairing or manual add; startTour is true after the first computer when the tour was never seen. */
+export const pairingTour = <R extends { ok: boolean }>(run: () => Promise<R>) =>
+ pairAndCheckTour({ savedHosts: async () => (await catalog.list()).length, tour: appTour }, run);
+
+/** After the first pairing and from «Ver tutorial»; steps 3-4 open the first Herdr session in Inicio (shown or, failing that, listed within 5 s). */
+export const startTour = () => appTour.begin(() => findTourSession({
+ shown: () => lastListing,
+ list: () => sessions.list(),
+ timeoutMs: TOUR_SESSION_MS,
+ wait: ms => new Promise<void>(done => setTimeout(done, ms)),
+}));

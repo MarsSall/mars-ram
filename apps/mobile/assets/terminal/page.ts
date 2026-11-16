@@ -40,7 +40,7 @@ export const terminalHtml = `<!doctype html><html><head><meta charset="utf-8">
  }catch(_){} }
  document.addEventListener('message',receive);window.addEventListener('message',receive);
  window.addEventListener('resize',refit);new ResizeObserver(refit).observe(document.body);
- document.getElementById('terminal').addEventListener('click',()=>term.focus());
+ document.getElementById('terminal').addEventListener('click',()=>{term.focus();post({type:'tap'});});
  document.addEventListener('click',event=>{if(event.target.closest('a'))event.preventDefault();});
  window.open=()=>null;
  let pinch=null;

@@ -2,7 +2,7 @@
 
 The command the user runs on their computer: install the Pi session bridge and private-link server, remove them, or pair a phone with a QR code and no cloud.
 
-**First time:** `pnpm add -g mars-ram` (recommended), `npm i -g mars-ram` or `bun add -g mars-ram`, then `mars-ram install` (Linux, macOS or Windows; Node.js 24+). On Linux and macOS the one-line script below is an alternative. **From a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram install` updates, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. The installed copy works without the clone.
+**First time:** `pnpm add -g mars-ram` (recommended), `npm i -g mars-ram` or `bun add -g mars-ram`, then `mars-ram install` (Linux, macOS or Windows; Node.js 24+). On Linux and macOS the one-line script below is an alternative. **From a clone:** with dependencies available, run `node host/cli/src/main.ts install`. **Afterwards, just `mars-ram`**: `mars-ram update` updates the package and runs the new `install`, `mars-ram install` updates the installed copies, `mars-ram doctor` diagnoses, `mars-ram pair` pairs a phone, and `mars-ram uninstall` removes the installation. The installed copy works without the clone.
 
 ## Install from npm
 
@@ -14,7 +14,7 @@ mars-ram pair
 
 The package has no install scripts (pnpm blocks them) and no dependencies; see [npm package](#npm-package). If pnpm says the global bin directory is not set, run `pnpm setup` once and open a new terminal. On Windows, use pnpm or npm.
 
-To update: `pnpm add -g mars-ram` (or the same npm or Bun command), then `mars-ram install`. If you installed earlier with the curl script or from a clone and `mars-ram install` still runs the old version, run `mars-ram uninstall` first, then `mars-ram install`. To remove: `mars-ram uninstall`, then `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`, `bun remove -g mars-ram`).
+To update: `mars-ram update` (0.1.7 and later; see [update](#update)). Up to 0.1.6: `pnpm add -g mars-ram` (or the same npm or Bun command), then `mars-ram install`, one command per line in a non-administrator terminal. If you installed earlier with the curl script or from a clone and `mars-ram install` still runs the old version, run `mars-ram uninstall` first, then `mars-ram install`. To remove: `mars-ram uninstall`, then `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`, `bun remove -g mars-ram`).
 
 To read the package before installing it (Linux, macOS and Windows; Windows 10+ ships `tar`), download it; `npm pack` prints the exact file name, for example `mars-ram-0.1.2.tgz`:
 
@@ -75,18 +75,38 @@ mars-ram version
 mars-ram version --json
 ```
 
-Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.6`); JSON is `{"version":1,"release":"0.1.6"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.7`); JSON is `{"version":1,"release":"0.1.7"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
 
 The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
 
-The app requires host **0.1.6**: `version` first shipped in 0.1.4, attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5, and private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, need 0.1.6. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run the pinned commands shown by the app, for example:
+The app requires host **0.1.6**: `version` first shipped in 0.1.4, attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5, and private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, need 0.1.6. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run what the app shows: `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND` in `apps/mobile/src/core/host-update.ts`), otherwise the pinned commands, one per line in a normal (not administrator) terminal, for example:
 
 ```text
-pnpm add -g mars-ram@0.1.6
+pnpm add -g mars-ram@0.1.7
 mars-ram install
 ```
 
 Then type `/reload` in an existing Pi session to load the updated bridge.
+
+## update
+
+```text
+mars-ram update
+```
+
+Updates the npm package with the package manager it was installed with, then runs `mars-ram install` of the new version. No arguments; anything extra exits **2** with usage. First shipped in 0.1.7.
+
+1. On Windows, an elevated terminal is refused before anything runs: `Open a non-administrator terminal to update. Nothing changed.` (the same detection as `install`), exit 1.
+2. **Which package manager.** The running package is the launcher's `MARS_RAM_PACKAGE_BIN`, else `packageBin` in `~/.mars-ram/install.json`, used only when it names the bin of a package called `mars-ram` (as `install` checks it); its folder is compared by real path. Each manager is asked read-only where its global packages are: `pnpm root -g` and `npm root -g` (run as in step 5, output captured), and Bun's `$BUN_INSTALL/install/global/node_modules` (`~/.bun` by default; Bun has no such command). Under each root, `<root>/mars-ram` and pnpm 11's `<root>/<id>/node_modules/mars-ram` are resolved to their real folders. The manager whose root holds the running package's folder is the one (`managerFor` in `src/core/update.ts`; on Windows without case). Folder names never decide. A manager that is not installed or whose `root -g` fails is skipped. **No match or several**: it prints which managers were not found or could not be asked (or which ones list it), the commands for each manager, one per line, and exits 1; nothing runs.
+3. **Not from a package** (the curl script, the PowerShell script, a clone): it prints how to update that installation (run the script again, or `git pull` and `node host/cli/src/main.ts install`, or switch to the package) and exits 1; nothing runs.
+4. **Windows:** cmd.exe reads a running `.cmd` file line by line, by byte offset, and pnpm writes a new `mars-ram.cmd` whose length can change between versions, so cmd would go on reading the new file in the middle of a line once the update ends. The update therefore continues in a new console window (`cmd.exe /d /v:off /s /c "start "mars-ram update" "<node>" "<package bin>" update"`, the only part that goes through cmd; paths with `"`, `%` or line breaks are refused) and the first command exits 0 at once, before the package manager runs: its cmd.exe reaches the end of the old `mars-ram.cmd` untouched. The package launcher passes its own pid as `MARS_RAM_LAUNCHER_PID`; the first command hands it, its own pid and its parent's (the launcher) to the window (`MARS_RAM_UPDATE_CALLERS`). The window waits until **all** of them have exited, polling every 200 ms for at most 30 s; if one is still running at the limit, it runs nothing and prints the two commands, one per line, to run in a normal terminal (exit 1). It does not wait for the shell: typed into cmd, the batch file runs inside the user's own cmd.exe (and from PowerShell `mars-ram.ps1` runs inside PowerShell), which stays open. Instead, once the launcher has exited it pauses 1 s, the time cmd.exe has to read the rest of the old `mars-ram.cmd`. **Residual risk:** if cmd.exe takes longer than that 1 s after the launcher exits (a heavily loaded machine), the manager may replace the file while cmd is still reading it, and cmd may print an error or run part of a line of the new shim. Otherwise it does the steps below and waits for Enter before closing. If the window cannot be opened it prints the two manual commands and exits 1.
+5. Runs `pnpm add -g mars-ram@latest`, `npm install -g mars-ram@latest` or `bun add -g mars-ram@latest` without a shell, its output captured. On Windows `<manager>.exe` runs directly and the batch file of a `<manager>.cmd` shim never runs: a shim that forwards to an `.exe` (pnpm 11 standalone's `C:\Users\<user>\.pnpm\bin\pnpm.CMD`: an optional `@SETLOCAL` line, then only `@"%~dp0\..\global\v11\<id>\node_modules\@pnpm\exe\pnpm.exe" %*`) runs that `.exe` directly, accepted only when it is an existing file ending in `.exe` inside the shim's tool home (the folder above the shim's folder, `C:\Users\<user>\.pnpm` there) and the shim has no other command, argument or variable than `%~dp0` and `%*`; a Node shim runs as Node plus the JavaScript entry it names (`%dp0%` or `%~dp0`). This applies to both the `root -g` queries and the update itself; an unresolvable shim is reported as a manager that could not be asked, or with the manual commands. When it fails, nothing else runs (exit 1). When the manager ran and failed, `update` then reads the running package's `package.json` again from disk and says what is installed now: `mars-ram X is still installed (<folder>).`, or, when it cannot be read, that the installation may be incomplete, to run `mars-ram update` again or to reinstall with the manager's two commands, one per line. It never claims «nothing changed» without that check. The causes:
+   - pnpm output containing `ERR_PNPM_NO_GLOBAL_BIN_DIR` or `is not in PATH`: run `pnpm setup`, open a new terminal and run `mars-ram update` again;
+   - the manager not found (it never started, so nothing changed): which one, and to install it or use a terminal where it works;
+   - anything else: the exit code and the last 20 lines of its stderr (stdout when stderr is empty).
+6. Finds the new package where the manager now has it (`npm root -g` or `pnpm root -g`: `<root>/mars-ram`, or pnpm 11's `<root>/<id>/node_modules/mars-ram`, the newest release if several; Bun replaces its global folder in place), prints `mars-ram updated from X to Y.` or `mars-ram was already up to date (Y).`, and runs `node <new package>/bin/mars-ram.mjs install` as a separate process, never the old code in memory. Its exit code is `update`'s.
+
+Messages follow the locale rule of the other commands (Spanish or English).
 
 ## uploads-dir
 
@@ -113,12 +133,12 @@ The temp folder is cleared by the system (on reboot or by its temp cleaner); the
 ## pair
 
 ```bash
-mars-ram pair [--ssh-port <port>]
-mars-ram pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>]
+mars-ram pair [--network tailscale|zerotier] [--address <ZeroTier ipv4>] [--ssh-port <port>]
+mars-ram pair-zt [--address <ZeroTier ipv4>] [--ssh-port <port>]   # same as pair --network zerotier
 ```
 
-1. Reads the computer's private network address and the SSH server's Ed25519 identity. Tailscale is the default (`tailscale status --json`, with its MagicDNS name).
-2. Shows a QR (and the same link as text) with the address, SSH user and port, identity, a one-time code, and the expiry.
+1. Reads the computer's private network address and the SSH server's Ed25519 identity. Without `--network` it finds the connected network: Tailscale (`tailscale status --json`, with its MagicDNS name) or ZeroTier (below). When both are connected it asks in the terminal `Which one does your phone use? 1) Tailscale  2) ZeroTier:` (`1`, `2` or the name; anything else stops with `No network was chosen…`); without a terminal it stops with `Tailscale and ZeroTier are both connected on this computer. Choose the one your phone uses with --network tailscale or --network zerotier.` When neither is connected it stops with `No private network is connected on this computer.`, followed by the Tailscale reason and the ZeroTier one.
+2. Shows a QR (and the same link as text) with the address, SSH user and port, identity, a one-time code, and the expiry. They travel as a compact version 3 offer (below), so a typical Tailscale QR is 45×45 modules (49 columns × 25 lines in the terminal) instead of 65×65 (69 × 35).
 3. Listens **only on that address**, for **5 minutes**, for **one** phone. Five invalid requests of any kind close it.
 4. When a phone answers with the code, asks at the computer:
    `Authorize the phone "<name>" (<key fingerprint>)? [y/N]` — only an explicit yes (`s`, `si`, `y`, `yes`) authorizes.
@@ -126,7 +146,7 @@ mars-ram pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>]
 
 ### Over ZeroTier
 
-`mars-ram pair-zt` pairs over ZeroTier instead (the phone needs an app version that supports ZeroTier). It reads the IPv4 addresses of the computer's ZeroTier interfaces from the operating system, without the ZeroTier CLI or administrator rights: `zt…` interfaces on Linux, `feth…` (or `zt…`) on macOS, and adapters named `ZeroTier One [<network id>]` on Windows. Link-local `169.254.…` addresses do not count.
+Over ZeroTier (found on its own, or with `--network zerotier`, `--address` or `mars-ram pair-zt`; the phone needs an app version that supports ZeroTier): It reads the IPv4 addresses of the computer's ZeroTier interfaces from the operating system, without the ZeroTier CLI or administrator rights: `zt…` interfaces on Linux, `feth…` (or `zt…`) on macOS, and adapters named `ZeroTier One [<network id>]` on Windows. Link-local `169.254.…` addresses do not count.
 
 | ZeroTier addresses | What happens |
 |--------------------|--------------|
@@ -135,15 +155,33 @@ mars-ram pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>]
 | Several | Stops and lists them; choose one with `--address <ipv4>` |
 | `--address` not among them | Stops and lists the ZeroTier addresses; pairing never listens on another interface |
 
-The QR carries a version 2 offer (`network: "zerotier"`, the ZeroTier IPv4 address, no MagicDNS name); Tailscale offers stay version 1, byte for byte. Over ZeroTier the phone gets SSH sessions, the terminal, files, private links and Siempre atento. `--address` is accepted only by `pair-zt`.
+The offer is a ZeroTier one (`network: "zerotier"`, the ZeroTier IPv4 address, no MagicDNS name), version 2 in JSON or version 3 in the compact form. Over ZeroTier the phone gets SSH sessions, the terminal, files, private links and Siempre atento. `--address` implies ZeroTier and is refused with `--network tailscale`.
 
 **Private links over ZeroTier.** The app runs the installed link server with `--network zerotier --address <the ZeroTier IPv4 it paired with>`; the link server checks that address is on a ZeroTier interface of this computer, listens only there (next to the Tailscale listener, if any) and returns `http://<ZeroTier IPv4>:47811/l/<token>`. Details: [link-server README](../link-server/README.md).
 
 **Siempre atento over ZeroTier.** `mars-ram notify register --json` takes no network option: it reads the SSH connection (`SSH_CONNECTION`). When the connection arrived on one of this computer's ZeroTier addresses and the phone's address is inside that interface's subnet (a known prefix of /8 or longer), the phone is registered as a ZeroTier phone (`"network": "zerotier"` in the stored record and in the `register`/`status` answers) and notices go to its ZeroTier address from the listener on that ZeroTier address. Any other connection follows the Tailscale rules unchanged (only Tailscale source addresses, same answers, no `network` field); anything else is refused with `NOTIFY_FAILED`. Android runs one VPN at a time, so a phone receives notices from a ZeroTier computer only while ZeroTier is on.
 
-**Firewall (Linux).** ufw and firewalld block incoming ZeroTier traffic by default, so pairing, SSH and private links (port 47811) time out while ping works, and one `allow in on <interface>` rule lets them all in (Siempre atento notices go out from the computer, which default outgoing rules allow); Tailscale is not affected because it adds its own firewall rules. Before the QR, `pair-zt` checks without root whether ufw (`ENABLED=` in the world-readable `/etc/ufw/ufw.conf`, falling back to `systemctl is-active ufw` when that file cannot be read) or firewalld (`systemctl is-active firewalld`) is on — the rules themselves need root, so it cannot tell whether ZeroTier is already allowed. When one is on, it prints one line naming the exact interface of the chosen address, for example `The firewall (ufw) is on and may block the phone over ZeroTier. If pairing does not connect, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'`; for firewalld the command is `sudo firewall-cmd --permanent --zone=trusted --add-interface=<interface> && sudo firewall-cmd --reload`. It never runs sudo or changes the firewall. macOS and Windows firewalls are not checked and get no hint. `mars-ram pair` (Tailscale) never reads the firewall; its output is unchanged.
+**Firewall (Linux).** ufw and firewalld block incoming ZeroTier traffic by default, so pairing, SSH and private links (port 47811) time out while ping works, and one `allow in on <interface>` rule lets them all in (Siempre atento notices go out from the computer, which default outgoing rules allow); Tailscale is not affected because it adds its own firewall rules. Before a ZeroTier QR, `pair` checks without root whether ufw (`ENABLED=` in the world-readable `/etc/ufw/ufw.conf`, falling back to `systemctl is-active ufw` when that file cannot be read) or firewalld (`systemctl is-active firewalld`) is on — the rules themselves need root, so it cannot tell whether ZeroTier is already allowed. When one is on, it prints one line naming the exact interface of the chosen address, for example `The firewall (ufw) is on and may block the phone over ZeroTier. If pairing does not connect, run: sudo ufw allow in on ztexample0 comment 'ZeroTier'`; for firewalld the command is `sudo firewall-cmd --permanent --zone=trusted --add-interface=<interface> && sudo firewall-cmd --reload`. It never runs sudo or changes the firewall. macOS and Windows firewalls are not checked and get no hint. Pairing over Tailscale never reads the firewall; its output is unchanged.
 
 Ctrl+C at any moment, including during the question, cancels and authorizes nothing. A yes typed after a cancel or the expiry authorizes nothing, and neither does a yes after the phone stopped waiting.
+
+### Compact QR (version 3)
+
+The link keeps the form `mars-ram://pair?p=<base64url>`: the scheme stays lower case, which Android's intent filters need, so scanning with the phone's own camera and opening the printed link still open the app. Only the payload changes, from JSON to bytes: the IPv4 address in 4 bytes, ports and the expiry (milliseconds) as integers, the full SHA256 host key fingerprint (32 bytes) and the full one-time code (16 bytes) as raw bytes, and the name, user and MagicDNS name as length-prefixed UTF-8, leaving out a MagicDNS name's `.ts.net` and its first label when that is the computer's name in lower case. The layout is documented next to `encodeCompactPairingUri` in `packages/protocol/src/index.ts`. The app reads it strictly (exact lengths, known flags, nothing after the last field, the same bounds as versions 1 and 2) and rejects anything else as damaged, with the same invalid-code message as before; a later compact version asks for a newer app.
+
+The QR uses byte mode, not the denser alphanumeric mode: alphanumeric has no lower-case letters, `?` or `=`, and uqr encodes one mode per QR, so the link would need an upper-case scheme that Android does not match. Measured with uqr (ECC L, as printed):
+
+| Offer | Version 1/2 (JSON) | Version 3 (compact) |
+|-------|--------------------|---------------------|
+| Tailscale, devbox (26-character MagicDNS name) | 361 chars, 65×65 | 137 chars, 45×45 |
+| Tailscale, 45-character MagicDNS name | 386 chars, 69×69 | 162 chars, 49×49 |
+| Tailscale, without MagicDNS | 309 chars, 61×61 | 122 chars, 41×41 |
+| ZeroTier | 332 chars, 65×65 | 122 chars, 41×41 |
+| Largest bounds (name and user 128, MagicDNS 253) | 993 chars, 105×105 | 777 chars, 93×93 |
+
+When version 3 cannot carry an offer exactly (for example a name over 255 bytes in UTF-8), `pair` prints the version 1 or 2 offer instead.
+
+**Rollout.** Only an app that reads version 3 can pair with this QR: ship that app build before or together with the host release that prints it. An older app reads every pairing payload as JSON, so it does not show «needs a newer version»: scanning the QR or opening the link shows its invalid-code message, «This QR is not a valid pairing code for this app. Show a new one on the computer, or update the app.» («Este QR no es un código de vinculación válido para esta app. Mostrá uno nuevo en la computadora o actualizá la app.»), which already asks to update the app.
 
 ### Where the key goes
 
@@ -368,6 +406,7 @@ What the SHA-256 protects: the value written into the launcher detects a damaged
 |------|-------|
 | `src/core/` | Pairing session, install/uninstall and read-only doctor policy, with ports for platform operations |
 | `src/adapters/` | Tailscale, identity, authorized keys, HTTP endpoint, terminal, filesystem copy and shell-free Pi execution |
+| `src/core/update.ts`, `src/adapters/update.ts`, `src/update-command.ts` | `mars-ram update`: manager and failure policy; package location, shell-free manager runs and the Windows window; wiring |
 | `src/arguments.ts`, `src/main.ts`, `src/install-command.ts`, `src/doctor-command.ts` | Strict argument parsing, interactive selection, diagnostic output and wiring |
 | `scripts/build-release.ts`, `scripts/install.sh`, `scripts/install.ps1` | Release archive builder and the one-line installer templates it renders (not part of the installed copy) |
 | `npm/mars-ram.mjs`, `npm/README.md` | npm package launcher and README templates rendered by the builder |

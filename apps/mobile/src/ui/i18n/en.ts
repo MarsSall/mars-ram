@@ -3,6 +3,22 @@ export const en = {
   title: "What's new", open: "What's new", version: (version: string, build: number | null) => build === null ? `Version ${version}` : `Version ${version} (${build})`,
   new: "New", fixes: "Fixes", done: "Got it", empty: "No notes are bundled with this version.",
  },
+ tour: {
+  open: "Show tutorial", skip: "Skip tour", start: "Get started", next: "Next",
+  counter: (n: number, total: number) => `${n} of ${total}`,
+  hints: { area: "Tap the area to continue", bar: "Tap the bar to continue", control: "Tap it to continue", card: "Tap the card to continue" },
+  dialog: (n: number, total: number) => `Tour, step ${n} of ${total}`,
+  explainContext: "In a session's terminal",
+  steps: {
+   sessions: "Your active sessions show up here.", openTerminal: "Open a terminal on the computer you choose.", tabs: "Use these tabs to move around the app.", diffs: "See the project's changes and diffs here.", selector: "Tap here to see agents and workspaces.",
+   addComputer: "Tap + to add another computer.", createLink: "«Create link» gives you a private link for 24 h.", notifications: "Choose your notices here, like Always attentive.", about: "In About, «Show tutorial» repeats this tour.", done: "Done: now you know where everything is.",
+  },
+ },
+ tips: {
+  label: (screen: string) => `Tip · ${screen}`, done: "Got it", dialog: "First-visit tip",
+  names: { terminal: "Terminal", chatFloating: "Floating chat", projectSheet: "Project files and Git", sessionSelector: "Session selector" },
+  lines: { terminal: ["Swipe up for the chat.", "PREFIX sends Herdr's key."], chatFloating: ["What you type here reaches the agent."], projectSheet: ["See the project's files, changes and branches here."], sessionSelector: ["Tap the name to switch sessions."] },
+ },
  appUpdate: {
   available: "A new version of Mars-RAM is available", update: "Update", dismiss: "Not now",
   downloading: "Downloading the update in Google Play… You can keep using the app.",
@@ -13,6 +29,8 @@ export const en = {
   required: 'Update needed on this computer',
   soft: 'A newer host release is available',
   terminal: 'Run these commands in the computer’s terminal (Linux or Windows):',
+  terminalOne: 'Run this command in the computer’s terminal (Linux or Windows):',
+  manual: 'Use a normal terminal, not an administrator one, and type the two commands one at a time: each on its own line, pressing Enter after each.',
   reload: 'Type /reload in this session to use the new features',
  },
  shortcuts: {
@@ -108,6 +126,11 @@ export const en = {
 	tabs: { home: "Home", sessions: "Sessions", computers: "Computers", files: "Files", settings: "Settings" },
 	status: { attention: "Needs you", working: "Working", done: "Done" },
 	freshness: { live: "Up to date", stale: "Out of date" },
+	networkHint: {
+		short: (network: string) => `Turn on ${network}`,
+		switch: (network: string, active: string) => `Paired over ${network}; ${active} is on in this phone. Turn on ${network}.`,
+		turnOn: (network: string) => `Turn on ${network} in this phone to reach this computer.`,
+	},
 	sessions: {
 		title: "Sessions",
 		needsYou: "Needs you",
@@ -159,6 +182,7 @@ export const en = {
 		toolbar: "Terminal keys", toolbarHint: "Swipe the bar for more keys →",
 		chat: "Chat", switchSession: "Go to Sessions", floatingChat: "Floating chat", closeChat: "Close chat", openChat: "Open chat", expandChat: "Open full chat", backToTerminal: "Back to terminal", chatGestureHint: "Swipe up to open chat; swipe farther or fling up for full chat.", fullChatHint: "Swipe up for full chat, or down to close. You can also tap the handle.", openDpad: "Open D-pad", closeDpad: "Close D-pad", moveDpad: "Drag D-pad", dpadSpace: "Rotate the phone or hide the keyboard to make room for the D-pad.",
 		copy: "Copy selection", reconnect: "Reconnect", unlock: "Unlock and reconnect", normalExit: "Herdr closed", herdrNotFound: "Couldn’t find Herdr on this computer: run mars-ram install again", closed: "Terminal closed", missingComputer: "This computer is no longer saved.",
+		shellExit: "The terminal closed", shellDisconnected: "The connection dropped and this terminal closed. Reconnect to open a new one in your home folder.",
 		notHerdr: "This session is not running in Herdr: open it inside Herdr to see its terminal",
 		title: "Terminal", connecting: "Connecting…", reconnecting: "Reconnecting… The last screen is kept; it may be out of date.",
 		error: "Could not reach the terminal. Check the connection and try again.",
@@ -223,6 +247,15 @@ export const en = {
 		createButton: "Create button", updateButton: "Save button", afterCreate: "It goes to «My buttons» in the catalog, ready to place.",
 		delete: "Delete button", deleteTitle: (name: string) => `Delete «${name}»?`, deleteBody: "It's also taken out of the bar and the D-pad.",
 		customKey: (name: string, text: string, enter: boolean) => `Custom button ${name}: ${enter ? "sends" : "types"} ${text}${enter ? " and Enter" : ""}`,
+	},
+	openers: {
+		button: "Open terminal", chooseComputer: "Choose a computer", chooseOpener: "What should open?",
+		checking: "Checking what this computer can open…", loading: "Loading computers…", noComputers: "No computers are paired.",
+		failed: "Could not load your computers. Try again.", back: "Back", retry: "Retry", more: "More options as we add support",
+		names: { herdr: "Herdr", shell: "Terminal" } as Record<"herdr" | "shell", string>,
+		descriptions: { herdr: "Your Herdr sessions, like «Open Herdr»", shell: "A plain terminal in your home folder" } as Record<"herdr" | "shell", string>,
+		herdrMissing: (computer: string) => `Herdr is not installed on ${computer}. Choose another option, or install Herdr and run mars-ram install again.`,
+		unavailable: "Not available",
 	},
 	launcher: {
 		open: (name: string) => `Open Herdr on ${name}`, choose: (name: string) => `Choose terminal on ${name}`,

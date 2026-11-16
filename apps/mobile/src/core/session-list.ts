@@ -16,6 +16,8 @@ export type SessionSummary = {
 	key: string;
 	hostId: string;
 	bridgeInstanceId: string;
+	/** Runs in a terminal pane the app can drive (Herdr); older bridges report this without terminalPane. */
+	terminal?: true;
 	terminalPane?: string;
 	/** Latest settle evidence; absent on older bridges or when the outcome is unknown. */
 	lastOutcome?: StateResponse["lastOutcome"];
@@ -142,6 +144,7 @@ export class SessionLister {
 			hostId,
 			bridgeInstanceId: entry.bridgeInstanceId,
 			...(needsBridgeReload(entry.protocolVersion, PROTOCOL_VERSION) ? { reloadNeeded: true } : {}),
+			...(state.value.terminal === true ? { terminal: true as const } : {}),
 			...(state.value.terminalPane === undefined ? {} : { terminalPane: state.value.terminalPane }),
 			...(state.value.lastOutcome === undefined ? {} : { lastOutcome: state.value.lastOutcome }),
 			project: projectName(entry.cwd),

@@ -271,8 +271,8 @@ describe("pairing endpoint", () => {
 		expect(await endpoint.finished).toMatchObject({ ok: true });
 	});
 
-	it("still listens on the Tailscale address by default", async () => {
-		const target = resolvePairingTarget({}, { tailscale: () => ({ ok: true, address: "127.0.0.1" }), zeroTierAddresses: () => { throw new Error("not read"); } });
+	it("listens on the Tailscale address when Tailscale is the only network connected", async () => {
+		const target = resolvePairingTarget({}, { tailscale: () => ({ ok: true, address: "127.0.0.1" }), zeroTierAddresses: () => [] });
 		if (!target.ok) throw new Error(target.message);
 		const endpoint = await startPairingEndpoint({ session: startSession(true), address: target.address, maxBodyBytes: 4096 });
 		expect(endpoint.address).toBe("127.0.0.1");

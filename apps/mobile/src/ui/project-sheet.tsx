@@ -7,6 +7,7 @@ import { hideSecrets } from "../core/secret-files";
 import { formatAge, formatSize, highlightLine, textLines, hostFilePath, summarizeChanges, type Change, type Commit, type ProjectErrorCode, type ProjectFile, type ProjectOptions, type ProjectResult, type ProjectStatus, type ProjectTree, type ProjectValue, type ProjectVerb } from "../core/project";
 import { catalog, clipboard, createLinkService, projectBrowser, secretFiles } from "../services";
 import { usePreferences } from "./preferences";
+import { useTourAnchor } from "./tour/anchors";
 import type { Theme } from "./theme";
 import type { Strings } from "./i18n/en";
 
@@ -204,6 +205,7 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
  const [notice, setNotice] = useState<string | null>(null); const [busy, setBusy] = useState(false);
  const hideSetting = useSyncExternalStore(secretFiles.subscribe, secretFiles.get);
  const [revealed, setRevealed] = useState(false); const hide = hideSetting && !revealed;
+ const tabsAnchor = useTourAnchor("projectSheet.tabs");
  useEffect(() => { if (!visible) return; void catalog.list().then(hosts => setComputer(hosts.find(h => h.id === hostId) ?? null)); }, [visible, hostId]);
  useEffect(() => { if (!visible) { setView({ kind: "list" }); setDir(""); setTab("files"); setNotice(null); setPinned(null); setAttempt(0); setRevealed(false); } }, [visible]);
  useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(null), 3000); return () => clearTimeout(timer); }, [notice]);
@@ -327,7 +329,7 @@ export function ProjectSheet({ visible, hostId, mode, setMode, close, paste, top
    </View>
    <View style={{ flex: 1, paddingHorizontal: view.kind === "list" ? 8 : 0 }}>{rootTree.state === "error" && view.kind === "list" && tab === "files" ? failure(rootTree.code) : body()}</View>
    {notice ? <Text accessibilityLiveRegion="polite" style={{ color: c.text, backgroundColor: c.surfaceRaised, marginHorizontal: 12, marginBottom: 6, padding: 10, borderRadius: 10 }}>{notice}</Text> : null}
-   <View accessibilityRole="tablist" style={{ flexDirection: "row", gap: 6, marginHorizontal: 12, marginTop: 6, marginBottom: 12, padding: 6, borderRadius: 30, borderWidth: 1, borderColor: c.border, backgroundColor: c.background }}>
+   <View {...tabsAnchor} accessibilityRole="tablist" style={{ flexDirection: "row", gap: 6, marginHorizontal: 12, marginTop: 6, marginBottom: 12, padding: 6, borderRadius: 30, borderWidth: 1, borderColor: c.border, backgroundColor: c.background }}>
     {tabs.map(([id, label, glyph]) => { const on = tab === id && view.kind === "list" || tab === id;
      return <Pressable key={id} accessibilityRole="tab" accessibilityLabel={id === "changes" && changes.length ? `${label}, ${changes.length}` : label} accessibilityState={{ selected: tab === id }} onPress={() => { setTab(id); setView({ kind: "list" }); }} style={{ flex: 1, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", gap: 2, backgroundColor: on ? c.surfaceRaised : "transparent" }}>
       {icon(glyph, on ? c.text : c.textMuted, 20)}

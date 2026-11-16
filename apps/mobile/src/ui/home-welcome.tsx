@@ -16,24 +16,29 @@ export function HomeHeading({ welcome = false }: { welcome?: boolean }) {
 	);
 }
 
-/** The welcome's steps and actions; «Guiame paso a paso» opens the connection wizard. */
+/**
+ * The welcome's steps and actions; «Guiame paso a paso» opens the connection wizard.
+ * «Escanear código» sits in a footer outside the scroll, so it is visible without scrolling.
+ */
 export function WelcomeSteps({ heading = true }: { heading?: boolean }) {
 	const router = useRouter();
 	const { theme, t } = usePreferences();
 	return (
-		<ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: theme.spacing(3) }}>
-			{heading ? <HomeHeading welcome /> : null}
-			<InstallSteps />
-			<Text style={{ color: theme.colors.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingBottom: theme.spacing(3) }}>{t.home.windowsPair}</Text>
-			<View style={{ flex: 1 }} />
+		<View style={{ flex: 1 }}>
+			<ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingBottom: theme.spacing(3) }}>
+				{heading ? <HomeHeading welcome /> : null}
+				<InstallSteps />
+				<Text style={{ color: theme.colors.textMuted, fontSize: 14, paddingHorizontal: theme.spacing(4), paddingBottom: theme.spacing(3) }}>{t.home.windowsPair}</Text>
+				<View style={{ flex: 1 }} />
+				<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
+					<Text style={{ color: theme.colors.accentText, fontSize: 16, fontWeight: "600", textAlign: "center" }}>{t.home.guide}</Text>
+				</Pressable>
+				<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer/manual")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
+					<Text style={{ color: theme.colors.textMuted, fontSize: 16, textAlign: "center" }}>{t.home.manual}</Text>
+				</Pressable>
+			</ScrollView>
 			<PrimaryButton label={t.home.scan} onPress={() => router.push("/add-computer/scan")} />
-			<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
-				<Text style={{ color: theme.colors.accentText, fontSize: 16, fontWeight: "600", textAlign: "center" }}>{t.home.guide}</Text>
-			</Pressable>
-			<Pressable accessibilityRole="button" onPress={() => router.push("/add-computer/manual")} style={{ minHeight: theme.touch, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.spacing(4) }}>
-				<Text style={{ color: theme.colors.textMuted, fontSize: 16, textAlign: "center" }}>{t.home.manual}</Text>
-			</Pressable>
-		</ScrollView>
+		</View>
 	);
 }
 

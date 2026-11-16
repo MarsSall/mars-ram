@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { compareSemver, hostUpdateStatus, parseHostVersion, buildVersionCommand, MINIMUM_HOST_VERSION, needsBridgeReload, updateCommand } from '../src/core/host-update';
+import { compareSemver, hostUpdateStatus, parseHostVersion, buildVersionCommand, MINIMUM_HOST_VERSION, needsBridgeReload, updateCommand, FIRST_HOST_WITH_UPDATE_COMMAND, hostUpdateInstructions } from '../src/core/host-update';
 
 it('parses only bounded v1 release JSON; dev is explicitly non-release', () => {
  expect(parseHostVersion('{"version":1,"release":"0.1.4"}\n')).toBe('0.1.4');
@@ -35,4 +35,10 @@ it('offers only validated pinned update targets and hints only for older compati
  expect(() => updateCommand('0.1.4;evil')).toThrow();
  expect(needsBridgeReload('1.1', '1.2')).toBe(true);
  for (const version of ['1.2', '1.3', '2.0', 'unknown']) expect(needsBridgeReload(version, '1.2')).toBe(false);
+});
+it('S7: hosts with mars-ram update get that one command; older ones the pinned manual commands', () => {
+ expect(FIRST_HOST_WITH_UPDATE_COMMAND).toBe('0.1.7');
+ for (const release of ['0.1.7', '0.1.10', '1.0.0']) expect(hostUpdateInstructions(release, '2.0.0')).toEqual({ command: 'mars-ram update', manual: false });
+ for (const release of ['0.1.6', '0.1.5', '0.1.7-rc.1', 'missing', 'unknown']) expect(hostUpdateInstructions(release, '0.1.8')).toEqual({ command: 'pnpm add -g mars-ram@0.1.8\nmars-ram install', manual: true });
+ expect(() => hostUpdateInstructions('0.1.5', '0.1.8;evil')).toThrow();
 });

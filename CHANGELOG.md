@@ -2,6 +2,25 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.1.7
+
+Released together with Android build 11 of the app. Build 11 still works with mars-ram 0.1.6 (`MINIMUM_HOST_VERSION` stays 0.1.6), but only build 11 or later can scan the compact QR that 0.1.7 prints: update the app before or together with the computer.
+
+Update in the computer's terminal (Linux, macOS or Windows), from 0.1.6 or older:
+
+```text
+pnpm add -g mars-ram@0.1.7
+mars-ram install
+```
+
+From 0.1.7 on, `mars-ram update` does it. The session bridge still speaks protocol **1.7**, so Pi sessions that are already running need no `/reload`.
+
+### New
+
+- `mars-ram update` updates the computer side in one command: it updates the package with the package manager mars-ram was installed with (pnpm, npm or Bun) and runs `mars-ram install` of the new version, reporting the version it went from and to. It explains the usual failures instead of the raw error: pnpm's global bin directory not in PATH (`pnpm setup`, then a new terminal), the package manager not found; an administrator terminal on Windows is refused, and on Windows the update continues in a new window so the running `mars-ram.cmd` is never replaced under cmd.exe. Installations from the curl or PowerShell script or a clone get the way to update them instead. The app's update notice shows `mars-ram update` for computers with 0.1.7 or later.
+- `mars-ram pair` finds the connected network on its own: Tailscale or ZeroTier. When both are connected it asks in the terminal which one the phone uses; `--network tailscale|zerotier` chooses without asking. `mars-ram pair-zt` still works and means `pair --network zerotier`. The QR offers do not change.
+- `mars-ram pair` prints a much smaller QR: a compact version 3 offer carries the same information (address, MagicDNS name, SSH user and port, the full host key fingerprint and the full one-time code, expiry) as bytes instead of JSON. A typical Tailscale QR goes from 65×65 to 45×45 modules (69 columns × 35 lines to 49 × 25 in the terminal); a ZeroTier one to 41×41. The link keeps its `mars-ram://pair?p=…` form, so the phone's camera still opens the app. **Rollout:** only an app build that reads version 3 can pair with it; an older app shows its invalid-code message («Este QR no es un código de vinculación válido para esta app. Mostrá uno nuevo en la computadora o actualizá la app.»), so release that app build before or with this host.
+
 ## mars-ram 0.1.6
 
 Released together with Android build 10 of the app. That app build needs mars-ram 0.1.6 (`MINIMUM_HOST_VERSION`) and asks older computers to update.

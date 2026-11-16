@@ -7,11 +7,14 @@ import { formatDateTime } from "../../ui/format";
 import { usePreferences } from "../../ui/preferences";
 import { linkDisplayName, linkRow, linkSize } from "../../ui/private-links";
 import { usePrivateLinks } from "../../ui/use-private-links";
+import { TourAnchor } from "../../ui/tour/anchors";
+import { useTourScroll } from "../../ui/tour/scroll";
 
 export default function FilesScreen() {
  const { theme, t } = usePreferences();
  const c = theme.colors;
  const state = usePrivateLinks();
+ const tourScroll = useTourScroll();
  const [details, setDetails] = useState(false);
  const [sourceMenu, setSourceMenu] = useState(false);
  // Only a pull by hand shows the pull-to-refresh spinner; focus and polling reloads use the inline loading row.
@@ -29,14 +32,14 @@ export default function FilesScreen() {
   else void state.remove(host, item);
  };
  return <Screen title={t.files.title}>
-  <ScrollView refreshControl={<RefreshControl refreshing={pulling && state.refreshing} onRefresh={() => { setPulling(true); state.reload(); }} tintColor={c.accentText} colors={[c.accentText]} progressBackgroundColor={c.surfaceRaised} />} contentContainerStyle={{ paddingBottom: theme.spacing(4) }}>
+  <ScrollView {...tourScroll.props} refreshControl={<RefreshControl refreshing={pulling && state.refreshing} onRefresh={() => { setPulling(true); state.reload(); }} tintColor={c.accentText} colors={[c.accentText]} progressBackgroundColor={c.surfaceRaised} />} contentContainerStyle={{ paddingBottom: theme.spacing(4) }}>
   <View style={{ padding: theme.spacing(4) }}>
   {state.hosts && state.hosts.length > 0 ? <>
    <Text style={{ color: c.textMuted }}>{t.files.computer}</Text>
    {state.hosts.length > 1 ? <ScrollView horizontal contentContainerStyle={{ gap: 8 }}>
     {state.hosts.map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.name} accessibilityState={{ selected: state.selected === host.id, disabled: !!state.busy }} disabled={!!state.busy} onPress={() => state.chooseComputer(host.id)} style={{ ...actionStyle, backgroundColor: state.selected === host.id ? c.accent : c.surfaceRaised, borderRadius: 12 }}><Text style={{ color: state.selected === host.id ? c.onAccent : c.text }}>{host.name}</Text></Pressable>)}
    </ScrollView> : <Text style={{ color: c.text }}>{state.hosts[0]?.name}</Text>}
-   <PrimaryButton label={t.files.create} disabled={!!state.busy || state.refreshing} onPress={() => setSourceMenu(true)} />
+   <TourAnchor id="files.createLink" inset={{ horizontal: theme.spacing(4), vertical: theme.spacing(3) }}><PrimaryButton label={t.files.create} disabled={!!state.busy || state.refreshing} onPress={() => setSourceMenu(true)} /></TourAnchor>
   </> : null}
   {state.busy ? <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>{t.files[state.busy]}</Text> : null}
  </View>

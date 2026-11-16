@@ -606,15 +606,9 @@ class SshModule : Module() {
   private fun validTerminalSize(cols: Int, rows: Int) = cols in 1..1000 && rows in 1..1000
 
   private fun openTerminal(connectionId: String, command: List<String>, cols: Int, rows: Int, term: String): Map<String, Any?> {
+    if (!TerminalCommand.allowed(command)) return failure("SSH_ERROR", "Only Herdr or a login shell can be opened")
     val path = command.firstOrNull() ?: ""
-    val windows = Regex("""^[A-Za-z]:\\.*""").matches(path)
-    val parts = path.split('/', '\\')
-    val validPath = path == "herdr" ||
-      ((path.startsWith('/') || windows) && Regex("""[A-Za-z0-9._/\\: -]+""").matches(path) &&
-        parts.none { it == ".." } && parts.last() in listOf("herdr", "herdr.exe"))
-    val allowed = validPath && (command.size == 1 ||
-      (command.size == 3 && command[1] == "--session" && Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").matches(command[2])))
-    if (!allowed) return failure("SSH_ERROR", "Only Herdr can be opened")
+    val windows = TerminalCommand.windowsPath(path)
     if (!validTerminalSize(cols, rows)) return failure("SSH_ERROR", "PTY dimensions must be between 1 and 1000.")
     if (!Regex("[A-Za-z0-9._-]{1,64}").matches(term)) return failure("SSH_ERROR", "Invalid terminal type.")
     val ssh = lease.connection(connectionId) ?: return notConnected()
@@ -622,10 +616,16 @@ class SshModule : Module() {
     try {
       session = ssh.startSession() as SessionChannel
       session.allocatePTY(term, cols, rows, 0, 0, emptyMap())
-      // Exec is still parsed by the remote default shell. No quotes or expansion
-      // characters survive validation. Windows uses cmd (PowerShell needs &).
-      val executable = if (path == "herdr") path else if (windows) "\"$path\"" else "'$path'"
-      session.exec(executable + if (command.size == 3) " --session ${command[2]}" else "")
+      if (command.isEmpty()) {
+        // Shell request: the server starts the user's login shell in their home
+        // (Windows OpenSSH: its configured default shell). Nothing is interpolated.
+        session.startShell()
+      } else {
+        // Exec is still parsed by the remote default shell. No quotes or expansion
+        // characters survive validation. Windows uses cmd (PowerShell needs &).
+        val executable = if (path == "herdr") path else if (windows) "\"$path\"" else "'$path'"
+        session.exec(executable + if (command.size == 3) " --session ${command[2]}" else "")
+      }
       val terminalId = UUID.randomUUID().toString()
       val terminal = InteractiveTerminal(connectionId, session,
         { data -> sendEvent("onTerminalOutput", mapOf("terminalId" to terminalId, "data" to data)) },
@@ -646,7 +646,7 @@ class SshModule : Module() {
     } catch (_: Exception) {
       runCatching { session?.close() }
       if (!ssh.isConnected) ConnectionManager.transportClosed(connectionId)
-      return failure("SSH_ERROR", "Cannot open the Herdr terminal.")
+      return failure("SSH_ERROR", "Cannot open the terminal.")
     }
   }
 
@@ -667,4 +667,20 @@ class SshModule : Module() {
     }
   }
 
+}
+
+/** The only PTY commands allowed: empty (the login shell) or Herdr, optionally with `--session <name>`. */
+internal object TerminalCommand {
+  fun windowsPath(path: String) = Regex("""^[A-Za-z]:\\.*""").matches(path)
+
+  fun allowed(command: List<String>): Boolean {
+    if (command.isEmpty()) return true
+    val path = command[0]
+    val parts = path.split('/', '\\')
+    val validPath = path == "herdr" ||
+      ((path.startsWith('/') || windowsPath(path)) && Regex("""[A-Za-z0-9._/\\: -]+""").matches(path) &&
+        parts.none { it == ".." } && parts.last() in listOf("herdr", "herdr.exe"))
+    return validPath && (command.size == 1 ||
+      (command.size == 3 && command[1] == "--session" && Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").matches(command[2])))
+  }
 }

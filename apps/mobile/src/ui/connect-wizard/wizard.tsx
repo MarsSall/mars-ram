@@ -2,7 +2,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { BackHandler } from "react-native";
-import { chooseNetwork, diagnose, goToStep, recheck, showsNetworkChoice, startWizard, wizardSteps, type ComputerOs, type Diagnosis, type WizardModel, type WizardStep } from "../../core/connect-wizard";
+import { chooseNetwork, diagnose, goToStep, opensDiagnosis, recheck, showsNetworkChoice, startWizard, wizardSteps, type ComputerOs, type Diagnosis, type WizardModel, type WizardStep } from "../../core/connect-wizard";
 import type { WizardNetwork } from "../../core/network-choice";
 import type { PhoneNetworkState } from "../../core/phone-network";
 import { networkChoice } from "../../services";
@@ -10,7 +10,7 @@ import { usePreferences } from "../preferences";
 import { ComputerStep } from "./computer-step";
 import { DiagnosisView } from "./diagnosis";
 import { NetworkChoiceStep, NetworkTabs } from "./network-choice";
-import { usePairingRunner } from "./pairing-runner";
+import { usePairingRunner, type PairingPhase } from "./pairing-runner";
 import { ProgressBar, WizardHeader } from "./parts";
 import { DnsStep, ReadingPhone, TailscaleStep, ZeroTierStep } from "./phone-steps";
 import { ScanStep } from "./scan-step";
@@ -86,6 +86,14 @@ export function ConnectWizard({ start }: { start?: WizardStep }) {
 		const network = await readNow();
 		setDiagnosis({ kind: "ready", diagnosis: diagnose(trigger, network, over), network, over });
 	};
+	// A scan that did not reach the computer opens the diagnosis by itself, once per failure.
+	const diagnosedFailure = useRef<Extract<PairingPhase, { kind: "failed" }> | null>(null);
+	useEffect(() => {
+		const failure = phase.kind === "failed" ? phase : null;
+		if (!opensDiagnosis(failure, diagnosedFailure.current)) return;
+		diagnosedFailure.current = failure;
+		void openDiagnosis();
+	}, [phase]);
 	const closeDiagnosis = (step?: WizardStep) => {
 		setDiagnosis(null);
 		// A pairing that is still running keeps its waiting view; a failed one goes back to the camera.

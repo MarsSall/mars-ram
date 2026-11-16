@@ -22,6 +22,17 @@ export function zeroTierPhone(network: PhoneNetworkState | null): { installed: b
 	return { installed: network.zerotierInstalled, on: network.zerotierInstalled && network.vpnOn && !network.tailscaleOn };
 }
 
+/**
+ * The one VPN running on this phone (Android allows one at a time), or null when the phone cannot tell: no VPN fact
+ * (the non-blocking fallback always claims Tailscale), or a VPN that is neither Tailscale nor an installed ZeroTier.
+ */
+export function activePhoneVpn(network: PhoneNetworkState | null): "none" | "tailscale" | "zerotier" | null {
+	if (!network || network.vpnOn === undefined) return null;
+	if (!network.vpnOn) return network.tailscaleOn ? null : "none";
+	if (network.tailscaleOn) return "tailscale";
+	return network.zerotierInstalled === true ? "zerotier" : null;
+}
+
 export type PhoneNetwork = {
 	read(): Promise<PhoneNetworkState>;
 	/** Opens the Play Store page of the Tailscale app. */

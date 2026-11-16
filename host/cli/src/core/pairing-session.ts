@@ -1,10 +1,15 @@
 // One pairing: a one-time code shown in a QR, valid for a short time and for one phone,
 // which the user must still confirm at the computer before its key is authorized.
 import { createHash, timingSafeEqual } from "node:crypto";
-import { decodePairingRequest, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type NetworkPairingOffer, type PairingErrorCode, type PairingNetwork, type PairingResponse } from "@workspace/protocol";
+import { decodePairingRequest, encodeCompactPairingUri, encodePairingUri, PAIRING_VERSION, ZEROTIER_PAIRING_VERSION, type NetworkPairingOffer, type PairingErrorCode, type PairingNetwork, type PairingResponse } from "@workspace/protocol";
 import type { HostInfo, PairingPorts } from "./ports.ts";
 
 export type PairingState = "open" | "confirming" | "paired" | "closed";
+
+/** The link the QR carries: the compact version 3 offer, or the version 1 or 2 one when version 3 cannot carry it exactly. */
+export function pairingUri(offer: NetworkPairingOffer): string {
+	return encodeCompactPairingUri(offer) ?? encodePairingUri(offer);
+}
 
 /** network defaults to Tailscale. */
 export type PairingSessionOptions = { host: HostInfo; network?: PairingNetwork; ports: PairingPorts; ttlMs: number; maxBadAttempts: number };

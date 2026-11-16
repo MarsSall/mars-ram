@@ -137,6 +137,15 @@ describe('npm package mars-ram (built locally; nothing published)', () => {
    expect(readdirSync(tmp)).toEqual([]);
   });
 
+  it('tells the CLI its own pid, for the Windows update window to wait for, and not the shell\'s', () => {
+   const pkg = unpack(), tmp = fresh('npm-tmp-');
+   const home = installedHome("console.log(JSON.stringify([process.env.MARS_RAM_LAUNCHER_PID, process.env.MARS_RAM_LAUNCHER_PPID, String(process.ppid)]));\n");
+   const run = launch(pkg, ['update'], { HOME: home, TMPDIR: tmp });
+   const [launcher, parent, cliParent] = JSON.parse(run.stdout) as (string | null)[];
+   expect(launcher).toBe(cliParent);
+   expect(parent).toBeNull();
+  });
+
   it('ends the same way when the CLI is killed by a signal', () => {
    const pkg = unpack();
    const home = installedHome("process.kill(process.pid, 'SIGTERM'); setTimeout(() => {}, 5000);\n");

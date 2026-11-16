@@ -1,7 +1,7 @@
 import type { NetworkInterfaceInfo } from "node:os";
 import { describe, expect, it } from "vitest";
 import { zeroTierAddresses, zeroTierInterfaces, zeroTierNetworks } from "../../src/adapters/zerotier.ts";
-import { resolvePairingTarget, type PairingNetworkPorts } from "../../src/core/pairing-network.ts";
+import { networkFromAnswer, resolvePairingTarget, type PairingNetworkPorts } from "../../src/core/pairing-network.ts";
 
 const v4 = (address: string, internal = false): NetworkInterfaceInfo => ({ address, family: "IPv4", internal, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: `${address}/24` });
 const v6 = (address: string): NetworkInterfaceInfo => ({ address, family: "IPv6", internal: false, netmask: "ffff:ffff:ffff:ffff::", mac: "00:00:00:00:00:00", cidr: `${address}/64`, scopeid: 0 });
@@ -62,15 +62,50 @@ describe("resolvePairingTarget", () => {
 		return { value, calls };
 	};
 
-	it("pairs over Tailscale by default, with its MagicDNS name, without looking at ZeroTier", () => {
+	it("pairs over Tailscale when asked, with its MagicDNS name, without looking at ZeroTier", () => {
 		const { value, calls } = ports(["10.147.17.5"]);
-		expect(resolvePairingTarget({}, value)).toEqual({ ok: true, network: "tailscale", address: "100.64.0.10", dnsName: "devbox.example-tailnet.ts.net" });
+		expect(resolvePairingTarget({ network: "tailscale" }, value)).toEqual({ ok: true, network: "tailscale", address: "100.64.0.10", dnsName: "devbox.example-tailnet.ts.net" });
 		expect(calls).toEqual(["tailscale"]);
 	});
 
-	it("keeps the Tailscale failure message unchanged", () => {
-		const { value } = ports([], { ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
-		expect(resolvePairingTarget({}, value)).toEqual({ ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
+	it("keeps the Tailscale failure message unchanged when Tailscale is asked for", () => {
+		const { value } = ports(["10.147.17.5"], { ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
+		expect(resolvePairingTarget({ network: "tailscale" }, value)).toEqual({ ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
+	});
+
+	it("finds Tailscale on its own when it is the only network connected", () => {
+		const { value } = ports([]);
+		expect(resolvePairingTarget({}, value)).toEqual({ ok: true, network: "tailscale", address: "100.64.0.10", dnsName: "devbox.example-tailnet.ts.net" });
+	});
+
+	it("finds ZeroTier on its own when it is the only network connected", () => {
+		const { value } = ports(["10.147.17.5"], { ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
+		expect(resolvePairingTarget({}, value)).toEqual({ ok: true, network: "zerotier", address: "10.147.17.5" });
+	});
+
+	it("asks for --address when only ZeroTier is connected with several addresses", () => {
+		const { value } = ports(["10.147.17.5", "10.144.0.2"], { ok: false, message: "Tailscale is not connected on this computer. Connect it and try again." });
+		expect(resolvePairingTarget({}, value)).toEqual({
+			ok: false,
+			message: "This computer has several ZeroTier addresses: 10.147.17.5, 10.144.0.2. Choose one with --address <ipv4>, for example mars-ram pair --address 10.147.17.5",
+		});
+	});
+
+	it("asks which network to use when Tailscale and ZeroTier are both connected", () => {
+		const { value } = ports(["10.147.17.5"]);
+		expect(resolvePairingTarget({}, value)).toEqual({
+			ok: false,
+			choose: true,
+			message: "Tailscale and ZeroTier are both connected on this computer. Choose the one your phone uses with --network tailscale or --network zerotier.",
+		});
+	});
+
+	it("names both networks when neither is connected", () => {
+		const { value } = ports([], { ok: false, message: "Tailscale was not found on this computer (no tailscale command). Install Tailscale and try again." });
+		expect(resolvePairingTarget({}, value)).toEqual({
+			ok: false,
+			message: "No private network is connected on this computer. Tailscale: Tailscale was not found on this computer (no tailscale command). Install Tailscale and try again. ZeroTier: no ZeroTier network address found. Connect Tailscale, or join a ZeroTier network and authorize this computer, then try again.",
+		});
 	});
 
 	it("explains that ZeroTier is not connected when there is no ZeroTier address", () => {
@@ -91,7 +126,7 @@ describe("resolvePairingTarget", () => {
 		const { value } = ports(["10.147.17.5", "10.144.0.2"]);
 		expect(resolvePairingTarget({ network: "zerotier" }, value)).toEqual({
 			ok: false,
-			message: "This computer has several ZeroTier addresses: 10.147.17.5, 10.144.0.2. Choose one with --address <ipv4>, for example mars-ram pair-zt --address 10.147.17.5",
+			message: "This computer has several ZeroTier addresses: 10.147.17.5, 10.144.0.2. Choose one with --address <ipv4>, for example mars-ram pair --address 10.147.17.5",
 		});
 	});
 
@@ -112,5 +147,25 @@ describe("resolvePairingTarget", () => {
 	it("explains that ZeroTier is not connected when --address is given but there is no ZeroTier address", () => {
 		const { value } = ports([]);
 		expect(resolvePairingTarget({ network: "zerotier", address: "10.147.17.5" }, value)).toMatchObject({ ok: false, message: expect.stringContaining("ZeroTier is not connected on this computer") });
+	});
+});
+
+describe("networkFromAnswer", () => {
+	it.each([
+		["1", "tailscale"],
+		["2", "zerotier"],
+		[" 2 ", "zerotier"],
+		["tailscale", "tailscale"],
+		["ZeroTier", "zerotier"],
+	] as const)("reads %j as %s", (answer, network) => {
+		expect(networkFromAnswer(answer)).toBe(network);
+	});
+
+	it.each([[""], ["3"], ["zt"], ["s"]])("does not guess from %j", (answer) => {
+		expect(networkFromAnswer(answer)).toBeNull();
+	});
+
+	it("treats Ctrl+C or the end of input as no answer", () => {
+		expect(networkFromAnswer(null)).toBeNull();
 	});
 });

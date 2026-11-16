@@ -6,6 +6,7 @@ import { programNames, shortcutErrorKind, shortcutLabel, type Program, type Shor
 import { shortcutHost, shortcuts, sessions } from "../services";
 import { AgentIcon } from "./agent-icon";
 import { SectionTitle } from "./components";
+import { ShortcutActions } from "./shortcut-actions";
 import { usePreferences } from "./preferences";
 
 export function ShortcutErrorView({ code, computer, program }: { code: string; computer: string; program?: Program }) {
@@ -40,6 +41,5 @@ export function ShortcutsSection({ hosts }: { hosts: SavedHost[] }) {
  const tile = { width: "48%" as const, minHeight: 100, borderRadius: theme.radius.medium, borderWidth: 1, borderColor: c.border, backgroundColor: c.card, padding: 12, justifyContent: "center" as const, gap: 6 };
  return <View><SectionTitle>{s.title}</SectionTitle><View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8, marginHorizontal: theme.spacing(4) }}>
   {items.map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${shortcutLabel(item)} · ${hosts.find(h => h.id === item.computerId)?.name ?? ""}`} accessibilityHint={s.remove} accessibilityState={{ disabled: busy !== null }} disabled={busy !== null} onPress={() => void open(item)} onLongPress={() => remove(item)} style={tile}><AgentIcon program={item.program} size={24} /><Text numberOfLines={2} style={{ color: c.text, fontWeight: "700" }}>{shortcutLabel(item)}</Text><Text numberOfLines={1} style={{ color: c.textMuted }}>{busy === item.id ? s.opening : hosts.find(h => h.id === item.computerId)?.name ?? "—"}</Text></Pressable>)}
-  <Pressable accessibilityRole="button" onPress={() => router.push("/shortcut" as Href)} style={[tile, { borderStyle: "dashed" }]}><Text style={{ color: c.accentText, fontSize: 24 }}>+</Text><Text style={{ color: c.text, fontWeight: "700" }}>{s.add}</Text></Pressable>
- </View>{error ? <ShortcutErrorView {...error} /> : null}</View>;
+ </View><ShortcutActions add={() => router.push("/shortcut" as Href)} openTerminal={() => router.push("/open-terminal" as Href)} />{error ? <ShortcutErrorView {...error} /> : null}</View>;
 }

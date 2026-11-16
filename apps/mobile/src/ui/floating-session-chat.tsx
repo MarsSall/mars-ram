@@ -10,6 +10,7 @@ import type { useLiveSession } from "./use-live-session";
 import { usePreferences } from "./preferences";
 import { appendDictation } from "../core/dictation";
 import { DictationMic, DictationModelSheet, DictationStatus, dictationVisible, useDictation } from "./dictation";
+import { useTourAnchor } from "./tour/anchors";
 
 /** Uses the terminal's already-followed bridge, never a competing event stream. */
 export function FloatingSessionChat({ sessionKey, live, close, expand }: { sessionKey: string; live: ReturnType<typeof useLiveSession>; close(): void; expand(): void }) {
@@ -32,8 +33,10 @@ export function FloatingSessionChat({ sessionKey, live, close, expand }: { sessi
   } catch { setError(t.attachments.sendFailed); }
   finally { setProgress(null); }
  }
+ // The first-visit tip marks the whole box.
+ const composerAnchor = useTourAnchor("chat.composer");
  const actionStyle = { width: 48, height: 48, borderRadius: 24, alignItems: "center" as const, justifyContent: "center" as const };
- return <View style={{ marginHorizontal: 10, marginBottom: 8, padding: 12, borderRadius: 24, borderWidth: 1, borderColor: c.border, backgroundColor: c.terminalBackground }}>
+ return <View {...composerAnchor} style={{ marginHorizontal: 10, marginBottom: 8, padding: 12, borderRadius: 24, borderWidth: 1, borderColor: c.border, backgroundColor: c.terminalBackground }}>
   <View pointerEvents="box-none" style={{ position: "absolute", top: -11, left: 0, right: 0, alignItems: "center", zIndex: 2 }}><ChatHandle state="floating" change={next => { if (next === "full") expand(); else if (next === "closed") close(); }} /></View>
   <Pressable accessibilityRole="button" accessibilityLabel={t.terminal.closeChat} onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ position: "absolute", top: 4, right: 8, width: 28, height: 28, alignItems: "center", justifyContent: "center", zIndex: 2 }}><Text style={{ color: c.textMuted, fontSize: 20 }}>×</Text></Pressable>
   <TextInput autoFocus multiline value={composer.text} onChangeText={composer.setText} accessibilityLabel={t.session.composerPlaceholder} placeholder={t.session.composerPlaceholder} placeholderTextColor={c.textMuted} editable={phase !== "ended" && !composer.sending} style={{ color: c.terminalText, fontSize: 16, minHeight: 40, maxHeight: 120, fontFamily: theme.font.mono }} />

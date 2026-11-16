@@ -230,6 +230,41 @@ describe("Herdr terminal", () => {
   await terminal.close(); release(); expect((await pending).ok).toBe(false); expect(channel.writes).toHaveLength(0);
  });
 });
+describe("plain shell terminal", () => {
+ const shell = () => { const parts = setup(); return { ...parts, terminal: new HerdrTerminal(parts.deps, savedHost("one"), { cols: 100, rows: 30, shell: true }) }; };
+ it("asks for the login shell with an empty command and never reads the Herdr record", async () => {
+  const { terminal, host, channel } = shell(); host.readFile = vi.fn(host.readFile.bind(host));
+  await terminal.open();
+  expect(channel.opens).toEqual([{ connectionId: expect.any(String), command: [], cols: 100, rows: 30, term: "xterm-256color" }]);
+  expect(host.readFile).not.toHaveBeenCalled(); expect(terminal.state.status).toBe("open");
+  expect(await terminal.write(new Uint8Array([108, 115, 13]))).toEqual({ ok: true }); await terminal.close();
+ });
+ it("never focuses a session from the plain shell", async () => {
+  const { deps } = setup(); const focusSession = vi.fn();
+  const terminal = new HerdrTerminal({ ...deps, focusSession }, savedHost("one"), { cols: 80, rows: 24, sessionKey: "one/bridge", shell: true });
+  await terminal.open(); expect(focusSession).not.toHaveBeenCalled(); await terminal.close();
+ });
+ it.each([[0, "SHELL_CLOSED"], [127, "SHELL_CLOSED"]])("a shell exit %s closes it and is never labelled as missing Herdr", async (exitStatus, reason) => {
+  const { terminal, channel } = shell(); await terminal.open();
+  channel.pushExit("terminal-1", { exitStatus, reason: "exited" });
+  expect(terminal.state).toEqual({ status: "closed", reason });
+ });
+ it("a dropped shell is shown closed, never silently replaced by a new shell", async () => {
+  vi.useFakeTimers(); const { terminal, channel } = shell(); await terminal.open();
+  channel.pushExit("terminal-1", { exitStatus: null, reason: "disconnected" });
+  expect(terminal.state).toEqual({ status: "closed", reason: "SHELL_DISCONNECTED" });
+  await vi.advanceTimersByTimeAsync(20000); expect(channel.opens).toHaveLength(1);
+  terminal.setActive(false); terminal.setActive(true); await vi.advanceTimersByTimeAsync(20000); expect(channel.opens).toHaveLength(1);
+ });
+ it("closes its SSH channel when the screen leaves", async () => {
+  const { terminal, channel } = shell(); await terminal.open(); const close = vi.spyOn(channel, "close");
+  await terminal.close(); expect(close).toHaveBeenCalledWith("terminal-1");
+ });
+ it("uses default keys without connecting for Herdr's key file", async () => {
+  const { terminal, host } = shell(); host.readFile = vi.fn(host.readFile.bind(host));
+  expect(await terminal.keys()).toEqual({ prefix: "ctrl+b" }); expect(host.readFile).not.toHaveBeenCalled(); expect(host.connects).toHaveLength(0);
+ });
+});
 describe("terminalKey", () => {
  it.each(Object.entries({ esc: "\x1b", tab: "\t", enter: "\r", backspace: "\x7f", up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", home: "\x1b[H", end: "\x1b[F", pageup: "\x1b[5~", pagedown: "\x1b[6~" }))("maps %s", (key, value) => expect(decode(terminalKey(key, false))).toBe(value));
  it.each(Object.entries({ up: "A", down: "B", right: "C", left: "D", home: "H", end: "F" }))("application mode %s", (key, suffix) => expect(decode(terminalKey(key, true))).toBe(`\x1bO${suffix}`));

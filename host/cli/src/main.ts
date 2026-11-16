@@ -2,7 +2,6 @@
 // Host command: mars-ram pair — shows a QR so a phone can pair with this computer.
 import { randomBytes } from "node:crypto";
 import { homedir, hostname, userInfo } from "node:os";
-import { encodePairingUri } from "@workspace/protocol";
 import { authorizeKey, buildKeyLine, keyTarget, readWindowsPrivileges } from "./adapters/authorized-keys.ts";
 import { fingerprintOfPublicKey, readHostIdentity } from "./adapters/host-identity.ts";
 import { startPairingEndpoint } from "./adapters/pairing-endpoint.ts";
@@ -10,10 +9,10 @@ import { readTailscale } from "./adapters/tailscale.ts";
 import { zeroTierAddresses, zeroTierInterfaces } from "./adapters/zerotier.ts";
 import { readFirewall } from "./adapters/firewall.ts";
 import { parseArguments, type PairArguments } from "./arguments.ts";
-import { askConfirmation, renderQr, spanish, text } from "./adapters/terminal.ts";
+import { askConfirmation, askLine, renderQr, spanish, text } from "./adapters/terminal.ts";
 import { pairingFirewallHints } from "./core/firewall.ts";
-import { resolvePairingTarget } from "./core/pairing-network.ts";
-import { PairingSession } from "./core/pairing-session.ts";
+import { networkFromAnswer, resolvePairingTarget, type PairingNetworkPorts } from "./core/pairing-network.ts";
+import { PairingSession, pairingUri } from "./core/pairing-session.ts";
 import { installCommand } from "./install-command.ts";
 import { doctorCommand } from "./doctor-command.ts";
 import { keyCommand } from './key-command.ts';
@@ -23,6 +22,7 @@ import { projectCommand } from './project-command.ts';
 import { shortcutsCommand } from './shortcuts-command.ts';
 import { notifyCommand } from './notify-command.ts';
 import { uploadsDirCommand } from './uploads-command.ts';
+import { updateCommand } from './update-command.ts';
 
 import { readRelease } from './adapters/release-version.ts';
 
@@ -30,7 +30,17 @@ const TTL_MS = 5 * 60_000;
 
 async function pair(choice: PairArguments): Promise<number> {
 	const { sshPort } = choice;
-	const listen = resolvePairingTarget(choice, { tailscale: () => readTailscale(), zeroTierAddresses: () => zeroTierAddresses() });
+	// Read each network only when needed, and once, even when the user is asked which one to use.
+	const networks: PairingNetworkPorts = { tailscale: once(() => readTailscale()), zeroTierAddresses: once(() => zeroTierAddresses()) };
+	let listen = resolvePairingTarget(choice, networks);
+	// Both networks connected: ask in a terminal; a script without one has to pass --network.
+	if (!listen.ok && listen.choose && process.stdin.isTTY) {
+		const answer = await askLine(text.chooseNetwork);
+		if (answer === null) return fail(text.cancelled);
+		const network = networkFromAnswer(answer);
+		if (!network) return fail(text.noNetworkChosen);
+		listen = resolvePairingTarget({ ...choice, network }, networks);
+	}
 	if (!listen.ok) return fail(listen.message);
 	const firewallHints = pairingFirewallHints(listen, { firewall: () => readFirewall(), zeroTierInterface: (address) => zeroTierInterfaces().find((entry) => entry.address === address)?.name }, spanish);
 	const identity = readHostIdentity();
@@ -75,7 +85,7 @@ async function pair(choice: PairArguments): Promise<number> {
 	const endpoint = await startPairingEndpoint({ session, address: listen.address, maxBodyBytes: 8 * 1024 });
 	// The QR carries the port the endpoint actually got.
 	host.pairPort = endpoint.port;
-	const uri = encodePairingUri({ ...session.offer(), pairPort: endpoint.port });
+	const uri = pairingUri({ ...session.offer(), pairPort: endpoint.port });
 
 	console.log(`\n${firewallHints.map((hint) => `${hint}\n\n`).join("")}${text.scan}\n\n${renderQr(uri)}\n\n${text.orOpen}\n${uri}\n\n${text.expires(TTL_MS / 60_000)}\n${text.waiting}\n`);
 
@@ -87,6 +97,11 @@ async function pair(choice: PairArguments): Promise<number> {
 	if (!outcome.ok) return fail(text.notPaired(outcome.message));
 	console.log(text.paired(deviceName));
 	return 0;
+}
+
+function once<T>(read: () => T): () => T {
+	let value: { read: T } | undefined;
+	return () => (value ??= { read: read() }).read;
 }
 
 function fail(message: string): number {
@@ -105,4 +120,4 @@ if (parsed.command === 'version') {
  console.log(parsed.json ? JSON.stringify({ version: 1, release }) : release);
  process.exit(0);
 }
-process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed) : parsed.command === "doctor" ? doctorCommand() : parsed.command === "uploads-dir" ? uploadsDirCommand() : installCommand(parsed.command)));
+process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed) : parsed.command === "doctor" ? doctorCommand() : parsed.command === "uploads-dir" ? uploadsDirCommand() : parsed.command === "update" ? updateCommand() : installCommand(parsed.command)));

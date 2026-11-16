@@ -4,11 +4,13 @@ import { AppState } from "react-native";
 import { focusedHerdrPane, terminalChatSession, currentPaneChatBinding, type PaneChatBinding } from "../core/pane-chat";
 import { catalog, herdrSwitcher, sessions } from "../services";
 
-/** Same ten-second discovery cadence as the sessions screen; explicit focus also refreshes. */
-export function usePaneChat(hostId: string, routeKey: string | undefined) {
+/** Same ten-second discovery cadence as the sessions screen; explicit focus also refreshes.
+ * Disabled (the plain shell): no discovery at all and no chat binding. */
+export function usePaneChat(hostId: string, routeKey: string | undefined, enabled = true) {
  const [binding, setBinding] = useState<PaneChatBinding | null>(null);
  const refresh = useRef<() => void>(() => {});
  useFocusEffect(useCallback(() => {
+  if (!enabled) { setBinding(null); return; }
   let active = true; let running = false; let again = false;
   const load = async () => {
    if (!active || AppState.currentState !== "active") return;
@@ -32,7 +34,7 @@ export function usePaneChat(hostId: string, routeKey: string | undefined) {
   const timer = setInterval(() => void load(), 10_000);
   const off = AppState.addEventListener("change", value => { if (value === "active") void load(); });
   return () => { active = false; clearInterval(timer); off.remove(); refresh.current = () => {}; };
- }, [hostId, routeKey]));
- const current = currentPaneChatBinding(binding, hostId, routeKey);
- return { sessionKey: current.key, session: current.session, refresh: () => refresh.current() };
+ }, [hostId, routeKey, enabled]));
+ const current = currentPaneChatBinding(enabled ? binding : null, hostId, routeKey);
+ return { sessionKey: enabled ? current.key : undefined, session: enabled ? current.session : undefined, refresh: () => refresh.current() };
 }

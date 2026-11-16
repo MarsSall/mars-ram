@@ -45,7 +45,8 @@ export type HostTarget = {
 export type TerminalExit = { exitStatus: number | null; reason: string };
 export type TerminalListener = { onOutput(bytes: Uint8Array): void; onExit(exit: TerminalExit): void };
 
-/** Interactive Herdr PTY on an already authenticated connection. Bytes are never logged. */
+/** Interactive PTY on an already authenticated connection: Herdr (`[herdrPath]`, optionally `--session <name>`)
+ * or, with an empty command, the server's login shell in the user's home. Bytes are never logged. */
 export interface TerminalChannel {
 	open(connectionId: string, command: string[], cols: number, rows: number, term?: string): Promise<{ ok: true; terminalId: string } | Failure>;
 	write(terminalId: string, bytes: Uint8Array): Promise<{ ok: true } | Failure>;

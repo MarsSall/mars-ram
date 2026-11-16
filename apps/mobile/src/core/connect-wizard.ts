@@ -102,6 +102,14 @@ export function diagnosisOffered(code: PairingFailureCode | undefined): boolean 
 }
 
 /**
+ * A scan that did not get through to the computer opens the diagnosis by itself, without waiting for «Ver qué pasa».
+ * `opened` is the failure it last opened for: once closed or backed out of, the same failure keeps its failure screen.
+ */
+export function opensDiagnosis<F extends { code?: PairingFailureCode }>(failure: F | null, opened: F | null): boolean {
+	return failure !== null && failure !== opened && diagnosisOffered(failure.code);
+}
+
+/**
  * The cause from pairing's failure code (or "slow": no answer yet) and a fresh read of the phone; the phone's own checks come first.
  * `over` is the network of the failed offer, or the wizard's choice while it still waits.
  */

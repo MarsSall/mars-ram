@@ -6,6 +6,10 @@ import { appUpdates, notifications, notificationSystem, setUnlockTitle } from ".
 import { AppState } from "react-native";
 import { PreferencesProvider, usePreferences } from "../ui/preferences";
 import { WhatsNewGate } from "../ui/whats-new";
+import { TourAnchorsProvider } from "../ui/tour/anchors";
+import { TourHost, tourAnchors } from "../ui/tour/tour-host";
+import { TipLayer } from "../ui/tour/tips";
+import { ROOT_TIPS } from "../ui/tour/tip-gate";
 
 function RootStack() {
 	const { theme, t, locale } = usePreferences();
@@ -27,6 +31,10 @@ function RootStack() {
 			<StatusBar style="light" />
 			<Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }} />
 			<WhatsNewGate />
+			{/* First-visit tips over the terminal and its sheets; the session selector shows its own inside its Modal. */}
+			<TipLayer tips={ROOT_TIPS} />
+			{/* Above every screen, tabs and terminal included; not a Modal, so a tab tap reaches the real tab. */}
+			<TourHost />
 		</>
 	);
 }
@@ -35,7 +43,9 @@ export default function RootLayout() {
 	return (
 		<SafeAreaProvider>
 			<PreferencesProvider>
-				<RootStack />
+				<TourAnchorsProvider registry={tourAnchors}>
+					<RootStack />
+				</TourAnchorsProvider>
 			</PreferencesProvider>
 		</SafeAreaProvider>
 	);

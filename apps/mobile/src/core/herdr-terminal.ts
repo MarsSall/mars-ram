@@ -20,7 +20,8 @@ export type HerdrState =
  | { status: "connecting" | "open" | "reconnecting" }
  | { status: "closed"; reason: string; code?: Failure["code"] }
  | { status: "unlock-required"; reason: string; code: Failure["code"] };
-export type HerdrOptions = { cols: number; rows: number; sessionKey?: string };
+/** shell: the server's login shell in the user's home (an empty PTY command) instead of Herdr. */
+export type HerdrOptions = { cols: number; rows: number; sessionKey?: string; shell?: boolean };
 export type HerdrDeps = {
  connections: Pick<HostConnections, "connection" | "drop">;
  channel: TerminalChannel;
@@ -43,6 +44,7 @@ const backoff = [1000, 2000, 5000, 10000];
  * discards the detached tail, resets the emulator and debounces a full resize redraw. */
 export class HerdrTerminal {
  private readonly sessionKey: string | undefined;
+ private readonly shell: boolean;
  state: HerdrState = { status: "closed", reason: "" };
  private readonly observers = new Set<(state: HerdrState) => void>();
  private output: ((bytes: Uint8Array) => void) | null = null;
@@ -65,7 +67,8 @@ export class HerdrTerminal {
 
  constructor(private readonly deps: HerdrDeps, private readonly computer: SavedHost, options: HerdrOptions) {
   if (!validSize(options.cols, options.rows)) throw new RangeError("PTY dimensions must be between 1 and 1000.");
-  this.cols = options.cols; this.rows = options.rows; this.sessionKey = options.sessionKey;
+  this.cols = options.cols; this.rows = options.rows; this.shell = options.shell === true;
+  this.sessionKey = this.shell ? undefined : options.sessionKey;
  }
  subscribe(listener: (state: HerdrState) => void): () => void {
   this.observers.add(listener); listener(this.state); return () => { this.observers.delete(listener); };
@@ -109,13 +112,18 @@ export class HerdrTerminal {
     else { this.dropped = false; this.fail(connection); }
     return;
    }
-   let path = "herdr";
-   this.fallback = true;
-   const candidate = (await readHostRecord(this.deps.host, connection.connectionId))?.herdr;
-   if (validHerdrPath(candidate) && candidate !== "herdr") { path = candidate; this.fallback = false; }
+   let command: string[] = [];
+   this.fallback = false;
+   if (!this.shell) {
+    let path = "herdr";
+    this.fallback = true;
+    const candidate = (await readHostRecord(this.deps.host, connection.connectionId))?.herdr;
+    if (validHerdrPath(candidate) && candidate !== "herdr") { path = candidate; this.fallback = false; }
+    command = [path];
+   }
    if (!current()) return;
    this.openedAt = this.deps.clock();
-   const opened = await this.deps.channel.open(connection.connectionId, [path], this.cols, this.rows);
+   const opened = await this.deps.channel.open(connection.connectionId, command, this.cols, this.rows);
    if (!current()) { if (opened.ok) await this.deps.channel.close(opened.terminalId); return; }
    if (!opened.ok) { if (fresh && ["NOT_CONNECTED", "SSH_ERROR", "TIMEOUT"].includes(opened.code)) this.schedule(); else this.fail(opened); return; }
    this.terminalId = opened.terminalId; this.attempt = 0; this.dropped = false;
@@ -151,6 +159,11 @@ export class HerdrTerminal {
   if (exit.reason === "overflow") { this.redraw(); return; }
   if (this.redrawTimer) clearTimeout(this.redrawTimer); this.redrawTimer = null;
   this.terminalId = null; this.unsubscribe?.(); this.unsubscribe = null;
+  // A plain shell cannot be reattached: a new one would silently lose its state (C5).
+  if (this.shell) {
+   const dropped = exit.exitStatus === null && ["disconnected", "connection_closed", "channel_closed"].includes(exit.reason);
+   this.dropped = false; this.stopped = true; this.publish({ status: "closed", reason: dropped ? "SHELL_DISCONNECTED" : "SHELL_CLOSED" }); return;
+  }
   if (exit.exitStatus === null && ["disconnected", "connection_closed", "channel_closed"].includes(exit.reason)) {
    this.dropped = true; this.publish({ status: "reconnecting" }); this.schedule();
   } else { this.dropped = false; this.stopped = true; this.publish({ status: "closed", reason: this.fallback && exit.exitStatus !== null && exit.exitStatus !== 0 && this.deps.clock() - this.openedAt <= 2000
@@ -180,6 +193,7 @@ export class HerdrTerminal {
   else if (!this.stopped && !this.terminalId && this.state.status === "connecting") void this.connect(false);
  }
  async keys(): Promise<HerdrKeys> {
+  if (this.shell) return parseHerdrKeys(null);
   try {
    const connection = await this.deps.connections.connection(this.computer);
    return connection.ok ? await readHerdrKeys(this.deps.host, connection.connectionId) : parseHerdrKeys(null);

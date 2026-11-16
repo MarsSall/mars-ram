@@ -7,6 +7,7 @@ import { type ManualHostDetails, type ManualHostInput, validateManualHost } from
 import { appKey, manual } from "../../services";
 import { Card, PrimaryButton, Screen, SectionTitle } from "../../ui/components";
 import { usePreferences } from "../../ui/preferences";
+import { pairThenTour } from "../../ui/tour/start";
 
 type Phase =
 	| { kind: "form" }
@@ -50,11 +51,9 @@ export default function ManualAddScreen() {
 
 	const confirm = async (details: ManualHostDetails, fingerprint: string) => {
 		setPhase({ kind: "saving" });
-		const result = await manual.confirm(details, fingerprint, t.add.unlockTitle);
-		if (result.ok) {
-			router.dismissTo({ pathname: "/computer/[id]", params: { id: result.host.id } });
-			return;
-		}
+		// The first computer also starts the tour, once its screen has opened.
+		const result = await pairThenTour(() => manual.confirm(details, fingerprint, t.add.unlockTitle), added => router.dismissTo({ pathname: "/computer/[id]", params: { id: added.host.id } }));
+		if (result.ok) return;
 		setFailure(result.message);
 		setPhase({ kind: "form" });
 	};

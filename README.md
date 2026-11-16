@@ -98,7 +98,7 @@ mars-ram pair
 
 Scan the QR code in the app, or open the printed pairing link on your phone. In the app, **Add computer** guides you step by step over Tailscale or ZeroTier: it checks the phone's network app (and Private DNS for Tailscale), gives these commands per system, and explains a failed scan. Setup runs for your user, without administrator rights; on Windows, use a normal terminal for `mars-ram install`, and an administrator terminal for `mars-ram pair` if your user is an administrator.
 
-**ZeroTier instead of Tailscale?** Run `mars-ram pair-zt` (add `--address <ipv4>` if the computer is in several ZeroTier networks). It needs an app version that supports ZeroTier; SSH sessions, the terminal and files work over ZeroTier, and with an up-to-date app and computer (`mars-ram install`) so do private links (served only on the computer's ZeroTier address) and Siempre atento. Android runs one VPN at a time: notices from a ZeroTier computer arrive only while ZeroTier is on, and from a Tailscale computer only while Tailscale is on. Plain `mars-ram pair` keeps using Tailscale. On Linux with a firewall (ufw or firewalld) on, `pair-zt` and `mars-ram doctor` print the exact command to let ZeroTier in, such as `sudo ufw allow in on <ZeroTier interface> comment 'ZeroTier'`, which also lets in private links (port 47811); Tailscale does not need it.
+**ZeroTier instead of Tailscale?** The same `mars-ram pair` finds ZeroTier on its own; if Tailscale is connected too, it asks which one your phone uses (or pass `--network zerotier`; `mars-ram pair-zt` means the same). Add `--address <ipv4>` if the computer is in several ZeroTier networks. It needs an app version that supports ZeroTier; SSH sessions, the terminal and files work over ZeroTier, and with an up-to-date app and computer (`mars-ram install`) so do private links (served only on the computer's ZeroTier address) and Siempre atento. Android runs one VPN at a time: notices from a ZeroTier computer arrive only while ZeroTier is on, and from a Tailscale computer only while Tailscale is on. On Linux with a firewall (ufw or firewalld) on, `mars-ram pair` (over ZeroTier) and `mars-ram doctor` print the exact command to let ZeroTier in, such as `sudo ufw allow in on <ZeroTier interface> comment 'ZeroTier'`, which also lets in private links (port 47811); Tailscale does not need it.
 
 Prefer npm? Replace the first command with `npm i -g mars-ram`.
 
@@ -110,7 +110,7 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Then run `mars-ram pair`. See the [full installation guide](./docs/install.md) for prerequisites, inspecting the installer before running it, and troubleshooting.
 
-**Update:** run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`. App build 10 needs mars-ram 0.1.6 and gives you the update commands. Coming from 0.1.5, running Pi sessions need no `/reload` (the protocol is still 1.7); from an older version, type `/reload` in each running Pi session. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
+**Update:** run `mars-ram update` (mars-ram 0.1.7 and later): it updates the package with the package manager you installed it with and runs `mars-ram install` of the new version. Up to 0.1.6, in a normal terminal (not an administrator one), run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`, one command per line. App build 11 needs mars-ram 0.1.6 and gives you the update commands; the smaller QR that mars-ram 0.1.7 prints needs app build 11 or later. Coming from 0.1.5, running Pi sessions need no `/reload` (the protocol is still 1.7); from an older version, type `/reload` in each running Pi session. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
 
 **Diagnose:** run `mars-ram doctor` for read-only setup checks.
 
@@ -158,10 +158,11 @@ Once your phone is paired:
 | Feature | What you can do |
 | --- | --- |
 | **Guided connection** | Add a computer step by step over Tailscale or ZeroTier; if the scan fails, the app says what to check. |
-| **ZeroTier as an alternative** | Pair with `mars-ram pair-zt` for sessions, the terminal, files, private links and Siempre atento. |
+| **ZeroTier as an alternative** | Pair with the same `mars-ram pair` for sessions, the terminal, files, private links and Siempre atento. |
 | **Live agent sessions** | Read, answer and stop a session from the phone. |
 | **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. Reorder the bar and the floating D-pad by dragging, pick keys from a list or make your own buttons (Settings › Customize keys). The text size is remembered; change it with a pinch or in Settings. |
 | **Guided shortcuts** | Open Gentle Shell, Pi or OpenCode in a repository. |
+| **Open a terminal** | From Home, next to «Add shortcut»: choose the computer and what to open, Herdr or a plain terminal (your login shell, in your home folder, on Linux, macOS or Windows). |
 | **Project files** | Browse files with their git state, diffs and history. Secret files such as `.env` and private keys stay hidden until you tap Show. |
 | **On-device dictation** | Turn speech into text on your phone; audio is not sent over the network. The voice model downloads in the background, even if you close the app. |
 | **Photos and files** | Attach them to a session (they land in a private per-user temp folder on the computer), or share a copy through a private link on your Tailscale or ZeroTier network. |

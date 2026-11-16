@@ -152,6 +152,16 @@ describe("ZeroTier scan warnings", () => {
 });
 
 describe("ZeroTier computer instructions", () => {
+	it("tells every computer to pair with pair-zt over ZeroTier and pair over Tailscale, never the other", () => {
+		const pairCommands = (os: "linux" | "macos" | "windows", choice: "tailscale" | "zerotier") =>
+			computerInstructions(os, choice).flatMap((step) => (step.kind === "command" && step.command.startsWith("mars-ram pair") ? [step.command] : []));
+		for (const os of ["linux", "macos", "windows"] as const) {
+			// pair-zt works on every host; a 0.1.6 host does not find ZeroTier with plain `mars-ram pair`.
+			expect(pairCommands(os, "zerotier")).toEqual(["mars-ram pair-zt"]);
+			expect(pairCommands(os, "tailscale")).toEqual(["mars-ram pair"]);
+		}
+	});
+
 	it("installs, joins ZeroTier, turns on SSH and pairs with pair-zt", () => {
 		for (const os of ["linux", "macos", "windows"] as const) {
 			const steps = computerInstructions(os, "zerotier");

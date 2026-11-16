@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computerInstructions, diagnose, diagnosisOffered, goToStep, phoneWarnings, recheck, SLOW_MS, slowOffer, startWizard, wizardSteps } from "../src/core/connect-wizard";
+import { computerInstructions, diagnose, diagnosisOffered, goToStep, opensDiagnosis, phoneWarnings, recheck, SLOW_MS, slowOffer, startWizard, wizardSteps } from "../src/core/connect-wizard";
 import type { PhoneNetworkState } from "../src/core/phone-network";
 
 const ready: PhoneNetworkState = { tailscaleInstalled: true, tailscaleOn: true, privateDnsActive: false };
@@ -100,6 +100,23 @@ describe("diagnosis", () => {
 		expect(diagnosisOffered("INVALID_QR")).toBe(false);
 		expect(diagnosisOffered("REFUSED")).toBe(false);
 		expect(diagnosisOffered(undefined)).toBe(false);
+	});
+
+	it("opens by itself once per failure that did not reach the computer", () => {
+		for (const code of ["UNREACHABLE", "PRIVATE_DNS", "SEND_FAILED", "TIMEOUT", "HOST_NOT_FOUND", "NOT_ON_VPN"] as const) {
+			const failure = { code };
+			expect(opensDiagnosis(failure, null)).toBe(true);
+			// Closed or backed out of: the same failure does not open it again, a new one does.
+			expect(opensDiagnosis(failure, failure)).toBe(false);
+			expect(opensDiagnosis({ code }, failure)).toBe(true);
+		}
+	});
+
+	it("keeps the failure screen for failures the message already explains, and while nothing failed", () => {
+		for (const code of ["CODE_EXPIRED", "PAIRING_CLOSED", "REFUSED", "INVALID_QR", "MAGICDNS_REQUIRED", "UNEXPECTED_ANSWER", "HOST_KEY_CHANGED", undefined] as const) {
+			expect(opensDiagnosis({ code }, null)).toBe(false);
+		}
+		expect(opensDiagnosis(null, null)).toBe(false);
 	});
 });
 

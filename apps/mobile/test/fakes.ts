@@ -43,9 +43,10 @@ export class FakeTerminalChannel implements TerminalChannel {
 	private validSize(cols: number, rows: number) {
 		return [cols, rows].every((n) => Number.isInteger(n) && n >= 1 && n <= 1000);
 	}
+	/** Native rule: an empty command is the login shell; otherwise only Herdr. */
 	async open(connectionId: string, command: string[], cols: number, rows: number, term = "xterm-256color") {
-		if (!(validHerdrPath(command[0]) && (command.length === 1 || (command.length === 3 && command[1] === "--session" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(command[2]))))) {
-			return { ...failure("SSH_ERROR"), message: "Only Herdr can be opened" };
+		if (command.length && !(validHerdrPath(command[0]) && (command.length === 1 || (command.length === 3 && command[1] === "--session" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(command[2]))))) {
+			return { ...failure("SSH_ERROR"), message: "Only Herdr or a login shell can be opened" };
 		}
 		if (!this.validSize(cols, rows)) return failure("SSH_ERROR");
 		this.opens.push({ connectionId, command: [...command], cols, rows, term });

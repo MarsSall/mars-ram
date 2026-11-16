@@ -17,7 +17,9 @@ export const text = spanish
 			expired: "El código venció sin que se emparejara ningún teléfono.",
 			cancelled: "Emparejamiento cancelado.",
 			elevate: "Tu usuario es administrador: abrí la terminal como administrador para autorizar el teléfono.",
-			usage: "Uso: mars-ram pair [--ssh-port <puerto>] | pair-zt [--ssh-port <puerto>] [--address <ipv4 de ZeroTier>] | install | uninstall | doctor",
+			chooseNetwork: "Tailscale y ZeroTier están conectados en esta computadora. ¿Cuál usa tu teléfono? 1) Tailscale  2) ZeroTier: ",
+			noNetworkChosen: "No se eligió ninguna red. Volvé a ejecutar mars-ram pair y escribí 1 o 2, o usá --network tailscale o --network zerotier.",
+			usage: "Uso: mars-ram pair [--network tailscale|zerotier] [--address <ipv4 de ZeroTier>] [--ssh-port <puerto>] | pair-zt (igual a pair --network zerotier) | install | uninstall | doctor | update",
 		}
 	: {
 			scan: "Scan this code with the app on your phone:",
@@ -30,7 +32,9 @@ export const text = spanish
 			expired: "The code expired without pairing a phone.",
 			cancelled: "Pairing cancelled.",
 			elevate: "Your user is an administrator: open the terminal as administrator to authorize the phone.",
-			usage: "Usage: mars-ram pair [--ssh-port <port>] | pair-zt [--ssh-port <port>] [--address <ZeroTier ipv4>] | install | uninstall | doctor",
+			chooseNetwork: "Tailscale and ZeroTier are both connected on this computer. Which one does your phone use? 1) Tailscale  2) ZeroTier: ",
+			noNetworkChosen: "No network was chosen. Run mars-ram pair again and type 1 or 2, or use --network tailscale or --network zerotier.",
+			usage: "Usage: mars-ram pair [--network tailscale|zerotier] [--address <ZeroTier ipv4>] [--ssh-port <port>] | pair-zt (same as pair --network zerotier) | install | uninstall | doctor | update",
 		};
 
 export const installText = spanish ? {
@@ -113,6 +117,21 @@ export function isYes(answer: string | null): boolean {
 
 export function renderQr(data: string): string {
 	return renderUnicodeCompact(data, { border: 2 });
+}
+
+/** One line from the terminal; null means Ctrl+C or the end of input. */
+export async function askLine(question: string): Promise<string | null> {
+	const prompt = createInterface({ input: process.stdin, output: process.stdout });
+	const abort = new AbortController();
+	prompt.on("SIGINT", () => abort.abort());
+	prompt.on("close", () => abort.abort());
+	try {
+		return await prompt.question(question, { signal: abort.signal });
+	} catch {
+		return null;
+	} finally {
+		prompt.close();
+	}
 }
 
 /**
