@@ -28,6 +28,7 @@ function fake(overrides: Partial<UpdatePorts> = {}): Fake {
 		installedVersion: (dir) => { calls.push(`version ${dir}`); return "0.1.7"; },
 		installedPackage: async (manager) => { calls.push(`find ${manager}`); return { entry: NEW_BIN, version: "0.1.8" }; },
 		runInstall: async (entry) => { calls.push(`install ${entry}`); return 0; },
+		runDoctor: async (entry) => { calls.push(`doctor ${entry}`); return 0; },
 		waitForEnter: async () => { calls.push("enter"); },
 		print: (line) => out.push(line),
 		printError: (line) => err.push(line),
@@ -77,6 +78,7 @@ describe("update (English)", () => {
 	it("S6: updates with the detected manager, reports from/to and passes the new install's exit code", async () => {
 		const ports = fake({ runInstall: async (entry) => { ports.calls.push(`install ${entry}`); return 3; } });
 		expect(await update(ports, false)).toBe(3);
+		// A failed install is the update's result; the doctor does not run after it.
 		expect(ports.calls).toEqual(["roots", "run pnpm add -g mars-ram@latest", "find pnpm", `install ${NEW_BIN}`]);
 		expect(ports.out).toEqual([
 			"Updating mars-ram with pnpm: pnpm add -g mars-ram@latest",
@@ -86,6 +88,47 @@ describe("update (English)", () => {
 		expect(ports.err).toEqual([]);
 	});
 
+	it("release 0.1.8 S2: after a successful install it runs the new version's doctor and says in one line that it ran", async () => {
+		const ports = fake();
+		expect(await update(ports, false)).toBe(0);
+		expect(ports.calls).toEqual(["roots", "run pnpm add -g mars-ram@latest", "find pnpm", `install ${NEW_BIN}`, `doctor ${NEW_BIN}`]);
+		expect(ports.out).toEqual([
+			"Updating mars-ram with pnpm: pnpm add -g mars-ram@latest",
+			"mars-ram updated from 0.1.7 to 0.1.8.",
+			"Running mars-ram install of 0.1.8…",
+			"Running mars-ram doctor of 0.1.8…",
+			"mars-ram doctor ran; its findings are above. The update finished.",
+		]);
+		expect(ports.err).toEqual([]);
+	});
+
+	it("release 0.1.8 S2: doctor problems, or a doctor that cannot start, never change the update's success", async () => {
+		const problems = fake({ runDoctor: async (entry) => { problems.calls.push(`doctor ${entry}`); return 1; } });
+		expect(await update(problems, false)).toBe(0);
+		expect(problems.out.slice(2)).toEqual([
+			"Running mars-ram install of 0.1.8…",
+			"Running mars-ram doctor of 0.1.8…",
+			"mars-ram doctor ran and found problems (above); fix them as it says. The update itself finished.",
+		]);
+		expect(problems.err).toEqual([]);
+		const broken = fake({ runDoctor: async () => undefined });
+		expect(await update(broken, false)).toBe(0);
+		expect(broken.out.at(-1)).toBe("mars-ram doctor could not run; run it yourself to check the setup. The update finished.");
+		expect(broken.err).toEqual([]);
+	});
+
+	it("release 0.1.8 S2: a failed update never runs the doctor", async () => {
+		for (const overrides of [
+			{ runManager: async (): Promise<RunResult> => ({ ok: false, code: 1, stdout: "", stderr: "boom" }) },
+			{ installedPackage: async () => undefined },
+			{ runInstall: async () => 2 },
+		]) {
+			const ports = fake(overrides);
+			expect(await update(ports, false)).not.toBe(0);
+			expect(ports.calls.some((call) => call.startsWith("doctor"))).toBe(false);
+		}
+	});
+
 	it("S6: says it was already up to date and still runs that version's install", async () => {
 		const ports = fake({ installedPackage: async () => ({ entry: NEW_BIN, version: "0.1.7" }) });
 		expect(await update(ports, false)).toBe(0);
@@ -93,6 +136,8 @@ describe("update (English)", () => {
 			"Updating mars-ram with pnpm: pnpm add -g mars-ram@latest",
 			"mars-ram was already up to date (0.1.7).",
 			"Running mars-ram install of 0.1.7…",
+			"Running mars-ram doctor of 0.1.7…",
+			"mars-ram doctor ran; its findings are above. The update finished.",
 		]);
 	});
 
@@ -190,7 +235,9 @@ describe("update (English)", () => {
 	it("Windows window: waits for the first terminal to finish, updates, and waits for Enter before closing", async () => {
 		const ports = fake({ platform: "win32", inWindow: true });
 		expect(await update(ports, false)).toBe(0);
-		expect(ports.calls).toEqual(["elevated", "roots", "waitForCaller", "run pnpm add -g mars-ram@latest", "find pnpm", `install ${NEW_BIN}`, "enter"]);
+		// The doctor of the new version runs in this window too, before it waits for Enter.
+		expect(ports.calls).toEqual(["elevated", "roots", "waitForCaller", "run pnpm add -g mars-ram@latest", "find pnpm", `install ${NEW_BIN}`, `doctor ${NEW_BIN}`, "enter"]);
+		expect(ports.out.at(-2)).toBe("mars-ram doctor ran; its findings are above. The update finished.");
 		expect(ports.out.at(-1)).toBe("Press Enter to close this window.");
 	});
 
@@ -259,7 +306,19 @@ describe("update (Spanish)", () => {
 	it("speaks Spanish for every message", async () => {
 		const ok = fake();
 		await update(ok, true);
-		expect(ok.out).toEqual(["Actualizando mars-ram con pnpm: pnpm add -g mars-ram@latest", "mars-ram se actualizó de 0.1.7 a 0.1.8.", "Ejecutando mars-ram install de la 0.1.8…"]);
+		expect(ok.out).toEqual([
+			"Actualizando mars-ram con pnpm: pnpm add -g mars-ram@latest",
+			"mars-ram se actualizó de 0.1.7 a 0.1.8.",
+			"Ejecutando mars-ram install de la 0.1.8…",
+			"Ejecutando mars-ram doctor de la 0.1.8…",
+			"Se ejecutó mars-ram doctor; lo que encontró está arriba. La actualización terminó.",
+		]);
+		const problems = fake({ runDoctor: async () => 1 });
+		expect(await update(problems, true)).toBe(0);
+		expect(problems.out.at(-1)).toBe("Se ejecutó mars-ram doctor y encontró problemas (arriba); arreglalos como indica. La actualización en sí terminó.");
+		const broken = fake({ runDoctor: async () => undefined });
+		expect(await update(broken, true)).toBe(0);
+		expect(broken.out.at(-1)).toBe("No se pudo ejecutar mars-ram doctor; ejecutalo vos para revisar la instalación. La actualización terminó.");
 		const same = fake({ installedPackage: async () => ({ entry: NEW_BIN, version: "0.1.7" }) });
 		await update(same, true);
 		expect(same.out[1]).toBe("mars-ram ya estaba en la última versión (0.1.7).");

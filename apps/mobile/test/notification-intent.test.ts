@@ -5,14 +5,13 @@ vi.mock("../src/services", () => ({ catalog: { list: ports.hosts }, sessions: { 
 const link = "mars-ram-preview://notice?h=00700063&b=0073&encoding=utf16-hex";
 beforeEach(() => { vi.clearAllMocks(); ports.hosts.mockResolvedValue([{ id: "pc" }]); ports.list.mockResolvedValue({ computers: [{ sessions: [{ hostId: "pc", bridgeInstanceId: "s", key: "pc/s" }] }] }); });
 describe("cold and warm notification intents", () => {
- it.each([true, false])("resolves confirmed session with initial=%s", async initial => {
-  expect(await redirectSystemPath({ path: link, initial })).toBe("/session/open/pc%2Fs");
+ it.each([true, false])("stops at the confirmation without discovery with initial=%s", async initial => {
+  expect(await redirectSystemPath({ path: link, initial })).toBe("/link-terminal?h=00700063&b=0073");
+  expect(ports.list).not.toHaveBeenCalled();
  });
- it("unknown host never starts discovery; ended sessions land on Inicio", async () => {
+ it("unknown host never starts discovery and lands on Inicio", async () => {
   ports.hosts.mockResolvedValueOnce([]);
   expect(await redirectSystemPath({ path: link, initial: true })).toBe("/"); expect(ports.list).not.toHaveBeenCalled();
-  ports.list.mockResolvedValueOnce({ computers: [] });
-  expect(await redirectSystemPath({ path: link, initial: false })).toBe("/");
  });
  it("malformed notification links never import/use host discovery", async () => {
   expect(await redirectSystemPath({ path: link + "&command=evil", initial: true })).toBe("/");

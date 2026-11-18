@@ -6,7 +6,7 @@ type Status = 'working' | 'blocked' | 'done' | 'idle' | 'unknown';
 type Tab = { id: string; label: string; focused: boolean; status: Status; kind: 'pi' | 'gentle-shell' | 'shell' | 'agent'; panes?: { id: string; focused: boolean }[] };
 type Workspace = { id: string; label: string; focused: boolean; status: Status; branch: string | null; tabs: Tab[] };
 type ErrorCode = 'HERDR_NOT_FOUND' | 'HERDR_FAILED' | 'BAD_ID' | 'NOT_FOUND';
-export type HerdrResult = { version: 1; truncated: boolean; workspaces: Workspace[] } | { version: 1; ok: true } | { version: 1; ok: false; code: ErrorCode; message: string };
+export type HerdrResult = { version: 1; truncated: boolean; workspaces: Workspace[]; machines?: string[] } | { version: 1; ok: true } | { version: 1; ok: false; code: ErrorCode; message: string };
 const MAX_BYTES = 1024 * 1024;
 const MAX_ENTRIES = 128;
 const workspaceId = (id: unknown): id is string => typeof id === 'string' && /^w[A-Za-z0-9]{1,63}$/.test(id);
@@ -32,6 +32,27 @@ const messages: Record<ErrorCode, string> = {
 class HerdrFailure extends Error {
  readonly code: ErrorCode;
  constructor(code: ErrorCode) { super(messages[code]); this.code = code; }
+}
+const MAX_MACHINE_BYTES = 64 * 1024;
+const MAX_MACHINES = 16;
+const MAX_MACHINE_LABEL = 64;
+/** Strict reader for `herdr machine list` (Herdr 0.9.5): `<id>\t<label>\t<ssh target>\t<session>\t<enabled|disabled>`.
+ * Malformed lines are ignored; labels are sanitized and capped for display. */
+export function parseHerdrMachines(text: string): { label: string; enabled: boolean }[] {
+ if (text.length > MAX_MACHINE_BYTES) return [];
+ const machines: { label: string; enabled: boolean }[] = [];
+ for (const line of text.split(/\r?\n/)) {
+  const fields = line.split('\t');
+  if (fields.length !== 5) continue;
+  const [id, raw, target, session, state] = fields as [string, string, string, string, string];
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id) || !target.trim() || !session.trim() || (state !== 'enabled' && state !== 'disabled')) continue;
+  const name = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim().slice(0, MAX_MACHINE_LABEL).trim();
+  if (name) machines.push({ label: name, enabled: state === 'enabled' });
+ }
+ return machines;
+}
+export function enabledHerdrMachines(text: string): string[] {
+ return [...new Set(parseHerdrMachines(text).filter(m => m.enabled).map(m => m.label))].slice(0, MAX_MACHINES);
 }
 async function capped<T, R>(items: T[], work: (item: T) => Promise<R>): Promise<R[]> {
  const results: R[] = new Array(items.length); let next = 0;
@@ -122,7 +143,10 @@ export async function runHerdr(args: string[], deps: { run: ProcessRunner; binar
    } catch { /* Optional metadata: missing, invalid or failed process info leaves Pi unchanged. */ }
   });
   // JSON escaping can expand even bounded labels. Refuse, never emit a partial oversized snapshot.
-  const response = { version: 1 as const, truncated, workspaces: result };
+  // Herdr multi-machine: the terminal also shows these machines' workspaces. Optional; never fails the list.
+  let machines: string[] = [];
+  try { machines = enabledHerdrMachines(await deps.run(deps.binary, ['machine', 'list'], { shell: false, encoding: 'utf8', timeout: 3000, maxBuffer: MAX_BYTES })); } catch { /* Older Herdr or failing command. */ }
+  const response = { version: 1 as const, truncated, workspaces: result, ...(machines.length ? { machines } : {}) };
   if (new TextEncoder().encode(JSON.stringify(response)).length > MAX_BYTES) throw new HerdrFailure('HERDR_FAILED');
   return response;
  } catch (error) {

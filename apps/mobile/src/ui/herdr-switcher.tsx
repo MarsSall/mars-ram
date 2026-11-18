@@ -172,6 +172,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
      </> : segment === "spaces" ? <>
       <Text accessibilityRole="header" style={{ color: c.textMuted, fontWeight: "700", fontSize: 13, letterSpacing: .6, marginVertical: 16 }}>{s.spaces.toLocaleUpperCase()} · {workspaces.length}</Text>
       {computer ? message(computer) : !catalogError && !catalogLoaded ? <Text style={{ color: c.textMuted }}>{s.loading("")}</Text> : null}
+      {entry?.state === "ok" && entry.machines?.length ? <Text accessible accessibilityLabel={s.alsoShows(entry.machines)} style={{ color: c.textMuted, paddingHorizontal: 12, paddingBottom: 8 }}>{s.alsoShows(entry.machines)}</Text> : null}
       {entry?.state === "ok" && !workspaces.length ? <Text style={{ color: c.textMuted, padding: 12 }}>{entry.workspaces.length ? s.noMatches : s.empty}</Text> : null}
       {computer ? workspaces.map((w, i) => <View key={w.id}>{i === 0 ? <TourAnchor id="selector.list">{row(computer, w)}</TourAnchor> : row(computer, w)}{w.tabs.map(tab => row(computer, w, tab))}</View>) : null}
      </> : <>

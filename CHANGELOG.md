@@ -2,6 +2,36 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.1.8
+
+Released together with Android build 12 of the app. Build 12 still works with mars-ram 0.1.6 and 0.1.7 (`MINIMUM_HOST_VERSION` stays 0.1.6): the only app change that reads something new from the computer is the switcher line for Herdr saved machines, and it uses an optional `machines` field of `mars-ram herdr list` that older hosts simply do not send, so the line does not show and everything else works as before. Host 0.1.8 also works with build 11, which ignores that field.
+
+Update in the computer's terminal (Linux, macOS or Windows), from 0.1.7:
+
+```text
+mars-ram update
+mars-ram doctor
+```
+
+From 0.1.6 or older, in a normal (not administrator) terminal, one command per line:
+
+```text
+pnpm add -g mars-ram@0.1.8
+mars-ram install
+```
+
+The session bridge still speaks protocol **1.7**, so Pi sessions that are already running need no `/reload`.
+
+### New
+
+- `mars-ram update` ends, after a successful `mars-ram install` of the new version, by running that version's `mars-ram doctor` and printing one line that it ran (on Windows, in the new window where the update continues). Doctor warnings or problems never turn a successful update into a failure, and a failed update or install does not run it. The update runs the code of the version that starts it, so this shows from the update after 0.1.8: going from 0.1.7 to 0.1.8 with `mars-ram update` does not run doctor, so run `mars-ram doctor` yourself afterwards.
+- Herdr saved machines: when the computer's Herdr has enabled saved SSH machines (`herdr machine list`), every Herdr client there, including the one the phone's terminal starts, also shows those machines' workspaces. mars-ram explains it without changing Herdr's configuration: `mars-ram doctor` prints a warning naming the enabled machines and how to hide them (`herdr machine disable <name>`), and `mars-ram herdr list` adds an optional `machines` field with their names, which app build 12 shows in the workspace switcher as «Este Herdr también muestra: …» / «This Herdr also shows: …». A missing Herdr or a failing `herdr machine list` never fails doctor or the list.
+- App build 12: a link from outside the app that opens a session's terminal asks «¿Abrir la terminal?» first, naming the computer; nothing opens a terminal or moves Herdr's focus on the computer before «Abrir», and «Cancelar» goes to Inicio. The app's own notification taps open directly as before. The network choice when adding a computer shows Tailscale and ZeroTier on equal footing, without «(recomendado)».
+
+### Fixes
+
+- Windows without administrator: `mars-ram doctor` says that `administrators_authorized_keys` and `sshd_config` are readable only by administrators and asks to run doctor as administrator to check them, instead of «Paired SSH keys: unreadable; forwarding unknown» and a bare «Could not determine SSH TCP forwarding»; `mars-ram pair` says that only administrators can read the SSH server's identity and to run it again in an administrator terminal, instead of «Is the SSH server installed?». A missing host key still means no SSH server.
+
 ## mars-ram 0.1.7
 
 Released together with Android build 11 of the app. Build 11 still works with mars-ram 0.1.6 (`MINIMUM_HOST_VERSION` stays 0.1.6), but only build 11 or later can scan the compact QR that 0.1.7 prints: update the app before or together with the computer.

@@ -76,6 +76,7 @@ export const en = {
   spaces: "Workspaces", agents: "Agents", blocked: "Need you", working: "Working", done: "Done", idle: "Waiting", ready: "Done", question: "Needs an answer", noComputers: "No paired computers",
   loading: (computer: string) => `Reading Herdr on ${computer}…`, empty: "No workspaces in Herdr", noMatches: "No matches", noAgents: "No agents in Herdr",
   retry: "Retry", focusing: "Switching Herdr…",
+  alsoShows: (machines: string[]) => `This Herdr also shows: ${machines.join(", ")}`,
   CLI_MISSING: "Update mars-ram on this computer", HERDR_NOT_FOUND: "Herdr is not installed on this computer. Install it and retry.", HERDR_FAILED: "Could not read or switch Herdr. Check the connection and retry.",
  },
 	keySecurity: {
@@ -333,6 +334,17 @@ export const en = {
 		notMine: "They do not match",
 		notMineHint: "Do not continue: another machine may be answering at that address.",
 	},
+	linkTerminal: {
+		title: "Open the terminal?",
+		computer: "Computer",
+		explain: (computer: string) => `A notification or a link wants to open a session's terminal. If you tap «Open», this phone connects to ${computer}, opens that session's terminal and Herdr also switches to it on the computer. If you cancel, nothing happens on ${computer}.`,
+		open: "Open",
+		cancel: "Cancel",
+		opening: (computer: string) => `Connecting to ${computer}…`,
+		gone: (computer: string) => `The session has ended or ${computer} is not responding. Nothing was opened on the computer.`,
+		invalid: "This link does not work: the computer is not saved on this phone.",
+		home: "Go to Home",
+	},
 	pair: {
 		title: "Add this computer?",
 		explain: "This phone's public key will be sent to that computer, which will ask you to confirm.",
@@ -351,8 +363,8 @@ export const en = {
 		networkLabel: "Network",
 		networks: { tailscale: "Tailscale", zerotier: "ZeroTier" },
 		choices: {
-			tailscale: { title: "Tailscale (recommended)", hint: "Everything works, including private links and Always attentive." },
-			zerotier: { title: "ZeroTier", hint: "Everything works, including private links and Always attentive with an up-to-date mars-ram on the computer." },
+			tailscale: { title: "Tailscale" },
+			zerotier: { title: "ZeroTier" },
 		},
 		skipToScan: "I know, scan",
 		skipStep: "Skip this step",

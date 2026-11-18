@@ -29,11 +29,13 @@ trustPolicyExclude:
   - semver@6.3.1
 
 # Patched versions forced for transitive build and dev tooling (Dependabot):
-# node-forge via @expo/cli, undici via @earendil-works/pi-coding-agent (pi-bridge
-# devDependency). Neither ships in the Android app nor in host code users install.
+# node-forge via @expo/cli and eas-cli, undici via @earendil-works/pi-coding-agent
+# (pi-bridge devDependency), minimatch 5.x via filelist (jake/ejs under eas-cli).
+# None ships in the Android app nor in host code users install.
 overrides:
-  node-forge: 1.4.1
+  "node-forge@<=1.4.2": 1.4.3
   undici: 8.12.2
+  "minimatch@>=5.0.0 <5.1.8": 5.1.9
 
 patchedDependencies:
   react-native-webview@14.0.1: patches/react-native-webview@14.0.1.patch

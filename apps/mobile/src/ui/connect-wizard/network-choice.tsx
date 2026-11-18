@@ -28,14 +28,11 @@ export function NetworkChoiceStep({ top, initial, onChoose }: { top: ReactNode; 
 							onPress={() => setSelected(network)}
 							accessibilityRole="radio"
 							accessibilityState={{ checked }}
-							accessibilityLabel={`${choice.title}. ${choice.hint}`}
-							style={{ flexDirection: "row", gap: theme.spacing(3), alignItems: "flex-start", minHeight: theme.touch, padding: theme.spacing(4), borderRadius: theme.radius.medium, borderWidth: checked ? 2 : 1, borderColor: checked ? c.accentText : c.border, backgroundColor: c.card }}
+							accessibilityLabel={choice.title}
+							style={{ flexDirection: "row", gap: theme.spacing(3), alignItems: "center", minHeight: theme.touch, padding: theme.spacing(4), borderRadius: theme.radius.medium, borderWidth: checked ? 2 : 1, borderColor: checked ? c.accentText : c.border, backgroundColor: c.card }}
 						>
 							<Ionicons name={checked ? "radio-button-on" : "radio-button-off"} size={24} color={checked ? c.accentText : c.textMuted} accessible={false} />
-							<View style={{ flex: 1, gap: 2 }}>
-								<Text style={{ color: c.text, fontSize: 16, fontWeight: "700" }}>{choice.title}</Text>
-								<Text style={{ color: c.textMuted, fontSize: 14 }}>{choice.hint}</Text>
-							</View>
+							<Text style={{ flex: 1, color: c.text, fontSize: 16, fontWeight: "700" }}>{choice.title}</Text>
 						</Pressable>
 					);
 				})}

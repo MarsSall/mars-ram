@@ -75,14 +75,14 @@ mars-ram version
 mars-ram version --json
 ```
 
-Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.7`); JSON is `{"version":1,"release":"0.1.7"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.8`); JSON is `{"version":1,"release":"0.1.8"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
 
 The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
 
 The app requires host **0.1.6**: `version` first shipped in 0.1.4, attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5, and private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, need 0.1.6. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run what the app shows: `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND` in `apps/mobile/src/core/host-update.ts`), otherwise the pinned commands, one per line in a normal (not administrator) terminal, for example:
 
 ```text
-pnpm add -g mars-ram@0.1.7
+pnpm add -g mars-ram@0.1.8
 mars-ram install
 ```
 
@@ -105,6 +105,7 @@ Updates the npm package with the package manager it was installed with, then run
    - the manager not found (it never started, so nothing changed): which one, and to install it or use a terminal where it works;
    - anything else: the exit code and the last 20 lines of its stderr (stdout when stderr is empty).
 6. Finds the new package where the manager now has it (`npm root -g` or `pnpm root -g`: `<root>/mars-ram`, or pnpm 11's `<root>/<id>/node_modules/mars-ram`, the newest release if several; Bun replaces its global folder in place), prints `mars-ram updated from X to Y.` or `mars-ram was already up to date (Y).`, and runs `node <new package>/bin/mars-ram.mjs install` as a separate process, never the old code in memory. Its exit code is `update`'s.
+7. From 0.1.8, when that install exits 0, runs `node <new package>/bin/mars-ram.mjs doctor` the same way and prints one line that it ran (or that it found problems, or could not run); its exit code never changes `update`'s, and a failed install does not run it. These steps are the code of the version that starts the update, so going from 0.1.7 to 0.1.8 does not run doctor.
 
 Messages follow the locale rule of the other commands (Spanish or English).
 

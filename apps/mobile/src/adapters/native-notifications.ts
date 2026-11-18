@@ -20,6 +20,8 @@ export const nativeNotifications = {
  batteryExempt: () => Ssh.isIgnoringBatteryOptimizations(),
  openBattery: () => Ssh.openBatteryOptimizationSettings(),
  language: (language: "es" | "en") => Ssh.setNotificationLanguage(language),
+ /** Rejects (never true) when an older native build lacks the check. */
+ acceptsOwnTap: async (mark: string): Promise<boolean> => (await Ssh.acceptsNoticeTap(mark)) === true,
  openSettings: async () => {
   const appPackage = Constants.expoConfig?.android?.package;
   if (Platform.OS === "android" && appPackage) await Linking.sendIntent("android.settings.APP_NOTIFICATION_SETTINGS", [{ key: "android.provider.extra.APP_PACKAGE", value: appPackage }]);

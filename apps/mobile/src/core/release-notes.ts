@@ -7,6 +7,32 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 12,
+  version: "1.0.0",
+  es: {
+   new: [
+    "Parche de seguridad: si un link de afuera de la app quiere abrir la terminal de una sesión, la app primero te pregunta «¿Abrir la terminal?» y te dice en qué computadora. Si cancelás, no se hace nada en la computadora. Las notificaciones de la propia app abren la terminal directo, como antes.",
+    "Si el Herdr de una computadora también muestra los espacios de otras máquinas que tiene guardadas, el selector de espacios lo dice con una línea «Este Herdr también muestra: …». Necesita mars-ram 0.1.8 en la computadora, y mars-ram doctor te explica cómo ocultarlas.",
+    "En la computadora, desde mars-ram 0.1.8, mars-ram update termina revisando la instalación con mars-ram doctor. Al pasar a la 0.1.8 ejecutá vos mars-ram doctor una vez; las actualizaciones siguientes lo hacen solas.",
+   ],
+   fixes: [
+    "Al agregar una computadora, Tailscale y ZeroTier aparecen como opciones iguales: con las dos funciona todo.",
+    "En Windows, sin permisos de administrador, mars-ram doctor y mars-ram pair te explican qué solo se puede revisar o hacer desde una terminal de administrador, en lugar de mostrar un error confuso.",
+   ],
+  },
+  en: {
+   new: [
+    "Security fix: if a link from outside the app wants to open a session's terminal, the app first asks «Open the terminal?» and tells you which computer. If you cancel, nothing happens on the computer. The app's own notifications open the terminal directly, as before.",
+    "If a computer's Herdr also shows the workspaces of other machines it has saved, the workspace switcher says so in a line «This Herdr also shows: …». It needs mars-ram 0.1.8 on the computer, and mars-ram doctor explains how to hide them.",
+    "On the computer, from mars-ram 0.1.8 on, mars-ram update ends by checking the setup with mars-ram doctor. When you move to 0.1.8, run mars-ram doctor yourself once; later updates do it on their own.",
+   ],
+   fixes: [
+    "When adding a computer, Tailscale and ZeroTier show up as equal choices: everything works with both.",
+    "On Windows, without administrator rights, mars-ram doctor and mars-ram pair explain what can only be checked or done from an administrator terminal, instead of showing a confusing error.",
+   ],
+  },
+ },
+ {
   build: 11,
   version: "1.0.0",
   es: {

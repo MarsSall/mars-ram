@@ -105,8 +105,20 @@ describe("doctor read-only adapters", () => {
 	it("reads native Windows SSH configuration and the administrator pairing target", async () => {
 		const programData = process.env.ProgramData ?? "C:\\ProgramData";
 		const b = boundary({ [`${programData}\\ssh\\sshd_config`]: 'AllowTcpForwarding no', [`${programData}\\ssh\\administrators_authorized_keys`]: 'restrict ssh-ed25519 AAA mars-ram:phone' }, { 'whoami /groups /fo csv': '"S-1-5-32-544"' });
-		expect(await createDoctorAdapter({ home: "C:\\Users\\test", platform: "win32", io: b.io }).forwarding()).toEqual({ allowed: false, keysAllowed: false });
+		expect(await createDoctorAdapter({ home: "C:\\Users\\test", platform: "win32", io: b.io }).forwarding()).toEqual({ allowed: false, keysAllowed: false, windowsElevated: false, administratorsKeys: true });
 		expect(b.calls).toEqual([["whoami", ["/groups", "/fo", "csv"]]]);
+	});
+	it("release 0.1.8 S3: says whether the Windows terminal is elevated and whose keys file it reads, asking whoami once", async () => {
+		for (const [groups, elevated, administratorsKeys] of [['"S-1-5-32-544"', false, true], ['"S-1-5-32-544","S-1-16-12288"', true, true], ['"S-1-5-32-545"', false, false]] as const) {
+			const b = boundary({}, { 'whoami /groups /fo csv': groups });
+			b.io.read = () => { throw Error("access denied"); };
+			expect(await createDoctorAdapter({ home: "C:\\Users\\test", platform: "win32", io: b.io }).forwarding()).toEqual({ allowed: undefined, keysAllowed: undefined, windowsElevated: elevated, administratorsKeys });
+			expect(b.calls).toEqual([["whoami", ["/groups", "/fo", "csv"]]]);
+		}
+		// whoami unavailable: nothing is said about elevation, so the previous messages stay.
+		const b = boundary({});
+		b.io.read = () => { throw Error("access denied"); };
+		expect(await createDoctorAdapter({ home: "C:\\Users\\test", platform: "win32", io: b.io }).forwarding()).toEqual({ allowed: undefined, keysAllowed: undefined });
 	});
 	describe.each([false, true])("Windows terminal shell compatibility (Spanish: %s)", (spanish) => {
 		it.each([

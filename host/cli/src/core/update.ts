@@ -1,4 +1,5 @@
-// `mars-ram update`: updates the package with the manager it was installed with, then runs the new version's install.
+// `mars-ram update`: updates the package with the manager it was installed with, then runs the new version's install and,
+// when that succeeded, its doctor.
 // Decides from facts only; adapters find the package, run processes without a shell and print.
 
 export type PackageManager = "pnpm" | "npm" | "bun";
@@ -39,6 +40,8 @@ export type UpdatePorts = {
 	installedPackage(manager: PackageManager): Promise<InstalledPackage | undefined>;
 	/** Runs `install` of that package as a separate process; its exit code. */
 	runInstall(entry: string): Promise<number>;
+	/** Runs `doctor` of that package as a separate process; its exit code, or undefined when it could not start. */
+	runDoctor(entry: string): Promise<number | undefined>;
 	waitForEnter(): Promise<void>;
 	print(line: string): void;
 	printError(line: string): void;
@@ -112,6 +115,10 @@ function messages(spanish: boolean) {
 		updated: (from: string, to: string) => `mars-ram se actualizó de ${from} a ${to}.`,
 		upToDate: (version: string) => `mars-ram ya estaba en la última versión (${version}).`,
 		install: (version: string) => `Ejecutando mars-ram install de la ${version}…`,
+		doctor: (version: string) => `Ejecutando mars-ram doctor de la ${version}…`,
+		doctorRan: "Se ejecutó mars-ram doctor; lo que encontró está arriba. La actualización terminó.",
+		doctorProblems: "Se ejecutó mars-ram doctor y encontró problemas (arriba); arreglalos como indica. La actualización en sí terminó.",
+		doctorNotRun: "No se pudo ejecutar mars-ram doctor; ejecutalo vos para revisar la instalación. La actualización terminó.",
 		enter: "Pulsá Enter para cerrar esta ventana.",
 	} : {
 		noAdmin: "Open a non-administrator terminal to update. Nothing changed.",
@@ -147,6 +154,10 @@ function messages(spanish: boolean) {
 		updated: (from: string, to: string) => `mars-ram updated from ${from} to ${to}.`,
 		upToDate: (version: string) => `mars-ram was already up to date (${version}).`,
 		install: (version: string) => `Running mars-ram install of ${version}…`,
+		doctor: (version: string) => `Running mars-ram doctor of ${version}…`,
+		doctorRan: "mars-ram doctor ran; its findings are above. The update finished.",
+		doctorProblems: "mars-ram doctor ran and found problems (above); fix them as it says. The update itself finished.",
+		doctorNotRun: "mars-ram doctor could not run; run it yourself to check the setup. The update finished.",
 		enter: "Press Enter to close this window.",
 	};
 }
@@ -158,7 +169,8 @@ function tail(output: string): string[] {
 	return output.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean).slice(-TAIL_LINES);
 }
 
-/** Exit code: 1 when refused or failed, otherwise the new version's `mars-ram install`. */
+/** Exit code: 1 when refused or failed, otherwise the new version's `mars-ram install`. Its doctor, run only after a
+ * successful install, informs and never changes that code. */
 export async function update(ports: UpdatePorts, spanish: boolean): Promise<number> {
 	const text = messages(spanish);
 	const windows = ports.platform === "win32";
@@ -207,5 +219,11 @@ export async function update(ports: UpdatePorts, spanish: boolean): Promise<numb
 	if (!installed) { ports.printError(text.notFound(manager)); return done(1); }
 	ports.print(installed.version === ports.currentVersion ? text.upToDate(installed.version) : text.updated(ports.currentVersion, installed.version));
 	ports.print(text.install(installed.version));
-	return done(await ports.runInstall(installed.entry));
+	const code = await ports.runInstall(installed.entry);
+	if (code === 0) {
+		ports.print(text.doctor(installed.version));
+		const doctor = await ports.runDoctor(installed.entry);
+		ports.print(doctor === undefined ? text.doctorNotRun : doctor === 0 ? text.doctorRan : text.doctorProblems);
+	}
+	return done(code);
 }

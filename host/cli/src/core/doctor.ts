@@ -10,6 +10,8 @@ export interface DoctorPorts {
 	spanish: boolean;
 	piVersion(): Promise<string>;
  herdr(): Promise<boolean>;
+ /** Enabled saved SSH machines of the recorded Herdr (`herdr machine list`); empty when none or unknown. */
+ herdrMachines(): Promise<string[]>;
  /** command: the first mars-ram on PATH (path only). packageMode: install.json records that `mars-ram install` ran from the npm package. */
  cli(): Promise<{ resolved: boolean; command?: string; current: boolean; localBin: boolean; packageMode?: boolean }>;
  /** listeners/notifyNetworks: per network (Tailscale, each ZeroTier address), when the installed copy can tell. */
@@ -27,7 +29,9 @@ export interface DoctorPorts {
 	/** Whether ufw or firewalld is on, read without root. */
 	firewall(): Promise<FirewallState>;
  keyLocks(): Promise<(string | { path: string; diagnostic: string })[]>;
-	forwarding(): Promise<{ allowed: boolean | undefined; keysAllowed: boolean | undefined }>;
+	/** windowsElevated: Windows only, when whoami answered. administratorsKeys: the pairing keys live in the Windows
+	 * administrators_authorized_keys, which, like sshd_config, only an elevated window can read. */
+	forwarding(): Promise<{ allowed: boolean | undefined; keysAllowed: boolean | undefined; windowsElevated?: boolean; administratorsKeys?: boolean }>;
 	windows(): Promise<{ service: boolean; shell: WindowsDefaultShell }>;
 	/** The private temp attachments folder, checked without creating it; legacy: ~/.mars-ram/uploads still exists. */
 	uploads(): Promise<{ state: UploadsFolderState; legacy: boolean }>;
@@ -69,6 +73,19 @@ export async function checkHerdr(p: DoctorPorts): Promise<Finding[]> {
  let present = false;
  try { present = await p.herdr(); } catch { /* Missing, unreadable or invalid host record. */ }
  return [result(present ? "ok" : "warning", say(p, present ? "Herdr executable recorded in host.json." : "Herdr is missing or moved (host.json).", present ? "Ejecutable Herdr registrado en host.json." : "Herdr no está instalado o se movió (host.json)."), present ? undefined : say(p, "Install Herdr and run mars-ram install again.", "Instalá Herdr y ejecutá mars-ram install de nuevo."))];
+}
+
+const shellWord = (label: string) => /^[A-Za-z0-9._@-]+$/.test(label) ? label : `"${label.replace(/["\\]/g, "")}"`;
+/** Herdr multi-machine shows saved machines' workspaces in every client, including the phone's terminal. Never a problem. */
+export async function checkHerdrMachines(p: DoctorPorts): Promise<Finding[]> {
+ let machines: string[] = [];
+ try { machines = await p.herdrMachines(); } catch { /* Missing Herdr or failing command: nothing to explain. */ }
+ if (!machines.length) return [];
+ const names = machines.join(", ");
+ const commands = machines.map((m) => `herdr machine disable ${shellWord(m)}`).join("; ");
+ return [result("warning",
+  say(p, `Herdr also shows the workspaces of its saved machines: ${names}. The phone's terminal on this computer shows them too.`, `Herdr también muestra los espacios de sus máquinas guardadas: ${names}. La terminal del teléfono en esta computadora también los muestra.`),
+  say(p, `To hide them: ${commands}`, `Para ocultarlos: ${commands}`))];
 }
 
 export async function checkInstallation(p: DoctorPorts): Promise<Finding[]> {
@@ -165,11 +182,20 @@ export async function checkFirewall(p: DoctorPorts): Promise<Finding[]> {
 	return findings;
 }
 export async function checkForwarding(p: DoctorPorts): Promise<Finding[]> {
+	const asAdministrator = () => say(p, "Run mars-ram doctor as administrator to check it.", "Corré mars-ram doctor como administrador para revisarlo.");
 	const unknown = () => result("warning", say(p, "Could not determine SSH TCP forwarding.", "No se pudo determinar el reenvío TCP SSH."), say(p, "Check sshd_config, its Includes and Match blocks; ask an administrator to inspect sshd -T.", "Revisá sshd_config, sus Include y bloques Match; pedí a un administrador revisar sshd -T."));
 	let state: Awaited<ReturnType<DoctorPorts["forwarding"]>>;
 	try { state = await p.forwarding(); } catch { return [unknown()]; }
-	return [state.allowed === undefined ? unknown() : result(state.allowed ? "ok" : "problem", say(p, `SSH TCP forwarding: ${state.allowed ? "allowed" : "disabled"}.`, `Reenvío TCP SSH: ${state.allowed ? "permitido" : "deshabilitado"}.`), state.allowed ? undefined : say(p, "Ask an administrator to set AllowTcpForwarding yes and DisableForwarding no in sshd_config (including Match blocks), then reload sshd.", "Pedí a un administrador AllowTcpForwarding yes y DisableForwarding no en sshd_config (también en bloques Match) y recargar sshd.")),
-		state.keysAllowed === undefined ? result("warning", say(p, "Paired SSH keys: unreadable; forwarding unknown.", "Claves SSH emparejadas: ilegibles; reenvío desconocido."), say(p, "Check read access to authorized_keys, then run doctor again.", "Verificá acceso de lectura a authorized_keys y volvé a ejecutar doctor.")) : result(state.keysAllowed ? "ok" : "warning", say(p, `Paired SSH keys: forwarding ${state.keysAllowed ? "allowed (or no paired keys)" : "restricted"}.`, `Claves SSH emparejadas: reenvío ${state.keysAllowed ? "permitido (o sin claves)" : "restringido"}.`), state.keysAllowed ? undefined : say(p, "Review the mars-ram: lines in authorized_keys; after a backup, allow port-forwarding and remove no-port-forwarding only for trusted paired keys.", "Revisá las líneas mars-ram: en authorized_keys; con un respaldo, permití port-forwarding y quitá no-port-forwarding solo para claves emparejadas confiables."))];
+	// Windows without administrator: those files are unreadable by design, not broken; only an elevated doctor can tell.
+	const notElevated = p.platform === "win32" && state.windowsElevated === false;
+	const configUnknown = notElevated
+		? result("warning", say(p, "Could not determine SSH TCP forwarding: sshd_config is readable only by administrators.", "No se pudo determinar el reenvío TCP SSH: sshd_config solo lo pueden leer los administradores."), asAdministrator())
+		: unknown();
+	const keysUnknown = notElevated && state.administratorsKeys
+		? result("warning", say(p, "Paired SSH keys: administrators_authorized_keys is readable only by administrators; forwarding unknown.", "Claves SSH emparejadas: administrators_authorized_keys solo lo pueden leer los administradores; reenvío desconocido."), asAdministrator())
+		: result("warning", say(p, "Paired SSH keys: unreadable; forwarding unknown.", "Claves SSH emparejadas: ilegibles; reenvío desconocido."), say(p, "Check read access to authorized_keys, then run doctor again.", "Verificá acceso de lectura a authorized_keys y volvé a ejecutar doctor."));
+	return [state.allowed === undefined ? configUnknown : result(state.allowed ? "ok" : "problem", say(p, `SSH TCP forwarding: ${state.allowed ? "allowed" : "disabled"}.`, `Reenvío TCP SSH: ${state.allowed ? "permitido" : "deshabilitado"}.`), state.allowed ? undefined : say(p, "Ask an administrator to set AllowTcpForwarding yes and DisableForwarding no in sshd_config (including Match blocks), then reload sshd.", "Pedí a un administrador AllowTcpForwarding yes y DisableForwarding no en sshd_config (también en bloques Match) y recargar sshd.")),
+		state.keysAllowed === undefined ? keysUnknown : result(state.keysAllowed ? "ok" : "warning", say(p, `Paired SSH keys: forwarding ${state.keysAllowed ? "allowed (or no paired keys)" : "restricted"}.`, `Claves SSH emparejadas: reenvío ${state.keysAllowed ? "permitido (o sin claves)" : "restringido"}.`), state.keysAllowed ? undefined : say(p, "Review the mars-ram: lines in authorized_keys; after a backup, allow port-forwarding and remove no-port-forwarding only for trusted paired keys.", "Revisá las líneas mars-ram: en authorized_keys; con un respaldo, permití port-forwarding y quitá no-port-forwarding solo para claves emparejadas confiables."))];
 }
 export async function checkKeyLocks(p: DoctorPorts): Promise<Finding[]> {
  try {
@@ -214,7 +240,7 @@ export async function checkUploads(p: DoctorPorts): Promise<Finding[]> {
 }
 export async function diagnose(p: DoctorPorts): Promise<{ code: number; results: Finding[] }> {
 	const results: Finding[] = [];
-	for (const check of [checkPi, checkHerdr, checkCli, checkInstallation, checkRegistry, checkPermissions, checkUploads, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkKeyLocks, checkWindows]) {
+	for (const check of [checkPi, checkHerdr, checkHerdrMachines, checkCli, checkInstallation, checkRegistry, checkPermissions, checkUploads, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkKeyLocks, checkWindows]) {
 		try { results.push(...await check(p)); } catch {
 			results.push(result("problem", say(p, `Cannot read diagnostic data (${check.name}).`, `No se pudo leer el diagnóstico (${check.name}).`), say(p, "Check read access to the relevant configuration and diagnostic commands, then run doctor again.", "Verificá acceso de lectura a la configuración y los comandos de diagnóstico y volvé a ejecutar doctor.")));
 		}

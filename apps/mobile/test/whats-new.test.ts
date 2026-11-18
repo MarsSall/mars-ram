@@ -176,7 +176,6 @@ describe("bundled changelog", () => {
  it("build 11 names the tour, Abrir terminal, the smaller QR and mars-ram update of 0.1.7, in plain words", () => {
   const note = RELEASE_NOTES.find(n => n.build === 11)!;
   expect(note).toBeDefined();
-  expect(RELEASE_NOTES[0]).toBe(note);
   for (const side of [note.es, note.en]) {
    const text = [...side.new, ...side.fixes].join("\n");
    for (const word of ["QR", "mars-ram 0.1.7", "mars-ram update", "Tailscale", "ZeroTier"]) expect(text).toContain(word);
@@ -188,5 +187,24 @@ describe("bundled changelog", () => {
   expect(note.es.new.join("\n")).toContain("«Ver tutorial»");
   expect(note.en.new.join("\n")).toContain("«Open terminal»");
   expect(note.en.new.join("\n")).toContain("«Show tutorial»");
+ });
+
+ it("build 12 names the link confirmation, Herdr's other machines, mars-ram 0.1.8 and the network choice, in plain words", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 12)!;
+  expect(note).toBeDefined();
+  expect(RELEASE_NOTES[0]).toBe(note);
+  for (const side of [note.es, note.en]) {
+   const text = [...side.new, ...side.fixes].join("\n");
+   for (const word of ["Herdr", "mars-ram 0.1.8", "mars-ram update", "mars-ram doctor", "mars-ram pair", "Windows", "Tailscale", "ZeroTier"]) expect(text).toContain(word);
+   expect(text).not.toMatch(/SSH|SFTP|bridge|protocol|PTY|deep link|herdr machine|JSON|versionCode|recomendado|recommended/i);
+   expect(side.new).toHaveLength(3);
+   expect(side.fixes).toHaveLength(2);
+  }
+  expect(note.es.new[0]).toMatch(/^Parche de seguridad: /);
+  expect(note.en.new[0]).toMatch(/^Security fix: /);
+  expect(note.es.new.join("\n")).toContain("«¿Abrir la terminal?»");
+  expect(note.es.new.join("\n")).toContain("«Este Herdr también muestra: …»");
+  expect(note.en.new.join("\n")).toContain("«Open the terminal?»");
+  expect(note.en.new.join("\n")).toContain("«This Herdr also shows: …»");
  });
 });

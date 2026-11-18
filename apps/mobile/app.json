@@ -34,6 +34,7 @@
       ],
       "./plugins/with-loopback-network-security",
       "./plugins/with-session-watch",
+      "./plugins/with-backup-rules",
       [
         "expo-build-properties",
         {

@@ -164,6 +164,8 @@ declare class SshModule extends NativeModule<SshEvents> {
 	/** 1024-byte stdin, 4096-byte output per stream, 30 s deadline. Never logs input/remote diagnostics. */
 	execWithInput(connectionId: string, command: string, input: string): Promise<ExecResult>;
 	setNotificationLanguage(language: "es" | "en"): Promise<void>;
+	/** Whether a notice link's `t` mark is this install's own notification-tap secret (constant-time; never creates one). */
+	acceptsNoticeTap(mark: string): Promise<boolean>;
 	disconnect(connectionId: string): Promise<void>;
 	isConnected(connectionId: string): boolean;
 	/** Whether an SSH server answers at host:port, reading only its greeting; never asks for an unlock. */

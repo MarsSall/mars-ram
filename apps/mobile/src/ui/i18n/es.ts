@@ -78,6 +78,7 @@ export const es: Strings = {
   spaces: "Espacios", agents: "Agentes", blocked: "Te necesitan", working: "Trabajando", done: "Listos", idle: "En espera", ready: "Listo", question: "Te pregunta", noComputers: "No hay computadoras vinculadas",
   loading: (computer: string) => `Leyendo Herdr de ${computer}…`, empty: "No hay espacios en Herdr", noMatches: "No hay coincidencias", noAgents: "No hay agentes en Herdr",
   retry: "Reintentar", focusing: "Cambiando Herdr…",
+  alsoShows: (machines: string[]) => `Este Herdr también muestra: ${machines.join(", ")}`,
   CLI_MISSING: "Actualizá mars-ram en esta computadora", HERDR_NOT_FOUND: "Herdr no está instalado en esta computadora. Instalalo y reintentá.", HERDR_FAILED: "No se pudo leer o cambiar Herdr. Revisá la conexión y reintentá.",
  },
 	keySecurity: {
@@ -334,6 +335,17 @@ export const es: Strings = {
 		notMine: "No coinciden",
 		notMineHint: "No sigas: puede estar respondiendo otra máquina en esa dirección.",
 	},
+	linkTerminal: {
+		title: "¿Abrir la terminal?",
+		computer: "Computadora",
+		explain: (computer: string) => `Una notificación o un link quiere abrir la terminal de una sesión. Si tocás «Abrir», el teléfono se conecta a ${computer}, abre la terminal de esa sesión y Herdr pasa a mostrarla también en la computadora. Si cancelás, no se hace nada en ${computer}.`,
+		open: "Abrir",
+		cancel: "Cancelar",
+		opening: (computer: string) => `Conectando con ${computer}…`,
+		gone: (computer: string) => `La sesión ya terminó o ${computer} no responde. No se abrió nada en la computadora.`,
+		invalid: "Este link no sirve: la computadora no está guardada en este teléfono.",
+		home: "Ir a Inicio",
+	},
 	pair: {
 		title: "¿Agregar esta computadora?",
 		explain: "Se va a enviar la clave pública de este teléfono a esa computadora; ahí te van a pedir que confirmes.",
@@ -352,8 +364,8 @@ export const es: Strings = {
 		networkLabel: "Red",
 		networks: { tailscale: "Tailscale", zerotier: "ZeroTier" },
 		choices: {
-			tailscale: { title: "Tailscale (recomendado)", hint: "Funciona todo, también los links privados y Siempre atento." },
-			zerotier: { title: "ZeroTier", hint: "Funciona todo, también los links privados y Siempre atento con mars-ram actualizado en la computadora." },
+			tailscale: { title: "Tailscale" },
+			zerotier: { title: "ZeroTier" },
 		},
 		skipToScan: "Ya sé, escanear",
 		skipStep: "Saltear este paso",

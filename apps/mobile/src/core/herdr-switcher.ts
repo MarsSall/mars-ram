@@ -8,7 +8,8 @@ import type { KeyCommandConfig } from "./key-security";
 export type HerdrStatus = "working" | "blocked" | "done" | "idle" | "unknown";
 export type HerdrTab = { id: string; label: string; focused: boolean; status: HerdrStatus; kind: "pi" | "gentle-shell" | "shell" | "agent"; panes?: { id: string; focused: boolean }[] };
 export type HerdrWorkspace = { id: string; label: string; focused: boolean; status: HerdrStatus; branch: string | null; tabs: HerdrTab[] };
-export type HerdrSnapshot = { workspaces: HerdrWorkspace[]; truncated: boolean };
+/** machines: enabled saved SSH machines whose workspaces this Herdr also shows (Herdr multi-machine). Absent from older hosts. */
+export type HerdrSnapshot = { workspaces: HerdrWorkspace[]; truncated: boolean; machines?: string[] };
 export type SwitcherError = "CLI_MISSING" | "HERDR_NOT_FOUND" | "HERDR_FAILED";
 export type SwitcherResult<T> = { ok: true; value: T } | { ok: false; code: SwitcherError };
 // A successful empty snapshot is cached data too. Refresh failures must never
@@ -85,7 +86,18 @@ export function parseHerdrList(stdout: string): HerdrSnapshot {
   });
   return { ...row, branch: w.branch as string | null, tabs };
  });
- return { workspaces, truncated: data.truncated === true };
+ const machines = parseMachines(data.machines);
+ return { workspaces, truncated: data.truncated === true, ...(machines.length ? { machines } : {}) };
+}
+function parseMachines(v: unknown): string[] {
+ if (v === undefined) return [];
+ if (!Array.isArray(v) || v.length > 16) throw Error("Invalid Herdr machines");
+ const seen = new Set<string>();
+ return v.map((m: unknown) => {
+  if (typeof m !== "string" || !m.trim() || m.length > 64 || /[\x00-\x1f\x7f-\x9f]/.test(m) || seen.has(m)) throw Error("Invalid Herdr machine");
+  seen.add(m);
+  return m;
+ });
 }
 export class HerdrSwitcher {
  constructor(private readonly deps: { host: Pick<HostConnection, "readFile" | "exec">; connections: Pick<HostConnections, "connection"> }) {}

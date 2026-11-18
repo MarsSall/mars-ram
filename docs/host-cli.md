@@ -4,17 +4,21 @@ The paired phone can list repositories and open **Gentle Shell, Pi or OpenCode**
 
 ## Read the installed host release
 
-`mars-ram version` prints a release such as `0.1.7`; `mars-ram version --json` prints exactly one bounded line:
+`mars-ram version` prints a release such as `0.1.8`; `mars-ram version --json` prints exactly one bounded line:
 
 ```json
-{"version":1,"release":"0.1.7"}
+{"version":1,"release":"0.1.8"}
 ```
 
 Both exit 0, without prompts, network or changes. Only the optional `--json` flag is accepted; other/duplicate arguments exit 2 with usage. The envelope `version: 1` is separate from both the release and the bridge protocol. A checkout with no valid release metadata prints `dev` (or `{"version":1,"release":"dev"}`), not an error.
 
 `host/cli/scripts/build-release.ts` embeds `cli/VERSION` in the archive; `buildCliCopy` carries it through installation and subsequent reinstalls into `~/.mars-ram/cli/VERSION`. The phone invokes the absolute recorded Node and `cli/src/main.ts` paths, with the same conservative POSIX/cmd quoting as the Herdr switcher, so the result does not depend on SSH PATH or npm launcher variables. The bridge source fingerprint in `install.json` is unchanged.
 
-The phone warns prominently below its `MINIMUM_HOST_VERSION` (`apps/mobile/src/core/host-update.ts`, now **0.1.6**: it was 0.1.4, the first release with `version --json`, became 0.1.5 because attachments need `mars-ram uploads-dir` and ZeroTier pairing needs `mars-ram pair-zt`, and became 0.1.6 because private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, first shipped in 0.1.6; bump only when newly required host functionality needs it). A CLI without `version --json` (0.1.3 or older) always counts as below the minimum. An older CLI's nonzero/usage response is treated as legacy, without breaking sessions; transport failures and malformed successful responses are unknown, not evidence of an old release. `dev` never warns. A validated newer npm release gives only a subtle optional notice. The copyable remedy is `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND`), otherwise `pnpm add -g mars-ram@<target>` followed by `mars-ram install`, run in the **computer's terminal**, on Linux or Windows. A still-running session with an older compatible bridge protocol minor gets a separate `/reload` hint.
+The phone warns prominently below its `MINIMUM_HOST_VERSION` (`apps/mobile/src/core/host-update.ts`, now **0.1.6**: it was 0.1.4, the first release with `version --json`, became 0.1.5 because attachments need `mars-ram uploads-dir` and ZeroTier pairing needs `mars-ram pair-zt`, and became 0.1.6 because private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, first shipped in 0.1.6; bump only when newly required host functionality needs it). A CLI without `version --json` (0.1.3 or older) always counts as below the minimum. An older CLI's nonzero/usage response is treated as legacy, without breaking sessions; transport failures and malformed successful responses are unknown, not evidence of an old release. `dev` never warns. A validated newer npm release gives only a subtle optional notice. The copyable remedy is `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND`), otherwise `pnpm add -g mars-ram@<target>` followed by `mars-ram install`, run in the **computer's terminal**, on Linux or Windows. From 0.1.8, `mars-ram update` ends, after a successful `mars-ram install` of the new version, by running that version's `mars-ram doctor` (on Windows in the window the update continues in) and printing one line that it ran; the doctor's exit code never changes the update's, and a failed update or install does not run it. The update runs the code of the version that starts it, so going from 0.1.7 to 0.1.8 does not run doctor yet. A still-running session with an older compatible bridge protocol minor gets a separate `/reload` hint.
+
+## Windows without administrator
+
+`sshd_config`, `administrators_authorized_keys` and the SSH host key under `C:\ProgramData\ssh` are readable only by administrators. In a window that is not elevated (detected with the same `whoami /groups` SIDs that make `mars-ram install` and `mars-ram update` refuse elevated windows), `mars-ram doctor` keeps the SSH TCP forwarding and paired-keys findings as warnings but says those files are readable only by administrators and to run `mars-ram doctor` as administrator to check them; the paired-keys explanation applies only when the user's keys live in `administrators_authorized_keys` (members of Administrators). `mars-ram pair` says it needs an administrator window when the host key exists but cannot be read; a missing key keeps «Is the SSH server installed?». Elevated windows and Linux keep the previous messages.
 
 ## Always-attentive notification registration (host foundation)
 
@@ -115,6 +119,13 @@ Codes: `BAD_ARGUMENT`, `PROGRAM_NOT_ALLOWED`, `PROGRAM_NOT_FOUND`, `REPO_NOT_ALL
 `mars-ram herdr list` retains its version **1** envelope and all existing workspace/tab fields. Each tab may additionally include `panes: [{ "id": "w2G:p2", "focused": true }]`, taken from the pane list already fetched (no extra subprocess). This optional additive metadata does not change the envelope version; older consumers ignore it and newer consumers accept its absence from older CLIs.
 
 Pane IDs must match the existing scoped pane grammar and the containing workspace; only panes belonging to that tab are emitted, with duplicates removed. Each tab is capped at 128 panes (like tabs); exceeding the cap sets the envelope's `truncated`. Missing focus metadata yields `focused: false`, not invented focus. The app can use an unambiguous singleton in a focused tab; it does not guess among split panes without focus evidence. Pane metadata contains no process arguments, session paths, or terminal output.
+
+### Herdr saved machines
+
+Herdr can save SSH machines (`herdr machine list`, one tab-separated line per machine: `<id>\t<label>\t<ssh target>\t<session>\t<enabled|disabled>`). Every Herdr client on the computer, including the one the phone's terminal starts over SSH, then also shows the enabled machines' workspaces, so the phone's terminal on one computer can show another computer's work. mars-ram explains this and never changes Herdr's configuration:
+
+- `mars-ram herdr list` adds an optional `machines: ["Beelink"]` with the enabled machine labels (an extra `herdr machine list` subprocess, same limits); it is omitted when there are none, when Herdr is older or the command fails. Lines that do not match the five-field format exactly are ignored; labels lose control characters and are capped at 64 characters, duplicates are removed, and at most 16 are reported. The envelope version is unchanged; the app accepts the field's absence (older hosts) and rejects a malformed value. The workspace switcher then shows «Este Herdr también muestra: Beelink» / "This Herdr also shows: Beelink".
+- `mars-ram doctor` runs `herdr machine list` on the Herdr recorded in `host.json` (never a PATH guess) and, when enabled machines exist, prints one warning: `warning: Herdr also shows the workspaces of its saved machines: Beelink. The phone's terminal on this computer shows them too. To hide them: herdr machine disable Beelink` (Spanish: `aviso: Herdr también muestra los espacios de sus máquinas guardadas: Beelink. La terminal del teléfono en esta computadora también los muestra. Para ocultarlos: herdr machine disable Beelink`). No machines, a missing Herdr or a failing command print nothing and never fail doctor.
 
 ## Security and operational limits
 

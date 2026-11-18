@@ -6,7 +6,7 @@ import { doctorCommand } from "../../src/doctor-command.ts";
 
 function fake(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
 	return {
-		platform: "linux", spanish: false, herdr: async () => true,
+		platform: "linux", spanish: false, herdr: async () => true, herdrMachines: async () => [],
   cli: async () => ({ resolved: true, command: "/home/alex/.local/bin/mars-ram", current: true, localBin: true }),
   linkServer: async () => ({ present: true, current: true, configured: true, validLinks: 0, listener: false }),
 		piVersion: async () => "pi 1.2.0", installation: async () => ({ present: true, current: true, homes: [{ path: "/pi", registered: true }] }),
@@ -220,6 +220,39 @@ describe("read-only doctor policy with fake ports", () => {
 		const report = await diagnose(fake({ forwarding: async () => ({ allowed: undefined, keysAllowed: true }) }));
 		expect(report.code).toBe(0);
 		expect(report.results).toContainEqual(expect.objectContaining({ status: "warning", finding: expect.stringMatching(/could not determine/i), fix: expect.stringContaining("sshd_config") }));
+	});
+	describe("release 0.1.8 S3: Windows without administrator", () => {
+		const unknown = { allowed: undefined, keysAllowed: undefined };
+		const lines = (results: { status: string; finding: string; fix?: string }[]) => results.map((r) => [r.status, r.finding, r.fix]);
+		it("explains that sshd_config and administrators_authorized_keys are readable only by administrators (English)", async () => {
+			const report = await diagnose(fake({ platform: "win32", forwarding: async () => ({ ...unknown, windowsElevated: false, administratorsKeys: true }) }));
+			expect(report.code).toBe(0);
+			expect(lines(await checkForwarding(fake({ platform: "win32", forwarding: async () => ({ ...unknown, windowsElevated: false, administratorsKeys: true }) })))).toEqual([
+				["warning", "Could not determine SSH TCP forwarding: sshd_config is readable only by administrators.", "Run mars-ram doctor as administrator to check it."],
+				["warning", "Paired SSH keys: administrators_authorized_keys is readable only by administrators; forwarding unknown.", "Run mars-ram doctor as administrator to check it."],
+			]);
+		});
+		it("says the same in Spanish", async () => {
+			expect(lines(await checkForwarding(fake({ platform: "win32", spanish: true, forwarding: async () => ({ ...unknown, windowsElevated: false, administratorsKeys: true }) })))).toEqual([
+				["warning", "No se pudo determinar el reenvío TCP SSH: sshd_config solo lo pueden leer los administradores.", "Corré mars-ram doctor como administrador para revisarlo."],
+				["warning", "Claves SSH emparejadas: administrators_authorized_keys solo lo pueden leer los administradores; reenvío desconocido.", "Corré mars-ram doctor como administrador para revisarlo."],
+			]);
+		});
+		it("keeps the previous messages when elevated, on Linux, and for a user whose keys are in their own authorized_keys", async () => {
+			const previous = [
+				["warning", "Could not determine SSH TCP forwarding.", "Check sshd_config, its Includes and Match blocks; ask an administrator to inspect sshd -T."],
+				["warning", "Paired SSH keys: unreadable; forwarding unknown.", "Check read access to authorized_keys, then run doctor again."],
+			];
+			expect(lines(await checkForwarding(fake({ platform: "win32", forwarding: async () => ({ ...unknown, windowsElevated: true, administratorsKeys: true }) })))).toEqual(previous);
+			expect(lines(await checkForwarding(fake({ platform: "linux", forwarding: async () => unknown })))).toEqual(previous);
+			expect(lines(await checkForwarding(fake({ platform: "win32", forwarding: async () => unknown })))).toEqual(previous);
+			expect(lines(await checkForwarding(fake({ platform: "win32", spanish: true, forwarding: async () => ({ ...unknown, windowsElevated: true, administratorsKeys: true }) })))).toEqual([
+				["warning", "No se pudo determinar el reenvío TCP SSH.", "Revisá sshd_config, sus Include y bloques Match; pedí a un administrador revisar sshd -T."],
+				["warning", "Claves SSH emparejadas: ilegibles; reenvío desconocido.", "Verificá acceso de lectura a authorized_keys y volvé a ejecutar doctor."],
+			]);
+			const ownKeys = await checkForwarding(fake({ platform: "win32", forwarding: async () => ({ ...unknown, windowsElevated: false, administratorsKeys: false }) }));
+			expect(lines(ownKeys)[1]).toEqual(previous[1]);
+		});
 	});
 	it("only checks Windows service and shell on Windows", async () => {
 		expect(await checkWindows(fake())).toEqual([]);

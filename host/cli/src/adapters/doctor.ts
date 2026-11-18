@@ -17,6 +17,7 @@ import { zeroTierAddresses, zeroTierInterfaces } from "./zerotier.ts";
 import { readFirewall, systemdIsActive } from "./firewall.ts";
 import { observeLinkServer } from "./link-doctor.ts";
 import { observeCli, protocolSource } from "./cli-installation.ts";
+import { enabledHerdrMachines } from "../core/herdr-switcher.ts";
 
 export function parseForwarding(config: string): boolean | undefined {
 	let allow: string | undefined;
@@ -156,6 +157,13 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
    try { return executableHerdr(JSON.parse(fs.read(paths.join(root, "host.json")) ?? "{}").herdr, platform); }
    catch { return false; }
   },
+  async herdrMachines() {
+   // Only the recorded Herdr (the one the phone's terminal runs); never a PATH guess.
+   let herdr: unknown;
+   try { herdr = JSON.parse(fs.read(paths.join(root, "host.json")) ?? "{}").herdr; } catch { return []; }
+   if (!executableHerdr(herdr, platform)) return [];
+   try { return enabledHerdrMachines(fs.run(herdr, ["machine", "list"])); } catch { return []; }
+  },
 		async piVersion() { const pi = (options.pi ?? findPi)(); return fs.run(pi.command, [...pi.prefix, "--version"]); },
 		installation: options.installation ?? (async () => {
 			const installer = createInstallAdapter({ home });
@@ -246,12 +254,14 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
 				} catch { config = undefined; }
 			}
 			let keysAllowed: boolean | undefined;
+			let windows: { windowsElevated: boolean; administratorsKeys: boolean } | undefined;
 			try {
-				const privileges = platform === "win32" ? parseWindowsPrivileges(fs.run("whoami", ["/groups", "/fo", "csv"])) : { administrator: false };
+				const privileges = platform === "win32" ? parseWindowsPrivileges(fs.run("whoami", ["/groups", "/fo", "csv"])) : { administrator: false, elevated: false };
 				const target = keyTarget(platform, { home, programData, administrator: privileges.administrator });
+				if (platform === "win32") windows = { windowsElevated: privileges.elevated, administratorsKeys: target.kind === "windows-administrators" };
 				keysAllowed = pairingKeysAllowForwarding(fs.read(target.path) ?? "");
 			} catch { /* Key access cannot erase the independent sshd observation. */ }
-			return { allowed: config === undefined ? undefined : parseForwarding(config), keysAllowed };
+			return { allowed: config === undefined ? undefined : parseForwarding(config), keysAllowed, ...windows };
 		},
 		async uploads() {
 			let legacy = true;

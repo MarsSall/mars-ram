@@ -204,6 +204,8 @@ export const notificationSystem = {
  openSettings: nativeNotifications.openSettings,
  setLanguage: (language: "es" | "en") => { notifications.setLanguage(language); return nativeNotifications.language(language); },
 };
+/** release-0.1.8 S5 / L6: the app's own notification taps carry a native secret mark and skip the link confirmation. */
+export const noticeTaps = { accepts: (mark: string) => nativeNotifications.acceptsOwnTap(mark) };
 export const herdrSwitcher = new HerdrSwitcher({ connections, host: sshModuleHostConnection });
 export const shortcuts = fileShortcuts;
 export const shortcutHost = new ShortcutHost({ connections, host: sshModuleHostConnection });

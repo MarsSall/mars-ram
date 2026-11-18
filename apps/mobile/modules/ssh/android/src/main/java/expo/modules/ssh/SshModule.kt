@@ -131,6 +131,10 @@ class SshModule : Module() {
       SessionWatchControl.stop(context)
     }
     Function("sessionWatchStatus") { SessionWatchControl.status }
+    // Never logged; false without a context or before any notification created the mark.
+    AsyncFunction("acceptsNoticeTap") { mark: String ->
+      appContext.reactContext?.let { NoticeTapTokens.forContext(it).accepts(mark) } ?: false
+    }
     AsyncFunction("registerAlwaysNotify") Coroutine { hostId: String ->
       withContext(Dispatchers.IO) {
         val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()

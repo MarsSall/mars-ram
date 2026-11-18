@@ -55,10 +55,15 @@ internal val RETIRED_ALERT_CHANNELS = listOf("session-alerts")
 
 internal data class NoticeTap(val action: String, val uri: String)
 
-/** The notification tap as a deep link the app's router receives on cold and warm launch. */
-internal fun noticeTap(packageName: String, host: String, bridge: String): NoticeTap {
+/**
+ * The notification tap as a deep link the app's router receives on cold and warm launch. `mark` is
+ * this install's secret (NoticeTapTokens): with it the router opens the session without the
+ * «¿Abrir la terminal?» confirmation that links from other apps get (release-0.1.8 S5, L6).
+ */
+internal fun noticeTap(packageName: String, host: String, bridge: String, mark: String): NoticeTap {
+  require(isNoticeTapMark(mark)) { "invalid notice tap mark" }
   val scheme = if (packageName.endsWith(".preview")) "mars-ram-preview" else "mars-ram"
-  return NoticeTap("android.intent.action.VIEW", "$scheme://notice?h=$host&b=$bridge&encoding=utf16-hex")
+  return NoticeTap("android.intent.action.VIEW", "$scheme://notice?h=$host&b=$bridge&encoding=utf16-hex&t=$mark")
 }
 
 /** No eligible Tailscale or other VPN address; replaces TAILSCALE_REQUIRED (odd/tasks/zerotier-phase2.md S4). */
@@ -305,7 +310,7 @@ class SessionWatchService : Service() {
       intent.putExtra("sessionWatchIdEncoding", "utf16-hex")
       // React Native Linking reads only ACTION_VIEW intents (cold and warm); the per-session
       // URI keeps each PendingIntent distinct.
-      val tap = noticeTap(packageName, host, bridge)
+      val tap = noticeTap(packageName, host, bridge, NoticeTapTokens.forContext(this).mark())
       intent.action = tap.action
       intent.data = android.net.Uri.parse(tap.uri)
     }

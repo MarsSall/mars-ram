@@ -189,6 +189,15 @@ export async function waitForExit(pids: number[], options: { alive?: (pid: numbe
 	}
 }
 
+/** Runs a command of the new package as its own Node process, in this terminal; undefined when it could not start. */
+function runEntry(entry: string, command: string, printError: (line: string) => void): Promise<number | undefined> {
+	return new Promise((resolve) => {
+		const child = spawn(process.execPath, [entry, command], { stdio: "inherit", shell: false });
+		child.on("error", (error) => { printError(error.message); resolve(undefined); });
+		child.on("close", (code) => resolve(code ?? 1));
+	});
+}
+
 export function createUpdatePorts(print: (line: string) => void = console.log, printError: (line: string) => void = console.error): UpdatePorts {
 	const env = process.env;
 	const callers = (env[CALLERS] ?? "").split(",").filter((value) => /^[1-9]\d*$/.test(value)).map(Number);
@@ -228,11 +237,8 @@ export function createUpdatePorts(print: (line: string) => void = console.log, p
 			const folder = root.ok ? root.stdout?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) : undefined;
 			return folder ? findInstalledPackage([folder]) : undefined;
 		},
-		runInstall: (entry) => new Promise<number>((resolve) => {
-			const child = spawn(process.execPath, [entry, "install"], { stdio: "inherit", shell: false });
-			child.on("error", (error) => { printError(error.message); resolve(1); });
-			child.on("close", (code) => resolve(code ?? 1));
-		}),
+		runInstall: async (entry) => (await runEntry(entry, "install", printError)) ?? 1,
+		runDoctor: (entry) => runEntry(entry, "doctor", printError),
 		async waitForEnter() { await askLine(""); },
 		print,
 		printError,
