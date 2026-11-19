@@ -155,6 +155,44 @@ describe("gift greeting avatar", () => {
  });
 });
 
+describe("gift style", () => {
+ // Invented values only.
+ const withStyle = (value: unknown) => ({ ...sample, style: value });
+ const parse = (value: unknown) => parseGiftThemeData(JSON.parse(JSON.stringify(withStyle(value))));
+ it("accepts a full style and each part on its own", () => {
+  const full = { hud: { color: "#12AB34" }, backdrop: "circuit", titles: "mono" };
+  expect(parse(full)?.style).toEqual(full);
+  expect(parse({ hud: { color: "#abcdef" } })?.style).toEqual({ hud: { color: "#abcdef" } });
+  expect(parse({ backdrop: "circuit" })?.style).toEqual({ backdrop: "circuit" });
+  expect(parse({ titles: "mono" })?.style).toEqual({ titles: "mono" });
+ });
+ it("is absent when the theme has none, and an empty style adds nothing", () => {
+  expect(parseGiftThemeData(sample)).not.toHaveProperty("style");
+  expect(parse({})).not.toHaveProperty("style");
+ });
+ it("ignores unknown keys, like the rest of the theme", () => {
+  expect(parse({ titles: "mono", sparkle: true })?.style).toEqual({ titles: "mono" });
+  expect(parse({ hud: { color: "#12AB34", glow: "#000000" } })?.style).toEqual({ hud: { color: "#12AB34" } });
+ });
+ it.each([
+  ["a non-object style", "hud"],
+  ["a list", [{ titles: "mono" }]],
+  ["a hud without color", { hud: {} }],
+  ["a hud color that is not #RRGGBB", { hud: { color: "#ABC" } }],
+  ["an rgba hud color", { hud: { color: "rgba(1, 2, 3, 0.5)" } }],
+  ["a hud that is a string", { hud: "#12AB34" }],
+  ["an unknown backdrop", { backdrop: "stars" }],
+  ["unknown titles", { titles: "serif" }],
+  ["a null backdrop", { backdrop: null }],
+ ])("rejects the theme with %s", (_name, value) => {
+  expect(parse(value)).toBeNull();
+ });
+ it("survives sealing and opening", async () => {
+  const styled = { ...sample, style: { hud: { color: "#12AB34" }, backdrop: "circuit" as const, titles: "mono" as const } };
+  expect(await openGiftTheme("ZZZZ-3333", [sealGiftTheme("ZZZZ-3333", styled, nonce)])).toEqual(styled);
+ });
+});
+
 describe("refreshing unlocked gifts from the app's sealed themes", () => {
  const updated: GiftThemeData = { ...sample, label: "Sample v2" };
  it("replaces a stored copy with the newer sealed one opened by its own code", async () => {
@@ -184,5 +222,47 @@ describe("unlocked gifts on the phone", () => {
  it("keeps one entry per theme", () => {
   const raw = JSON.stringify([{ code: "AAAA2222", theme: sample }, { code: "BBBB3333", theme: sample }]);
   expect(parseUnlockedGifts(raw)).toEqual([{ code: "AAAA2222", theme: sample }]);
+ });
+});
+
+describe("gift photo", () => {
+ // Invented: a 14-byte stand-in that only has the JPEG start and end markers (FF D8 FF … FF D9).
+ const jpeg = "/9j/4AAQSkZJRgAB/9k=";
+ const photo = { jpeg, caption: "Sample", ring: { color: "#AA11BB", glow: "#CC22DD" } };
+ const withPhoto = (value: unknown) => ({ ...sample, photo: value });
+ const jpegOf = (size: number) => { const bytes = new Uint8Array(size); bytes.set([0xff, 0xd8, 0xff]); return Buffer.from(bytes).toString("base64"); };
+ it("accepts a small JPEG with a caption and ring, and a bare one", () => {
+  expect(parseGiftThemeData(JSON.parse(JSON.stringify(withPhoto(photo))))?.photo).toEqual(photo);
+  expect(parseGiftThemeData(withPhoto({ jpeg }))?.photo).toEqual({ jpeg });
+ });
+ it("accepts exactly 60000 decoded bytes, in each padding shape", () => {
+  for (const size of [60_000, 59_999, 59_998]) expect(parseGiftThemeData(withPhoto({ jpeg: jpegOf(size) }))?.photo?.jpeg).toBe(jpegOf(size));
+ });
+ it("keeps themes without a photo as they were", () => {
+  expect(parseGiftThemeData(sample)).not.toHaveProperty("photo");
+ });
+ it("survives sealing", async () => {
+  const theme = withPhoto(photo) as GiftThemeData;
+  expect(await openGiftTheme("CUTE7K2P", [sealGiftTheme("CUTE7K2P", theme, nonce)])).toEqual(theme);
+ });
+ it.each([
+  ["a photo that is not an object", jpeg],
+  ["a missing jpeg", { caption: "Sample" }],
+  ["an empty jpeg", { jpeg: "" }],
+  ["URL-safe base64", { jpeg: "_9j_4AAQSkZJRgAB_9k=" }],
+  ["base64 with whitespace", { jpeg: "/9j/4AAQ SkZJRgAB/9k=" }],
+  ["base64 without padding", { jpeg: "/9j/4AAQSkZJRgAB/9k" }],
+  ["padding in the middle", { jpeg: "/9j=4AAQSkZJRgAB/9k=" }],
+  ["a data URL", { jpeg: `data:image/jpeg;base64,${jpeg}` }],
+  ["a PNG", { jpeg: "iVBORw0KGgo=" }],
+  ["a too-short image", { jpeg: "/9g=" }],
+  ["more than 60000 bytes", { jpeg: jpegOf(60_001) }],
+  ["a long caption", { ...photo, caption: "x".repeat(41) }],
+  ["an empty caption", { ...photo, caption: "" }],
+  ["a bad ring color", { ...photo, ring: { color: "red", glow: "#CC22DD" } }],
+  ["a short ring glow", { ...photo, ring: { color: "#AA11BB", glow: "#CC2" } }],
+  ["a missing glow", { ...photo, ring: { color: "#AA11BB" } }],
+ ])("rejects the whole theme for %s", (_name, value) => {
+  expect(parseGiftThemeData(withPhoto(value))).toBeNull();
  });
 });

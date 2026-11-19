@@ -38,7 +38,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
  const [serverMode, setServerMode] = useState(false);
  const [serverEntries, setServerEntries] = useState<Record<string, ServersEntry>>({ ...rememberedServers });
  const [serverAttempt, setServerAttempt] = useState(0);
- const [query, setQuery] = useState(""); const [segment, setSegment] = useState<"spaces" | "agents">("spaces");
+ const [query, setQuery] = useState(""); const [segment, setSegment] = useState<"spaces" | "agents">("agents");
  const [busy, setBusy] = useState(false); const [choiceError, setChoiceError] = useState<SwitcherError | null>(null);
  const [catalogLoaded, setCatalogLoaded] = useState(false);
  const [catalogError, setCatalogError] = useState(false); const [catalogAttempt, setCatalogAttempt] = useState(0);
@@ -59,7 +59,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
   active.current = visible; const current = ++generation.current; pending.current.clear();
   if (!visible) return;
   dismissInput();
-  setEntries({ ...remembered.entries }); setServerMode(false); setSegment("spaces"); setQuery(""); setChoiceError(null); setSelected(hostId); setCatalogError(false); setCatalogLoaded(remembered.computers.length > 0); setComputers(remembered.computers);
+  setEntries({ ...remembered.entries }); setServerMode(false); setSegment("agents"); setQuery(""); setChoiceError(null); setSelected(hostId); setCatalogError(false); setCatalogLoaded(remembered.computers.length > 0); setComputers(remembered.computers);
   void catalog.list().then(hosts => { if (active.current && generation.current === current) { remembered.computers = [...hosts.filter(h => h.id === hostId), ...hosts.filter(h => h.id !== hostId)]; setComputers(remembered.computers); setCatalogLoaded(true); } }).catch(() => { if (active.current && generation.current === current) setCatalogError(true); });
   return () => { active.current = false; ++generation.current; };
  }, [visible, hostId, catalogAttempt]);
@@ -122,6 +122,32 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
    {agent || (!tab && workspace.branch) ? <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: c.textMuted, fontFamily: theme.font.mono, fontSize: 12, flex: 1 }}>{agent ? computer.name : `⎇ ${workspace.branch}`}</Text> : null}
   </Pressable>;
  }
+ // «Espacios» (S2): one card per workspace — status dot, name and computer, the branch on its own line, tabs as chips.
+ function card(computer: SavedHost, workspace: HerdrWorkspace, anchor: boolean) {
+  const current = computer.id === hostId && workspace.focused;
+  const status = workspace.status === "working" ? s.working : workspace.status === "blocked" ? s.question : workspace.status === "done" ? s.ready : undefined;
+  const dot = workspace.status === "working" ? c.working : workspace.status === "blocked" ? c.danger : workspace.status === "done" ? c.done : c.border;
+  const head = <Pressable accessibilityRole="button" accessibilityLabel={s.workspaceCard(workspace.label, workspace.branch, computer.name, status)} accessibilityState={{ selected: current, disabled: busy }} disabled={busy} onPress={() => void pick(computer, workspace.id)} style={{ minHeight: theme.touch, justifyContent: "center", gap: 4, paddingVertical: 6 }}>
+   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
+    <Text numberOfLines={1} style={{ color: c.text, fontWeight: "600", fontSize: 15, flexShrink: 1 }}>{workspace.label}</Text>
+    <Text numberOfLines={1} style={{ color: c.textMuted, fontSize: 11, marginLeft: "auto", flexShrink: 1, paddingLeft: 8 }}>{computer.name}</Text>
+   </View>
+   {workspace.branch ? <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: c.accentText, fontFamily: theme.font.mono, fontSize: 12 }}>⎇ {workspace.branch}</Text> : <Text numberOfLines={1} style={{ color: c.textMuted, fontStyle: "italic", fontSize: 12 }}>{s.noBranch}</Text>}
+  </Pressable>;
+  return <View key={workspace.id} style={{ backgroundColor: c.surfaceRaised, borderWidth: 1, borderColor: current ? c.accentText : c.border, borderRadius: theme.radius.medium, paddingHorizontal: 11, marginBottom: 8 }}>
+   {anchor ? <TourAnchor id="selector.list">{head}</TourAnchor> : head}
+   {workspace.tabs.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 6, marginTop: -6 }}>{workspace.tabs.map(tab => {
+    const on = current && tab.focused;
+    // The whole 48 dp box is the touch target; the bordered chip inside stays small.
+    return <Pressable key={tab.id} accessibilityRole="button" accessibilityLabel={s.tabIn(tab.label, workspace.label)} accessibilityState={{ selected: on, disabled: busy }} disabled={busy} onPress={() => void pick(computer, workspace.id, tab.id)} style={{ minHeight: theme.touch, minWidth: theme.touch, justifyContent: "center", alignItems: "flex-start" }}>
+     <View style={{ flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: on ? c.accentText : c.border, borderRadius: theme.radius.small, paddingHorizontal: 7, paddingVertical: 2 }}>
+      <Text numberOfLines={1} style={{ color: on ? c.accentText : c.textMuted, fontSize: 12 }}>{tab.label}</Text>
+     </View>
+    </Pressable>;
+   })}</View> : null}
+  </View>;
+ }
  function message(computer: SavedHost) {
   const entry = entries[computer.id];
   if (!entry || entry.state === "loading") return <Text accessibilityLiveRegion="polite" style={{ color: c.textMuted, padding: 12 }}>{s.loading(computer.name)}</Text>;
@@ -136,6 +162,8 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
  const serverPill = serverEntry?.state === "ok" ? ss.count(serverEntry.servers.filter(serverOpenable).length) : "⌁ …";
  const workspaces = entry?.state === "ok" ? filterWorkspaces(entry.workspaces, query) : [];
  const groups = agentGroups(computers.flatMap(computer => { const e = entries[computer.id]; return e?.state === "ok" ? [{ computer, workspaces: e.workspaces }] : []; }), query);
+ // The drawer opens on «Agentes» (S1): the selector tip points at its first row there.
+ const firstAgent = (["blocked", "working", "done", "idle"] as const).flatMap(status => groups[status])[0]?.tab;
  return <Modal visible={visible} transparent animationType="none" onRequestClose={dismissDrawer} onShow={dismissInput} statusBarTranslucent navigationBarTranslucent>
   <View style={{ flex: 1 }}>
    <Pressable accessibilityRole="button" accessibilityLabel={s.close} onPress={dismissDrawer} style={{ position: "absolute", inset: 0, backgroundColor: "rgba(13,14,20,.6)" }} />
@@ -145,7 +173,7 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
      <Pressable accessibilityRole="button" accessibilityLabel={`${serverEntry?.state === "ok" ? serverPill : serverEntry?.state === "error" ? ss.failed : ss.loading(computer?.name ?? "")} · ${computer?.name ?? ""}`} accessibilityState={{ selected: serverMode }} aria-pressed={serverMode} onPress={() => { dismissInput(); setServerMode(value => !value); setSegment("spaces"); }} style={{ minHeight: 48, paddingHorizontal: 12, borderRadius: 24, justifyContent: "center", backgroundColor: serverMode ? c.done : c.surfaceRaised }}><Text style={{ color: serverMode ? c.onAccent : c.done, fontWeight: "600" }}>{serverPill}</Text></Pressable>
     </View>
     {!serverMode ? <TextInput ref={search} autoFocus={false} accessibilityLabel={s.search} placeholder={s.search} placeholderTextColor={c.textMuted} value={query} onChangeText={setQuery} style={{ minHeight: 48, borderRadius: 24, paddingHorizontal: 16, color: c.text, backgroundColor: c.surfaceRaised }} /> : null}
-    <View style={{ flexDirection: "row", marginTop: 12, padding: 3, borderRadius: 10, backgroundColor: c.surfaceRaised }}>{(["spaces", "agents"] as const).map(value => <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: !serverMode && segment === value }} onPress={() => { setServerMode(false); setSegment(value); }} style={{ flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 6, backgroundColor: !serverMode && segment === value ? c.accent : "transparent" }}><Text style={{ color: !serverMode && segment === value ? c.onAccent : c.textMuted, fontWeight: "700" }}>{s[value]}</Text></Pressable>)}</View>
+    <View style={{ flexDirection: "row", marginTop: 12, padding: 3, borderRadius: 10, backgroundColor: c.surfaceRaised }}>{(["agents", "spaces"] as const).map(value => <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: !serverMode && segment === value }} onPress={() => { setServerMode(false); setSegment(value); }} style={{ flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 6, backgroundColor: !serverMode && segment === value ? c.accent : "transparent" }}><Text style={{ color: !serverMode && segment === value ? c.onAccent : c.textMuted, fontWeight: "700" }}>{s[value]}</Text></Pressable>)}</View>
     {serverMode || segment === "spaces" ? <View><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 8 }}>{computers.map(h => <Pressable key={h.id} accessibilityRole="button" accessibilityState={{ selected: selected === h.id }} onPress={() => setSelected(h.id)} style={{ minHeight: 48, justifyContent: "center", paddingHorizontal: 12, borderRadius: 24, borderWidth: 1, borderColor: selected === h.id ? c.accent : c.border, backgroundColor: selected === h.id ? c.surfaceRaised : "transparent" }}><Text style={{ color: c.text }}>{selected === h.id ? "● " : "○ "}{h.name}</Text></Pressable>)}</ScrollView></View> : null}
     <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
      {catalogError ? <View><Text accessibilityRole="alert" style={{ color: c.danger }}>{s.HERDR_FAILED}</Text><Pressable accessibilityRole="button" onPress={() => setCatalogAttempt(n => n + 1)} style={{ minHeight: 48, justifyContent: "center" }}><Text style={{ color: c.accentText }}>{s.retry}</Text></Pressable></View> : null}
@@ -172,12 +200,12 @@ export function HerdrSwitcherDrawer({ visible, hostId, close, choose, chooseServ
      </> : segment === "spaces" ? <>
       <Text accessibilityRole="header" style={{ color: c.textMuted, fontWeight: "700", fontSize: 13, letterSpacing: .6, marginVertical: 16 }}>{s.spaces.toLocaleUpperCase()} · {workspaces.length}</Text>
       {computer ? message(computer) : !catalogError && !catalogLoaded ? <Text style={{ color: c.textMuted }}>{s.loading("")}</Text> : null}
-      {entry?.state === "ok" && entry.machines?.length ? <Text accessible accessibilityLabel={s.alsoShows(entry.machines)} style={{ color: c.textMuted, paddingHorizontal: 12, paddingBottom: 8 }}>{s.alsoShows(entry.machines)}</Text> : null}
       {entry?.state === "ok" && !workspaces.length ? <Text style={{ color: c.textMuted, padding: 12 }}>{entry.workspaces.length ? s.noMatches : s.empty}</Text> : null}
-      {computer ? workspaces.map((w, i) => <View key={w.id}>{i === 0 ? <TourAnchor id="selector.list">{row(computer, w)}</TourAnchor> : row(computer, w)}{w.tabs.map(tab => row(computer, w, tab))}</View>) : null}
+      {computer ? workspaces.map((w, i) => card(computer, w, i === 0)) : null}
+      {entry?.state === "ok" && entry.machines?.length ? <Text accessible accessibilityLabel={s.alsoShows(entry.machines)} style={{ color: c.textMuted, fontSize: 12, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 8 }}>{s.alsoShows(entry.machines)}</Text> : null}
      </> : <>
       {computers.map(h => <View key={h.id}>{message(h)}</View>)}
-      {(["blocked", "working", "done", "idle"] as const).map(status => <View key={status}><Text accessibilityRole="header" style={{ color: c.textMuted, fontSize: 13, fontWeight: "700", letterSpacing: .6, marginVertical: 16 }}>{s[status].toLocaleUpperCase()} · {groups[status].length}</Text>{groups[status].map(({ computer, workspace, tab }) => row(computer, workspace, tab, true))}</View>)}
+      {(["blocked", "working", "done", "idle"] as const).map(status => <View key={status}><Text accessibilityRole="header" style={{ color: c.textMuted, fontSize: 13, fontWeight: "700", letterSpacing: .6, marginVertical: 16 }}>{s[status].toLocaleUpperCase()} · {groups[status].length}</Text>{groups[status].map(({ computer, workspace, tab }) => tab === firstAgent ? <TourAnchor key="selector.list" id="selector.list">{row(computer, workspace, tab, true)}</TourAnchor> : row(computer, workspace, tab, true))}</View>)}
       {computers.every(h => entries[h.id]?.state === "ok") && !Object.values(groups).some(rows => rows.length) ? <Text style={{ color: c.textMuted, padding: 12 }}>{query ? s.noMatches : s.noAgents}</Text> : null}
      </>}
     </ScrollView>

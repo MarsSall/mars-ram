@@ -23,11 +23,12 @@ vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ t
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() }, Share: { share }, Modal: "Modal", Pressable: "Pressable", ScrollView: "ScrollView", Text: "Text", View: "View" }));
 vi.mock("../src/ui/terminal-font-settings", () => ({ TerminalFontSettings: "TerminalFontSettings" }));
 vi.mock("../src/ui/terminal-keys-entry", () => ({ TerminalKeysEntry: "TerminalKeysEntry" }));
-vi.mock("../src/ui/components", () => ({ Card: "Card", Screen: "Screen", Segmented: "Segmented" }));
+vi.mock("../src/ui/components", () => ({ Card: "Card", Screen: "Screen", Segmented: "Segmented", StatusPill: "StatusPill" }));
 vi.mock("../src/ui/preferences", () => ({ usePreferences: () => prefs.value }));
 
 const { default: PersonalizationScreen } = await import("../src/app/personalization");
 const { GiftShareButton } = await import("../src/ui/gift-share");
+const { SubagentsPreview } = await import("../src/ui/subagents-preview");
 
 type Node = { type: unknown; props: Record<string, any> };
 function elements(node: unknown): Node[] {
@@ -51,7 +52,7 @@ const screen = () => render(PersonalizationScreen, undefined as never);
 const shareButton = (gifts: UnlockedGift[]) => render(GiftShareButton, { gifts });
 const pressable = (nodes: Node[], label: string) => nodes.find(n => n.type === "Pressable" && n.props.accessibilityLabel === label);
 
-beforeEach(() => { hooks.slots = []; share.mockClear(); router.push.mockClear(); router.back.mockClear(); prefs.value = { t: es, theme: theme("verde-profundo"), gifts: [], setTheme: vi.fn() }; });
+beforeEach(() => { hooks.slots = []; share.mockClear(); router.push.mockClear(); router.back.mockClear(); prefs.value = { t: es, theme: theme("verde-profundo"), gifts: [], setTheme: vi.fn(), language: "es", setLanguage: vi.fn(), subagentsMode: "session", setSubagentsMode: vi.fn() }; });
 
 it("shows the theme selector, the terminal font size and the key bar entry under «Personalización»", () => {
  const view = screen();
@@ -80,6 +81,59 @@ it("lists unlocked gifts by label in a compact selector and hands them to the sh
  expect(selector.props.options.slice(2)).toEqual([{ value: "sample-one", label: "Sample ◐" }, { value: "sample-two", label: "Sample ◑" }]);
  expect(selector.props.compact).toBe(true);
  expect(view.find(n => n.type === GiftShareButton)!.props.gifts).toEqual([first, second]);
+});
+
+const modeCard = (view: Node[]) => view.find(n => n.type === "Card" && elements(n.props.children).some(c => c.type === "Text" && c.props.children === (prefs.value.t as typeof es).settings.subagentsHome));
+
+it("chooses how Home shows subagents in a «Subagentes en Inicio» card, after the theme (S3)", () => {
+ const view = screen();
+ const card = modeCard(view)!;
+ expect(card).toBeDefined();
+ const selector = elements(card.props.children).find(n => n.type === "Segmented")!;
+ expect(selector.props.options).toEqual([{ value: "session", label: "Por sesión" }, { value: "top", label: "Arriba" }, { value: "hidden", label: "Ocultos" }]);
+ expect(selector.props.value).toBe("session");
+ expect(selector.props.onChange).toBe(prefs.value.setSubagentsMode);
+ expect(view.filter(n => n.type === "Segmented").map(n => n.props.value)).toEqual(["verde-profundo", "es", "session"]);
+ prefs.value = { ...prefs.value, subagentsMode: "top" };
+ expect(elements(modeCard(screen())!.props.children).find(n => n.type === "Segmented")!.props.value).toBe("top");
+});
+
+it("puts the «Preview» of the chosen mode right below the selector (S10)", () => {
+ const children = elements(modeCard(screen())!.props.children);
+ const selector = children.findIndex(n => n.type === "Segmented");
+ const preview = children.findIndex(n => n.type === SubagentsPreview);
+ expect(preview).toBe(selector + 1);
+ expect(children[preview]!.props.mode).toBe("session");
+ prefs.value = { ...prefs.value, subagentsMode: "hidden" };
+ expect(elements(modeCard(screen())!.props.children).find(n => n.type === SubagentsPreview)!.props.mode).toBe("hidden");
+});
+
+it("reads the subagents choice in English too", () => {
+ prefs.value = { ...prefs.value, t: en, subagentsMode: "hidden" };
+ const card = modeCard(screen())!;
+ expect(texts(elements(card.props.children))).toContain("Subagents on Home");
+ const selector = elements(card.props.children).find(n => n.type === "Segmented")!;
+ expect(selector.props.options.map((o: { label: string }) => o.label)).toEqual(["Per session", "On top", "Hidden"]);
+ expect(selector.props.value).toBe("hidden");
+});
+
+const languageCard = (view: Node[]) => view.find(n => n.type === "Card" && elements(n.props.children).some(c => c.type === "Text" && c.props.children === (prefs.value.t as typeof es).settings.language));
+
+it("chooses the language in Personalización, right after the theme (S9)", () => {
+ const view = screen();
+ const cards = view.filter(n => n.type === "Card");
+ expect(cards.indexOf(languageCard(view)!)).toBe(1);
+ const selector = elements(languageCard(view)!.props.children).find(n => n.type === "Segmented")!;
+ expect(selector.props.options).toEqual([{ value: "system", label: "Sistema" }, { value: "es", label: "Español" }, { value: "en", label: "English" }]);
+ expect(selector.props.value).toBe("es");
+ selector.props.onChange("en");
+ expect(prefs.value.setLanguage).toHaveBeenCalledWith("en");
+ prefs.value = { ...prefs.value, t: en, language: "system" };
+ const english = languageCard(screen())!;
+ expect(texts(elements(english.props.children))).toContain("Language");
+ const choice = elements(english.props.children).find(n => n.type === "Segmented")!;
+ expect(choice.props.value).toBe("system");
+ expect(choice.props.options[0].label).toBe("System");
 });
 
 it("hides the share icon while no gift is unlocked", () => {

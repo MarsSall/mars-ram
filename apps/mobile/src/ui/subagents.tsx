@@ -2,7 +2,8 @@
 // one counter line; tapping it opens a bottom sheet with the whole list. Both read the summary that
 // the Home refresh already brings, so the sheet updates while it is open.
 import type { SubagentItem } from "@workspace/protocol";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import type { ReactNode } from "react";
+import { Modal, Pressable, ScrollView, Text, View, type ViewStyle } from "react-native";
 import type { SessionSummary } from "../core/session-list";
 import { timeAgo } from "./format";
 import type { Strings } from "./i18n/en";
@@ -67,8 +68,91 @@ export function SubagentsCounter({ items, onOpen }: { items: SubagentItem[]; onO
 	);
 }
 
-/** The bottom sheet: «Listo», the scrim, or the hardware back button close it. */
-export function SubagentsSheet({ title, items, visible, onClose, now }: { title: string; items: SubagentItem[]; visible: boolean; onClose: () => void; now: number }) {
+/** The summary for «Arriba»: each session with subagents, once, in Home's order, with its items. */
+export type SubagentGroup = { key: string; title: string; items: SubagentItem[] };
+export function subagentGroups(sessions: readonly SessionSummary[]): SubagentGroup[] {
+	const seen = new Set<string>();
+	const groups: SubagentGroup[] = [];
+	for (const entry of sessions) {
+		if (seen.has(entry.key) || !entry.subagents || entry.subagents.length === 0) continue;
+		seen.add(entry.key);
+		groups.push({ key: entry.key, title: entry.project, items: entry.subagents });
+	}
+	return groups;
+}
+
+/** «⑂ N subagentes» as plain muted text on a session card when the list lives on top. */
+export function SubagentsCount({ items }: { items: SubagentItem[] }) {
+	const { theme, t } = usePreferences();
+	return <Text style={{ color: theme.colors.textMuted, fontSize: 13, marginTop: theme.spacing(2) }}>{t.subagents.counter(items.length)}</Text>;
+}
+
+/** design/subagentes-inicio/03-resumen-arriba.html: one row on top of Home summing every session's subagents. */
+export function SubagentsSummary({ groups, onOpen, style }: { groups: SubagentGroup[]; onOpen: () => void; style?: ViewStyle }) {
+	const { theme, t } = usePreferences();
+	const c = theme.colors;
+	const items = groups.flatMap((group) => group.items);
+	const asking = items.filter((item) => item.question).length;
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={t.subagents.summaryLabel(items.length, groups.length, asking)}
+			onPress={onOpen}
+			style={({ pressed }) => ({
+				minHeight: theme.touch,
+				flexDirection: "row",
+				alignItems: "center",
+				gap: theme.spacing(2),
+				marginHorizontal: theme.spacing(4),
+				marginBottom: theme.spacing(2),
+				paddingHorizontal: theme.spacing(4),
+				paddingVertical: theme.spacing(2.5),
+				borderRadius: theme.radius.medium,
+				borderWidth: 1,
+				borderColor: asking > 0 ? c.attention : c.border,
+				backgroundColor: pressed ? c.surfaceRaised : c.card,
+				...style,
+			})}
+		>
+			<Text style={{ flex: 1, color: c.accentText, fontSize: 14, fontWeight: "600" }}>
+				{t.subagents.summary(items.length, groups.length)}
+				{asking > 0 ? <Text style={{ color: c.attention }}> {t.subagents.asking(asking)}</Text> : null}
+			</Text>
+			<Text accessible={false} style={{ color: c.accentText, fontSize: 18 }}>›</Text>
+		</Pressable>
+	);
+}
+
+/** The rows of one list: tag, label and the state line in its color. */
+function SubagentRows({ items, now }: { items: SubagentItem[]; now: number }) {
+	const { theme, t } = usePreferences();
+	const c = theme.colors;
+	return (
+		<>
+			{items.map((item, i) => {
+				const state = subagentState(t, c, item, now);
+				return (
+					<View
+						key={item.id}
+						accessible
+						style={{ flexDirection: "row", alignItems: "flex-start", gap: theme.spacing(3), paddingVertical: theme.spacing(2), borderTopWidth: i === 0 ? 0 : 1, borderColor: c.border }}
+					>
+						<View style={{ borderRadius: theme.radius.small, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, paddingHorizontal: 7, paddingVertical: 3 }}>
+							<Text style={{ color: c.textMuted, fontSize: 11, fontWeight: "700" }}>{item.agent}</Text>
+						</View>
+						<View style={{ flex: 1, gap: 2 }}>
+							{item.label ? <Text style={{ color: c.text, fontSize: 14 }}>{item.label}</Text> : null}
+							<Text style={{ color: state.color, fontSize: 12 }}>{state.text}</Text>
+						</View>
+					</View>
+				);
+			})}
+		</>
+	);
+}
+
+/** The bottom sheet frame: «Listo», the scrim, or the hardware back button close it. */
+function SheetFrame({ heading, visible, onClose, children }: { heading: string; visible: boolean; onClose: () => void; children: ReactNode }) {
 	const { theme, t } = usePreferences();
 	const c = theme.colors;
 	const s = t.subagents;
@@ -90,27 +174,8 @@ export function SubagentsSheet({ title, items, visible, onClose, now }: { title:
 				}}
 			>
 				<View accessible={false} style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: c.border, alignSelf: "center", marginBottom: theme.spacing(3) }} />
-				<Text accessibilityRole="header" style={{ color: c.text, fontSize: 17, fontWeight: "700", marginBottom: theme.spacing(2) }}>{s.title(title)}</Text>
-				<ScrollView>
-					{items.map((item, i) => {
-						const state = subagentState(t, c, item, now);
-						return (
-							<View
-								key={item.id}
-								accessible
-								style={{ flexDirection: "row", alignItems: "flex-start", gap: theme.spacing(3), paddingVertical: theme.spacing(2), borderTopWidth: i === 0 ? 0 : 1, borderColor: c.border }}
-							>
-								<View style={{ borderRadius: theme.radius.small, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, paddingHorizontal: 7, paddingVertical: 3 }}>
-									<Text style={{ color: c.textMuted, fontSize: 11, fontWeight: "700" }}>{item.agent}</Text>
-								</View>
-								<View style={{ flex: 1, gap: 2 }}>
-									{item.label ? <Text style={{ color: c.text, fontSize: 14 }}>{item.label}</Text> : null}
-									<Text style={{ color: state.color, fontSize: 12 }}>{state.text}</Text>
-								</View>
-							</View>
-						);
-					})}
-				</ScrollView>
+				<Text accessibilityRole="header" style={{ color: c.text, fontSize: 17, fontWeight: "700", marginBottom: theme.spacing(2) }}>{heading}</Text>
+				<ScrollView>{children}</ScrollView>
 				<Pressable
 					accessibilityRole="button"
 					onPress={onClose}
@@ -120,5 +185,27 @@ export function SubagentsSheet({ title, items, visible, onClose, now }: { title:
 				</Pressable>
 			</View>
 		</Modal>
+	);
+}
+
+/** One session's subagents. */
+export function SubagentsSheet({ title, items, visible, onClose, now }: { title: string; items: SubagentItem[]; visible: boolean; onClose: () => void; now: number }) {
+	const { t } = usePreferences();
+	return <SheetFrame heading={t.subagents.title(title)} visible={visible} onClose={onClose}><SubagentRows items={items} now={now} /></SheetFrame>;
+}
+
+/** «Arriba»: every session's subagents, grouped under the session's title. */
+export function SubagentsGroupedSheet({ groups, visible, onClose, now }: { groups: SubagentGroup[]; visible: boolean; onClose: () => void; now: number }) {
+	const { theme, t } = usePreferences();
+	const c = theme.colors;
+	return (
+		<SheetFrame heading={t.subagents.allTitle} visible={visible} onClose={onClose}>
+			{groups.map((group) => (
+				<View key={group.key} style={{ marginBottom: theme.spacing(2) }}>
+					<Text accessibilityRole="header" numberOfLines={1} style={{ color: c.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", marginTop: theme.spacing(2) }}>{group.title}</Text>
+					<SubagentRows items={group.items} now={now} />
+				</View>
+			))}
+		</SheetFrame>
 	);
 }

@@ -22,7 +22,7 @@ const router = vi.hoisted(() => ({ push: (() => {}) as (path: string) => void })
 vi.mock("expo-router", () => ({ useRouter: () => router }));
 vi.mock("expo-constants", () => ({ default: { expoConfig: { version: "1.0.0" } } }));
 vi.mock("expo-localization", () => ({ getLocales: () => [] }));
-vi.mock("react-native", () => ({ Alert: { alert: vi.fn() }, Linking: {}, Share: { share }, KeyboardAvoidingView: "KeyboardAvoidingView", Modal: "Modal", Pressable: "Pressable", ScrollView: "ScrollView", StyleSheet: { hairlineWidth: 1 }, Switch: "Switch", Text: "Text", TextInput: "TextInput", View: "View" }));
+vi.mock("react-native", () => ({ Alert: { alert: vi.fn() }, Image: "Image", Linking: {}, Share: { share }, KeyboardAvoidingView: "KeyboardAvoidingView", Modal: "Modal", Pressable: "Pressable", ScrollView: "ScrollView", StyleSheet: { hairlineWidth: 1 }, Switch: "Switch", Text: "Text", TextInput: "TextInput", View: "View" }));
 vi.mock("../src/services", () => ({ appBuild: { version: "1.0.0", build: 7 }, startTour: vi.fn() }));
 vi.mock("../src/ui/app-update-notice", () => ({ AppUpdateNotice: "AppUpdateNotice" }));
 vi.mock("../src/ui/key-security", () => ({ securityRow: () => ({}) }));
@@ -71,16 +71,24 @@ it("shows a «Personalización» row where the theme card was, and no theme, sha
   expect(view.some(n => n.type === "TerminalFontSettings" || n.type === "TerminalKeysEntry")).toBe(false);
   expect(view.some(n => n.props.accessibilityLabel === es.gifts.share)).toBe(false);
   expect(texts(view)).not.toContain(es.settings.theme);
-  // Right under «Apariencia», before the language card.
-  const title = view.findIndex(n => n.type === "SectionTitle" && n.props.children === es.settings.appearance);
+  // First in Settings, with no «Apariencia» title above it (S4), summing up what is inside (S9).
   const row = view.findIndex(n => n.type === "Card" && n.props.onPress);
-  expect(row).toBe(title + 1);
-  expect(texts(elements(view[row].props.children))).toEqual([es.settings.personalization, "›"]);
-  expect(row).toBeLessThan(view.findIndex(n => n.type === "Segmented" && n.props.value === "es"));
+  expect(view.slice(0, row).some(n => n.type === "SectionTitle" || n.type === "Card")).toBe(false);
+  expect(texts(elements(view[row].props.children))).toEqual([es.settings.personalization, "Tema, idioma, letra, teclas", "›"]);
   view[row].props.onPress();
  }
  expect(push).toHaveBeenCalledWith("/personalization");
  expect(settings().find(n => n.type === GiftCodeDialog)!.props.visible).toBe(false);
+});
+
+it("has no «Apariencia» section title, in either language (S4)", () => {
+ for (const t of [es, en]) {
+  prefs.value = { ...prefs.value, t };
+  const view = settings();
+  expect(view.some(n => n.type === "SectionTitle" && ["Apariencia", "Appearance"].includes(n.props.children))).toBe(false);
+  expect(texts(view)).not.toContain("Apariencia");
+  expect("appearance" in t.settings).toBe(false);
+ }
 });
 
 it("opens the code field on the seventh quick tap on the version, counting down from the fourth", () => {
@@ -182,4 +190,36 @@ it("shows the gift's avatar in a glowing ring above the greeting only when the g
  const plain = elements(GiftAvatar({ ...(ringed as Parameters<typeof GiftAvatar>[0]), avatar: { image: avatar.image } }));
  expect(plain[0].props.style).not.toHaveProperty("borderWidth");
  expect(plain[0].props.style).not.toHaveProperty("shadowColor");
+});
+
+it("shows the gift's photo in the ring instead of the pixel avatar when the gift has one", async () => {
+ const { GiftAvatar, GreetingPhoto } = await import("../src/ui/gift-code-dialog");
+ const { GiftPhoto } = await import("../src/ui/gift-photo");
+ // Invented: a 14-byte stand-in with only the JPEG markers, a made-up caption, ring colors and avatar grid.
+ const photo = { jpeg: "/9j/4AAQSkZJRgAB/9k=", caption: "Sample", ring: { color: "#AA11BB", glow: "#CC22DD" } };
+ const avatar = { image: { palette: { a: "#102030" }, rows: ["a."], pixel: { width: 1, height: 1 } } };
+ hooks.slots = [];
+ prefs.value = { ...prefs.value, unlockGift: vi.fn(async () => ({ ...gift, colors: { surface: "#0A0B0C" } as GiftThemeData["colors"], avatar, photo })) };
+ let view = render(GiftCodeDialog, { visible: true, onClose: vi.fn() });
+ view.find(n => n.type === "TextInput")!.props.onChangeText("test 2345");
+ view = render(GiftCodeDialog, { visible: true, onClose: vi.fn() });
+ view.find(n => n.type === "PrimaryButton")!.props.onPress();
+ await vi.waitFor(() => expect(texts(render(GiftCodeDialog, { visible: true, onClose: vi.fn() }))).toContain("Hola Ana"));
+ view = render(GiftCodeDialog, { visible: true, onClose: vi.fn() });
+
+ expect(view.some(n => n.type === GiftAvatar)).toBe(false);
+ const index = view.findIndex(n => n.type === GreetingPhoto);
+ expect(index).toBeGreaterThan(-1);
+ expect(index).toBeLessThan(view.findIndex(n => n.type === "Text" && n.props.accessibilityRole === "header"));
+ expect(view[index].props).toMatchObject({ photo, background: "#0A0B0C" });
+
+ // Same round frame as the avatar, decorative: the caption is left out since the title names the gift.
+ const framed = elements(GreetingPhoto(view[index].props as Parameters<typeof GreetingPhoto>[0]))[0];
+ expect(framed.type).toBe(GiftPhoto);
+ expect(framed.props).toMatchObject({ photo: { jpeg: photo.jpeg, ring: photo.ring }, size: 104, background: "#0A0B0C" });
+ expect(framed.props.photo).not.toHaveProperty("caption");
+ const nodes = elements(GiftPhoto(framed.props as Parameters<typeof GiftPhoto>[0]));
+ expect(nodes[0].props).toMatchObject({ accessible: false, importantForAccessibility: "no-hide-descendants" });
+ expect(nodes[1].props.style).toMatchObject({ borderRadius: 52, backgroundColor: "#0A0B0C", borderWidth: 2, borderColor: "#AA11BB", shadowColor: "#CC22DD" });
+ expect(texts(view)).toEqual(["Hola Ana", "Este tema es tuyo.", es.gifts.notNow]);
 });

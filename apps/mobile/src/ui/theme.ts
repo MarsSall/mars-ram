@@ -1,5 +1,5 @@
 // Shared design tokens, including the terminal palette.
-import type { GiftColors, GiftMascot, GiftThemeData } from "../core/gift-themes";
+import type { GiftColors, GiftMascot, GiftPhoto, GiftStyle, GiftThemeData } from "../core/gift-themes";
 
 export type ThemeName = "verde-profundo" | "oro-y-verde";
 /** A built-in theme name, or the id of a gift theme unlocked on this phone. */
@@ -15,6 +15,10 @@ export type Theme = {
  working?: { frames: readonly string[]; intervalMs: number };
  /** Gift themes may draw a pixel-art mascot under the logo on the home welcome. */
  mascot?: GiftMascot;
+ /** Gift themes may add HUD cards, a circuit backdrop and monospace titles. */
+ style?: GiftStyle;
+ /** Gift themes may show a round photo as the Home hero. */
+ photo?: GiftPhoto;
  colors: { fileModified: string; fileDeleted: string; fileUncommitted: string; fileLastCommit: string; background: string; surface: string; surfaceRaised: string; border: string; text: string; textMuted: string; accent: string; /** Accent for text, links and icons on dark surfaces (accent itself is a fill). */ accentText: string; /** Active tab label. */ tabActive: string; /** Active tab icon: darker than the label, still ≥ 3:1. */ tabActiveIcon: string; /** Translucent card fill so the glow shows through. */ card: string; onAccent: string; attention: string; working: string; done: string; danger: string; terminalBackground: string; terminalText: string };
  primaryFill: { backgroundImage?: string; shadowColor?: string };
  spacing: (steps: number) => number;
@@ -44,7 +48,9 @@ void giftColorsMatch;
 
 export function giftTheme(data: GiftThemeData): Theme {
  return { ...shared, name: data.id, colors: { ...data.colors }, primaryFill: { ...data.primaryFill }, ...(data.working ? { working: { frames: [...data.working.frames], intervalMs: data.working.intervalMs } } : {}),
-  ...(data.mascot ? { mascot: { palette: { ...data.mascot.palette }, rows: [...data.mascot.rows], pixel: { ...data.mascot.pixel }, ...(data.mascot.caption !== undefined ? { caption: data.mascot.caption } : {}) } } : {}) };
+  ...(data.mascot ? { mascot: { palette: { ...data.mascot.palette }, rows: [...data.mascot.rows], pixel: { ...data.mascot.pixel }, ...(data.mascot.caption !== undefined ? { caption: data.mascot.caption } : {}) } } : {}),
+  ...(data.style ? { style: { ...(data.style.hud ? { hud: { color: data.style.hud.color } } : {}), ...(data.style.backdrop ? { backdrop: data.style.backdrop } : {}), ...(data.style.titles ? { titles: data.style.titles } : {}) } } : {}),
+  ...(data.photo ? { photo: { jpeg: data.photo.jpeg, ...(data.photo.caption !== undefined ? { caption: data.photo.caption } : {}), ...(data.photo.ring ? { ring: { color: data.photo.ring.color, glow: data.photo.ring.glow } } : {}) } } : {}) };
 }
 
 export const themes: Record<ThemeName, Theme> = {

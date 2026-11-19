@@ -1,9 +1,10 @@
 // Code field opened by the hidden gesture in Settings; a right code shows the gift's greeting.
 import { useRef, useState } from "react";
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { GiftAvatar as Avatar, GiftThemeData } from "../core/gift-themes";
+import type { GiftAvatar as Avatar, GiftPhoto as Photo, GiftThemeData } from "../core/gift-themes";
 import { PrimaryButton } from "./components";
 import { GiftMascot } from "./gift-mascot";
+import { GiftPhoto } from "./gift-photo";
 import { usePreferences } from "./preferences";
 
 export function GiftCodeDialog({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -35,7 +36,8 @@ export function GiftCodeDialog({ visible, onClose }: { visible: boolean; onClose
    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.6)", padding: theme.spacing(6) }}>
     <View accessibilityViewIsModal style={{ backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: theme.radius.large, paddingVertical: theme.spacing(5) }}>
      {greeting ? <>
-      {gift?.avatar ? <GiftAvatar avatar={gift.avatar} background={gift.colors.surface} marginBottom={theme.spacing(4)} /> : null}
+      {gift?.photo ? <GreetingPhoto photo={gift.photo} background={gift.colors.surface} marginBottom={theme.spacing(4)} />
+       : gift?.avatar ? <GiftAvatar avatar={gift.avatar} background={gift.colors.surface} marginBottom={theme.spacing(4)} /> : null}
       <Text accessibilityRole="header" style={{ color: theme.colors.text, fontSize: 20, fontWeight: "700", textAlign: "center", marginHorizontal: theme.spacing(5) }}>{greeting.title}</Text>
       <Text style={{ color: theme.colors.textMuted, fontSize: 16, lineHeight: 22, textAlign: "center", marginHorizontal: theme.spacing(5), marginTop: theme.spacing(2) }}>{greeting.body}</Text>
       <PrimaryButton label={t.gifts.useTheme} onPress={() => { if (gift) setTheme(gift.id); close(); }} />
@@ -70,6 +72,12 @@ export function GiftCodeDialog({ visible, onClose }: { visible: boolean; onClose
 }
 
 const AVATAR_SIZE = 104;
+
+/** The gift's photo in the same round frame and ring; decorative, so its caption is left out (the title names the gift). */
+export function GreetingPhoto({ photo, background, marginBottom }: { photo: Photo; background: string; marginBottom: number }) {
+ const { caption: _caption, ...bare } = photo;
+ return <GiftPhoto photo={bare} size={AVATAR_SIZE} captionColor={background} background={background} marginBottom={marginBottom} />;
+}
 
 /** The gift's pixel portrait in a round frame, with its glowing ring; decorative, since the title names the gift. */
 export function GiftAvatar({ avatar, background, marginBottom }: { avatar: Avatar; background: string; marginBottom: number }) {

@@ -51,6 +51,35 @@ describe("gift themes", () => {
   expect(themes["verde-profundo"].mascot).toBeUndefined();
   expect(themes["oro-y-verde"].mascot).toBeUndefined();
  });
+ it("carries the gift's style as a copy, and built-in themes have none", () => {
+  const style = { hud: { color: "#12AB34" }, backdrop: "circuit", titles: "mono" } as const;
+  const data = parseGiftThemeData({
+   id: "sample-gift", label: "Sample", greeting: { es: { title: "Hola", body: "Tuyo" }, en: { title: "Hi", body: "Yours" } },
+   colors: { ...themes["verde-profundo"].colors }, primaryFill: {}, style,
+  })!;
+  const theme = giftTheme(data);
+  expect(theme.style).toEqual(style);
+  expect(theme.style?.hud).not.toBe(data.style?.hud);
+  expect(giftTheme({ ...data, style: undefined })).not.toHaveProperty("style");
+  expect(giftTheme({ ...data, style: { titles: "mono" } }).style).toEqual({ titles: "mono" });
+  expect(themes["verde-profundo"].style).toBeUndefined();
+  expect(themes["oro-y-verde"].style).toBeUndefined();
+ });
+ it("carries the gift's photo as a copy, and built-in themes have none", () => {
+  // Invented: a 14-byte stand-in with only the JPEG markers.
+  const photo = { jpeg: "/9j/4AAQSkZJRgAB/9k=", caption: "Sample", ring: { color: "#AA11BB", glow: "#CC22DD" } };
+  const data = parseGiftThemeData({
+   id: "sample-gift", label: "Sample", greeting: { es: { title: "Hola", body: "Tuyo" }, en: { title: "Hi", body: "Yours" } },
+   colors: { ...themes["verde-profundo"].colors }, primaryFill: {}, photo,
+  })!;
+  const theme = giftTheme(data);
+  expect(theme.photo).toEqual(photo);
+  expect(theme.photo?.ring).not.toBe(data.photo?.ring);
+  expect(giftTheme({ ...data, photo: undefined })).not.toHaveProperty("photo");
+  expect(giftTheme({ ...data, photo: { jpeg: photo.jpeg } }).photo).toEqual({ jpeg: photo.jpeg });
+  expect(themes["verde-profundo"].photo).toBeUndefined();
+  expect(themes["oro-y-verde"].photo).toBeUndefined();
+ });
  it("keeps the built-in themes on their usual working indicator", () => {
   expect(themes["verde-profundo"].working).toBeUndefined();
   expect(themes["oro-y-verde"].working).toBeUndefined();

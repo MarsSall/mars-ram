@@ -7,7 +7,10 @@ describe("notification honesty", () => {
  it("adds the opt-in card without removing existing settings", () => {
   const source = readFileSync(join(import.meta.dirname, "../src/app/(tabs)/settings.tsx"), "utf8");
   expect(source).toContain("<NotificationSettingsCard />");
-  for (const existing of ["<DictationSettings />", "changeUnlock", "setRetention", "setLanguage"]) expect(source).toContain(existing);
+  // Ajustes reorganized (S9): the rest lives in «Más ajustes» and the language in Personalización.
+  const more = readFileSync(join(import.meta.dirname, "../src/app/more-settings.tsx"), "utf8");
+  for (const existing of ["<DictationSettings />", "changeUnlock", "setRetention"]) expect(more).toContain(existing);
+  expect(readFileSync(join(import.meta.dirname, "../src/app/personalization.tsx"), "utf8")).toContain("setLanguage");
   // The theme moved to Ajustes › Personalización (S16).
   expect(readFileSync(join(import.meta.dirname, "../src/app/personalization.tsx"), "utf8")).toContain("setTheme");
  });

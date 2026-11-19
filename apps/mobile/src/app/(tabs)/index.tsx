@@ -16,13 +16,13 @@ import { useSessions } from "../../ui/use-sessions";
 import { ShortcutsSection } from "../../ui/shortcuts";
 import { HostUpdateNotice } from '../../ui/host-update-notice';
 import { AppUpdateNotice } from "../../ui/app-update-notice";
-import { sheetSession, SubagentsCounter, SubagentsSheet } from "../../ui/subagents";
+import { sheetSession, subagentGroups, SubagentsCount, SubagentsCounter, SubagentsGroupedSheet, SubagentsSheet, SubagentsSummary } from "../../ui/subagents";
 import { TourAnchor } from "../../ui/tour/anchors";
 import { useTourScroll } from "../../ui/tour/scroll";
 
 export default function HomeScreen() {
 	const router = useRouter();
-	const { theme, t } = usePreferences();
+	const { theme, t, subagentsMode } = usePreferences();
 	const { data, refreshing, refresh } = useSessions();
 	const tourScroll = useTourScroll();
 	// Read again with every session refresh: the user may switch VPNs from the quick settings without leaving the app.
@@ -31,12 +31,21 @@ export default function HomeScreen() {
 	const nextOrder = useRef<SessionRefreshReason>("focus");
 	// The session whose subagents sheet is open; the sheet reads it from each refresh (S4).
 	const [subagentsKey, setSubagentsKey] = useState<string | null>(null);
-	const sheet = sheetSession([...ordered.needsYou, ...ordered.computers.flatMap((computer) => computer.sessions)], subagentsKey);
+	const listed = [...ordered.needsYou, ...ordered.computers.flatMap((computer) => computer.sessions)];
+	const sheet = sheetSession(listed, subagentsKey);
 	const sheetGone = subagentsKey !== null && sheet === null;
 	useEffect(() => {
 		// The session ended or its subagents finished while the sheet was open: close it, never show a stale list.
 		if (sheetGone) setSubagentsKey(null);
 	}, [sheetGone]);
+	// «Arriba» (Personalización): one summary on top and one sheet grouped by session, read from each refresh.
+	const [allOpen, setAllOpen] = useState(false);
+	const groups = subagentGroups(listed);
+	const allGone = allOpen && groups.length === 0;
+	useEffect(() => {
+		// Every subagent finished while the grouped sheet was open: close it instead of showing an empty list.
+		if (allGone) setAllOpen(false);
+	}, [allGone]);
 
 	useFocusEffect(useCallback(() => {
 		// Apply explicit ordering to the fresh focus result, not a stale cached snapshot.
@@ -68,6 +77,8 @@ export default function HomeScreen() {
 	const count = (text: string) => <Text style={{ color: c.textMuted, fontSize: 13, fontWeight: "600" }}>{text}</Text>;
 
 	const cardBackground = c.card;
+	// Gift themes with monospace titles set session names in monospace too.
+	const titleFont = theme.style?.titles === "mono" ? { fontFamily: theme.font.mono } : {};
 
 	// Attention is global, so those rows also identify their computer.
 	const row = (session: SessionSummary, priority = false) => (
@@ -80,19 +91,20 @@ export default function HomeScreen() {
 		>
 			<View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: theme.spacing(2) }}>
 				{priority ? <View style={{ flex: 1 }}><StatusPill status={session.status} /></View> : (
-					<Text numberOfLines={1} style={{ color: c.text, fontSize: 16, fontWeight: "700", flex: 1 }}>{session.project}</Text>
+					<Text numberOfLines={1} style={{ color: c.text, fontSize: 16, fontWeight: "700", flex: 1, ...titleFont }}>{session.project}</Text>
 				)}
 				<Text style={{ color: c.textMuted, fontSize: 13 }}>{ago(session.lastActivityAt)}</Text>
 			</View>
 			{priority ? (
-				<Text style={{ color: c.text, fontSize: 16, fontWeight: "700", marginTop: theme.spacing(3) }}>{session.project}</Text>
+				<Text style={{ color: c.text, fontSize: 16, fontWeight: "700", marginTop: theme.spacing(3), ...titleFont }}>{session.project}</Text>
 			) : <View style={{ marginTop: theme.spacing(1) }}><StatusPill status={session.status} /></View>}
 			{session.lastMessage ? (
 				<Text numberOfLines={2} style={{ color: priority ? c.text : c.textMuted, fontSize: priority ? 16 : 14, marginTop: theme.spacing(2) }}>
 					{session.lastMessage}
 				</Text>
 			) : null}
-			{session.subagents ? <SubagentsCounter items={session.subagents} onOpen={() => setSubagentsKey(session.key)} /> : null}
+			{session.subagents && subagentsMode === "session" ? <SubagentsCounter items={session.subagents} onOpen={() => setSubagentsKey(session.key)} /> : null}
+			{session.subagents && subagentsMode === "top" ? <SubagentsCount items={session.subagents} /> : null}
 			{session.reloadNeeded ? <Text style={{ color: c.textMuted, fontSize: 13, marginTop: theme.spacing(2) }}>{t.hostUpdate.reload}</Text> : null}
 			{priority ? <Text style={{ color: c.textMuted, fontSize: 13, textTransform: "uppercase", marginTop: theme.spacing(2) }}>{nameOf(session.hostId)}</Text> : null}
 		</Card>
@@ -128,6 +140,7 @@ export default function HomeScreen() {
 				refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshByHand} tintColor={c.accentText} colors={[c.accentText]} progressBackgroundColor={c.surfaceRaised} />}
 			>
 				<HomeHeading />
+				{subagentsMode === "top" && groups.length > 0 ? <SubagentsSummary groups={groups} onOpen={() => setAllOpen(true)} /> : null}
 				<AppUpdateNotice />
 				{home && home.needsYou.length > 0 ? (
 					<>
@@ -157,7 +170,8 @@ export default function HomeScreen() {
 					<Text style={{ color: c.textMuted, fontSize: 12, textAlign: "center", marginTop: theme.spacing(4) }}>{t.sessions.updated(formatTime(data.updatedAt))}</Text>
 				) : null}
 			</ScrollView>
-			<SubagentsSheet visible={sheet !== null} title={sheet?.project ?? ""} items={sheet?.subagents ?? []} onClose={() => setSubagentsKey(null)} now={Date.now()} />
+			{subagentsMode === "session" ? <SubagentsSheet visible={sheet !== null} title={sheet?.project ?? ""} items={sheet?.subagents ?? []} onClose={() => setSubagentsKey(null)} now={Date.now()} /> : null}
+			{subagentsMode === "top" ? <SubagentsGroupedSheet visible={allOpen && groups.length > 0} groups={groups} onClose={() => setAllOpen(false)} now={Date.now()} /> : null}
 		</Screen>
 	);
 }

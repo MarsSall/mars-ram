@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({
 	dirty: false,
 	data: null as unknown,
 	t: undefined as unknown,
+	mode: "session" as string,
+	style: undefined as unknown,
 }));
 vi.mock("react", async (original) => ({
 	...(await original<typeof import("react")>()),
@@ -45,7 +47,9 @@ vi.mock("../src/ui/preferences", async () => {
 	return {
 		usePreferences: () => ({
 			t: h.t ?? es,
+			subagentsMode: h.mode,
 			theme: {
+				...(h.style ? { style: h.style } : {}),
 				spacing: (n: number) => n * 4, touch: 48, radius: { small: 6, medium: 10, large: 16 }, font: { mono: "mono" },
 				colors: { text: "text", textMuted: "muted", accentText: "accent", attention: "attention", working: "working", surface: "surface", surfaceRaised: "raised", border: "border", card: "card", danger: "danger" },
 			},
@@ -61,7 +65,7 @@ vi.mock("../src/ui/host-update-notice", () => ({ HostUpdateNotice: "HostUpdateNo
 vi.mock("../src/ui/app-update-notice", () => ({ AppUpdateNotice: "AppUpdateNotice" }));
 
 const { default: HomeScreen } = await import("../src/app/(tabs)/index");
-const { SubagentsCounter, SubagentsSheet, sheetSession } = await import("../src/ui/subagents");
+const { SubagentsCounter, SubagentsSheet, SubagentsSummary, sheetSession } = await import("../src/ui/subagents");
 
 type Node = { type: unknown; props: Record<string, any> };
 /** The rendered tree, with this feature's function components expanded. */
@@ -98,11 +102,12 @@ const session = (id: string, extra: Partial<SessionSummary> = {}): SessionSummar
 const show = (...sessions: SessionSummary[]) => {
 	h.data = { hosts: [{ id: "box", name: "workbench", user: "dev", address: "100.64.0.9" }], computers: [{ hostId: "box", state: "ok", sessions }], updates: {}, updatedAt: 0 };
 };
-const counters = (view: Node[]) => view.filter((n) => n.type === "Pressable" && n.props.accessibilityRole === "button" && /subagent/.test(n.props.accessibilityLabel ?? ""));
+const counters = (view: Node[]) => view.filter((n) => n.type === "Pressable" && n.props.accessibilityRole === "button" && /subagent/.test(n.props.accessibilityLabel ?? "") && !/ses(ión|iones|sion)/.test(n.props.accessibilityLabel ?? ""));
+const summaries = (view: Node[]) => view.filter((n) => n.type === "Pressable" && n.props.accessibilityRole === "button" && /subagent.* (en|in) \d+ ses/.test(n.props.accessibilityLabel ?? ""));
 const modal = (view: Node[]) => view.find((n) => n.type === "Modal")!;
 
 beforeEach(() => {
-	h.slots = []; h.deps = []; h.t = undefined;
+	h.slots = []; h.deps = []; h.t = undefined; h.mode = "session"; h.style = undefined;
 });
 
 describe("the subagents counter", () => {
@@ -249,8 +254,131 @@ describe("Home with subagents", () => {
 	});
 });
 
+describe("Home with subagents «Arriba» (S3)", () => {
+	const asking = { status: "waiting" as const, question: true };
+	it("sums every session's subagents in one row below the heading, and each card only counts its own", () => {
+		h.mode = "top";
+		show(session("shop", { subagents: [item("a"), item("b", asking), item("c", { status: "queued" })] }), session("mail", { subagents: [item("d")] }), session("plain"));
+		const view = render();
+		expect(counters(view)).toEqual([]);
+		const [summary, ...more] = summaries(view);
+		expect(more).toEqual([]);
+		expect(texts(elements(summary!.props.children))[0]).toBe("⑂ 4 subagentes en 2 sesiones · 1 te pregunta algo");
+		expect(summary!.props.accessibilityLabel).toBe("4 subagentes en 2 sesiones, 1 te pregunta algo. Muestra la lista.");
+		expect(styleOf(summary!).minHeight).toBe(48);
+		expect(styleOf(summary!).borderColor).toBe("attention");
+		const askingText = elements(summary!.props.children).find((n) => n.type === "Text" && n.props.style.color === "attention")!;
+		expect(textOf(askingText.props.children)).toBe(" · 1 te pregunta algo");
+		// Below the heading, before the sessions.
+		const heading = view.findIndex((n) => n.type === "HomeHeading");
+		const at = view.indexOf(summary!);
+		expect(at).toBeGreaterThan(heading);
+		expect(at).toBeLessThan(view.findIndex((n) => n.type === "Card"));
+		// Cards: a small muted count, no button.
+		const muted = view.filter((n) => n.type === "Text" && n.props.style?.color === "muted" && textOf(n.props.children).startsWith("⑂"));
+		expect(muted.map((n) => textOf(n.props.children))).toEqual(expect.arrayContaining(["⑂ 3 subagentes", "⑂ 1 subagente"]));
+		expect(muted).toHaveLength(2);
+	});
+
+	it("uses the singular for one subagent in one session, and the plural when several ask", () => {
+		h.mode = "top";
+		show(session("shop", { subagents: [item("a")] }));
+		expect(texts(elements(summaries(render())[0]!.props.children))[0]).toBe("⑂ 1 subagente en 1 sesión");
+		h.slots = []; h.deps = [];
+		show(session("shop", { subagents: [item("a", asking), item("b", asking)] }));
+		const summary = summaries(render())[0]!;
+		expect(texts(elements(summary.props.children))[0]).toBe("⑂ 2 subagentes en 1 sesión · 2 te preguntan algo");
+		expect(styleOf(summary).borderColor).toBe("attention");
+	});
+
+	it("reads in English too", () => {
+		h.mode = "top"; h.t = en;
+		show(session("shop", { subagents: [item("a", asking)] }), session("mail", { subagents: [item("b"), item("c")] }));
+		const summary = summaries(render())[0]!;
+		expect(texts(elements(summary.props.children))[0]).toBe("⑂ 3 subagents in 2 sessions · 1 asking you something");
+		expect(elements(SubagentsSummary({ groups: [{ key: "k", title: "t", items: [item("a")] }], onOpen: () => {} })).find((n) => n.type === "Pressable")!.props.accessibilityLabel).toBe("1 subagent in 1 session. Shows the list.");
+	});
+
+	it("is not shown when no session has subagents", () => {
+		h.mode = "top";
+		show(session("plain"), session("other", { status: "done" }));
+		const view = render();
+		expect(summaries(view)).toEqual([]);
+		expect(texts(view).some((t) => t.includes("⑂"))).toBe(false);
+		expect(modal(view).props.visible).toBe(false);
+	});
+
+	it("opens one sheet grouped by session, follows the refresh, «Listo» closes it, and it closes when none remain", () => {
+		h.mode = "top";
+		show(session("shop", { subagents: [item("a"), item("b", { status: "queued" })] }), session("mail", { subagents: [item("c")] }), session("plain"));
+		let view = render();
+		expect(view.filter((n) => n.type === "Modal")).toHaveLength(1);
+		expect(modal(view).props.visible).toBe(false);
+		summaries(view)[0]!.props.onPress();
+		view = render();
+		expect(modal(view).props.visible).toBe(true);
+		expect(texts(elements(modal(view).props.children))).toEqual([
+			"Subagentes",
+			"pi · shop", "explore", "Task a", "Trabajando · hace 4 min", "explore", "Task b", "En cola",
+			"pi · mail", "explore", "Task c", "Trabajando · hace 4 min",
+			"Listo",
+		]);
+
+		// The next refresh: «mail» finished, «shop» now asks.
+		show(session("shop", { status: "attention", subagents: [item("a", { ...asking, since: Date.now() - MIN })] }), session("mail"), session("plain"));
+		view = render();
+		const sheet = texts(elements(modal(view).props.children));
+		expect(sheet).toEqual(["Subagentes", "pi · shop", "explore", "Task a", "Necesita tu atención · hace 1 min", "Listo"]);
+
+		const done = elements(modal(view).props.children).find((n) => n.type === "Pressable" && n.props.accessibilityRole === "button")!;
+		done.props.onPress();
+		view = render();
+		expect(modal(view).props.visible).toBe(false);
+
+		summaries(view)[0]!.props.onPress();
+		view = render();
+		expect(modal(view).props.visible).toBe(true);
+		show(session("shop"), session("plain"));
+		view = render();
+		expect(modal(view).props.visible).toBe(false);
+		expect(summaries(view)).toEqual([]);
+		// They come back: the sheet stays closed until tapped again.
+		show(session("shop", { subagents: [item("z")] }));
+		view = render();
+		expect(modal(view).props.visible).toBe(false);
+		expect(summaries(view)).toHaveLength(1);
+	});
+});
+
+describe("Home with subagents «Ocultos» (S3)", () => {
+	it("shows no subagent UI at all, while a question still marks the session as needing attention", () => {
+		h.mode = "hidden";
+		show(session("shop", { status: "attention", subagents: [item("a", { status: "waiting", question: true })] }), session("mail", { subagents: [item("b")] }));
+		const view = render();
+		expect(counters(view)).toEqual([]);
+		expect(summaries(view)).toEqual([]);
+		expect(texts(view).some((t) => t.includes("⑂"))).toBe(false);
+		expect(view.some((n) => n.type === "Modal")).toBe(false);
+		expect(view.filter((n) => n.type === "StatusPill").map((n) => n.props.status)).toContain("attention");
+		expect(view.some((n) => n.type === "SectionTitle" && n.props.children === es.home.needsYou)).toBe(true);
+	});
+});
+
 it("has every subagents string in English and Spanish", () => {
 	expect(Object.keys(es.subagents).sort()).toEqual(Object.keys(en.subagents).sort());
 	expect(es.subagents.done).toBe("Listo");
 	expect(en.subagents.done).toBe("Done");
+});
+
+describe("session titles with a gift theme's monospace titles", () => {
+	const titleNodes = (view: Node[]) => view.filter((n) => n.type === "Text" && textOf(n.props.children) === "pi · plain");
+	it("are set in monospace only when the theme asks for it", () => {
+		show(session("plain"));
+		expect(titleNodes(render()).every((n) => n.props.style.fontFamily === undefined)).toBe(true);
+		h.slots = []; h.deps = [];
+		h.style = { titles: "mono" };
+		const titles = titleNodes(render());
+		expect(titles.length).toBeGreaterThan(0);
+		expect(titles.every((n) => n.props.style.fontFamily === "mono")).toBe(true);
+	});
 });

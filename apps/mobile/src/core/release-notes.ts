@@ -7,6 +7,30 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 14,
+  version: "1.0.0",
+  es: {
+   new: [
+    "El selector de terminales abre en «Agentes», así ves primero qué sesiones te necesitan. En «Espacios», cada espacio muestra en qué computadora está y en qué rama.",
+    "En Personalización elegís cómo se ven los subagentes en Inicio: por sesión, un resumen arriba u ocultos. Con «Preview» ves cómo queda cada opción. El idioma ahora también está en Personalización.",
+    "Ajustes está más ordenado: arriba lo que usás todos los días y el resto en «Más ajustes».",
+   ],
+   fixes: [
+    "En Windows, con «Siempre atento», ya no aparece la ventana de terminal que se volvía a abrir cada vez que la cerrabas. Necesita mars-ram 0.1.10 en la computadora.",
+   ],
+  },
+  en: {
+   new: [
+    "The terminal switcher opens on «Agents», so you see first which sessions need you. In «Workspaces», each workspace shows which computer it is on and which branch.",
+    "In Personalization you choose how subagents show on Home: per session, a summary on top, or hidden. With «Preview» you see how each option looks. The language is now in Personalization too.",
+    "Settings is tidier: the everyday things on top and the rest in «More settings».",
+   ],
+   fixes: [
+    "On Windows, with «Always attentive», the terminal window that came back every time you closed it no longer shows up. It needs mars-ram 0.1.10 on the computer.",
+   ],
+  },
+ },
+ {
   build: 13,
   version: "1.0.0",
   es: {

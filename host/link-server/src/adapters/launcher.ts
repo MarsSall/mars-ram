@@ -27,15 +27,29 @@ function serveArguments(port: number, address?: ListenAddress): string[] {
 	const ip = zeroTier(address);
 	return ["serve", "--port", String(port), ...(ip ? ["--network", "zerotier", "--address", ip] : [])];
 }
-export function windowsTaskCommand(node: string, main: string, port: number, address?: ListenAddress): string {
+/**
+ * The task runs Node under a headless console host, so no console window ever appears in the user's session.
+ * node.exe is a console program: started directly by the task it got a visible window, and closing that window
+ * killed the server (the phone then started it again). Options weighed, for Windows 10/11 without admin or password:
+ * - `conhost.exe --headless` (chosen): a system binary present since Windows 10 1809, no file of our own and no
+ *   script engine; Node gets a console that has no window, and the task keeps running for as long as Node does (conhost exits
+ *   with its client), so `/end` still targets the running server.
+ * - wscript.exe + .vbs: hides the window too, but VBScript is being phased out (Windows 11 24H2 made it optional),
+ *   adds a script file to install and remove, and the launcher exits at once, so the task no longer owns Node and
+ *   `/end` would stop nothing.
+ * - Node relaunching itself with windowsHide: the first node.exe is still a console program, so a window flashes.
+ * - "Run whether user is logged on or not": needs a stored password, or S4U rights a standard user lacks.
+ */
+export function windowsTaskCommand(node: string, main: string, port: number, address?: ListenAddress, systemRoot = process.env.SystemRoot || "C:\\Windows"): string {
 	// Task Scheduler parses an executable command line directly (not cmd.exe).
-	// Reject quotes/control chars; quote both absolute paths, including spaces and &.
+	// Reject quotes/control chars; quote every absolute path, including spaces and &.
 	const quote = (path: string) => {
 		if (!path || /["\x00-\x1f]/.test(path) || path.endsWith("\\")) throw new Error("Unsafe scheduled task path.");
 		return `"${path}"`;
 	};
+	if (!/^[A-Za-z]:\\[^"\x00-\x1f]*$/.test(systemRoot) || systemRoot.endsWith("\\")) throw new Error("Unsafe scheduled task path.");
 	if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid port.");
-	return `${quote(node)} ${quote(main)} ${serveArguments(port, address).join(" ")}`;
+	return `${quote(`${systemRoot}\\System32\\conhost.exe`)} --headless ${quote(node)} ${quote(main)} ${serveArguments(port, address).join(" ")}`;
 }
 type LaunchIO = {
 	exec(file: string, args: string[]): Promise<unknown>;

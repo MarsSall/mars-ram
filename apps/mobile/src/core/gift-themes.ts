@@ -23,7 +23,15 @@ export type GiftThemeData = {
  working?: { frames: string[]; intervalMs: number };
  mascot?: GiftMascot;
  avatar?: GiftAvatar;
+ style?: GiftStyle;
+ photo?: GiftPhoto;
 };
+/** A round photo with its original colors: the Home hero and the greeting portrait. `jpeg` is standard base64. */
+export type GiftPhoto = { jpeg: string; caption?: string; ring?: { color: string; glow: string } };
+/** Largest decoded photo, so a sealed theme stays small. */
+export const GIFT_PHOTO_MAX_BYTES = 60_000;
+/** Optional look on top of the colors: HUD cards, a circuit backdrop and monospace titles. */
+export type GiftStyle = { hud?: { color: string }; backdrop?: "circuit"; titles?: "mono" };
 /**
  * Pixel art drawn under the logo. Each row is a string of palette keys; "." is transparent.
  * Each pixel is `pixel.width` × `pixel.height` units, so non-square terminal cells keep their aspect.
@@ -137,6 +145,51 @@ function parseAvatar(value: unknown): GiftAvatar | null {
  return avatar;
 }
 
+function parseStyle(value: unknown): GiftStyle | null {
+ if (!isRecord(value)) return null;
+ const style: GiftStyle = {};
+ if (value.hud !== undefined) {
+  if (!isRecord(value.hud) || typeof value.hud.color !== "string" || !HEX.test(value.hud.color)) return null;
+  style.hud = { color: value.hud.color };
+ }
+ if (value.backdrop !== undefined) { if (value.backdrop !== "circuit") return null; style.backdrop = value.backdrop; }
+ if (value.titles !== undefined) { if (value.titles !== "mono") return null; style.titles = value.titles; }
+ return style;
+}
+
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+/** Decoded size of canonical standard base64; null when it is not. Plain JS, since Hermes has no Buffer. */
+function base64Size(text: string): number | null {
+ if (text.length % 4 !== 0 || !BASE64.test(text)) return null;
+ const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+ return (text.length / 4) * 3 - padding;
+}
+/** The first three bytes of a base64 text at least four characters long. */
+function base64Head(text: string): number[] {
+ const [a, b, c, d] = Array.from(text.slice(0, 4), char => Math.max(0, BASE64_ALPHABET.indexOf(char)));
+ const bits = (a << 18) | (b << 12) | (c << 6) | d;
+ return [(bits >> 16) & 255, (bits >> 8) & 255, bits & 255];
+}
+
+function parsePhoto(value: unknown): GiftPhoto | null {
+ if (!isRecord(value) || typeof value.jpeg !== "string") return null;
+ const { jpeg, caption, ring } = value;
+ // Checked before the pattern so an oversized string is never scanned.
+ if (jpeg.length > Math.ceil(GIFT_PHOTO_MAX_BYTES / 3) * 4) return null;
+ const size = base64Size(jpeg);
+ if (size === null || size < 3 || size > GIFT_PHOTO_MAX_BYTES) return null;
+ const [b0, b1, b2] = base64Head(jpeg);
+ if (b0 !== 0xff || b1 !== 0xd8 || b2 !== 0xff) return null;
+ const photo: GiftPhoto = { jpeg };
+ if (caption !== undefined) { if (!isText(caption, 40)) return null; photo.caption = caption; }
+ if (ring !== undefined) {
+  if (!isRecord(ring) || typeof ring.color !== "string" || !HEX.test(ring.color) || typeof ring.glow !== "string" || !HEX.test(ring.glow)) return null;
+  photo.ring = { color: ring.color, glow: ring.glow };
+ }
+ return photo;
+}
+
 function parseGreeting(value: unknown): Greeting | null {
  return isRecord(value) && isText(value.title, 80) && isText(value.body, 300) ? { title: value.title, body: value.body } : null;
 }
@@ -144,7 +197,7 @@ function parseGreeting(value: unknown): Greeting | null {
 /** Validates a decrypted or stored theme; anything unexpected is rejected as a whole. */
 export function parseGiftThemeData(value: unknown): GiftThemeData | null {
  if (!isRecord(value) || !isRecord(value.greeting) || !isRecord(value.colors) || !isRecord(value.primaryFill)) return null;
- const { id, label, greeting, colors, primaryFill, working, mascot, avatar } = value;
+ const { id, label, greeting, colors, primaryFill, working, mascot, avatar, style, photo } = value;
  if (typeof id !== "string" || !/^[a-z0-9-]{1,40}$/.test(id) || (RESERVED_THEME_IDS as readonly string[]).includes(id) || !isText(label, 40)) return null;
  const es = parseGreeting(greeting.es), en = parseGreeting(greeting.en);
  if (!es || !en) return null;
@@ -173,6 +226,16 @@ export function parseGiftThemeData(value: unknown): GiftThemeData | null {
   const parsed = parseAvatar(avatar);
   if (!parsed) return null;
   theme.avatar = parsed;
+ }
+ if (style !== undefined) {
+  const parsed = parseStyle(style);
+  if (!parsed) return null;
+  if (Object.keys(parsed).length > 0) theme.style = parsed;
+ }
+ if (photo !== undefined) {
+  const parsed = parsePhoto(photo);
+  if (!parsed) return null;
+  theme.photo = parsed;
  }
  return theme;
 }

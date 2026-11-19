@@ -49,9 +49,10 @@ it("opens once after an update from the root and stays reachable from Ajustes �
  const settings = readFileSync(new URL("../src/app/(tabs)/settings.tsx", import.meta.url), "utf8");
  expect(settings).toContain("t.whatsNew.open");
  expect(settings).toContain('"/whats-new"');
- // «Compilación» shows the same build «Novedades» uses, not Expo's empty value.
- expect(settings).toContain("appBuild.build");
- expect(settings).not.toContain("Constants.nativeBuildVersion");
+ // «Compilación» (now in «Más ajustes», S9) shows the same build «Novedades» uses, not Expo's empty value.
+ const more = readFileSync(new URL("../src/app/more-settings.tsx", import.meta.url), "utf8");
+ expect(more).toContain("appBuild.build");
+ expect(more + settings).not.toContain("Constants.nativeBuildVersion");
  expect(readFileSync(new URL("../src/app/whats-new.tsx", import.meta.url), "utf8")).toContain("whatsNew.all()");
  expect(es.whatsNew).toMatchObject({ title: "Novedades", new: "Nuevo", fixes: "Arreglos", done: "Entendido", open: "Novedades" });
  expect(Object.keys(en.whatsNew).sort()).toEqual(Object.keys(es.whatsNew).sort());

@@ -31,6 +31,21 @@ const baseTheme = { spacing: (n: number) => n * 4, touch: 48, colors: { text: "w
 describe("the mascot under the logo", () => {
  beforeEach(() => { prefs.theme = baseTheme; });
 
+ it("fades the small logo only while a gift mascot shows", () => {
+  const logoOf = (welcome: boolean) => ([elements(HomeHeading({ welcome }))[0].props.children].flat().filter(isValidElement) as unknown as Node[])[0];
+  for (const welcome of [true, false]) expect(logoOf(welcome).props.style.opacity).toBeUndefined();
+  prefs.theme = { ...baseTheme, mascot };
+  for (const welcome of [true, false]) expect(logoOf(welcome).props.style.opacity).toBe(0.35);
+ });
+ it("puts the small logo against the top edge only while a gift mascot shows", () => {
+  for (const welcome of [true, false]) {
+   expect(elements(HomeHeading({ welcome }))[0].props.style.paddingTop).toBeUndefined();
+  }
+  prefs.theme = { ...baseTheme, mascot };
+  for (const welcome of [true, false]) {
+   expect(elements(HomeHeading({ welcome }))[0].props.style.paddingTop).toBe(0);
+  }
+ });
  it("is not drawn for themes without one, and the logo keeps its full size", () => {
   for (const [welcome, size] of [[true, { width: 250, height: 198 }], [false, { width: 120, height: 95 }]] as const) {
    expect(elements(HomeHeading({ welcome })).some(node => node.type === GiftMascot)).toBe(false);
@@ -39,9 +54,9 @@ describe("the mascot under the logo", () => {
   }
  });
 
- it("sits right below a smaller logo, as wide as the full logo in each mode, captioned in the attention color", () => {
+ it("is the hero right below the ram, shrunk to a small top logo, captioned in the attention color", () => {
   prefs.theme = { ...baseTheme, mascot };
-  for (const [welcome, width, logo] of [[true, 250, { width: 170, height: 135 }], [false, 120, { width: 82, height: 65 }]] as const) {
+  for (const [welcome, width, logo] of [[true, 250, { width: 64, height: 51, opacity: 0.35 }], [false, 160, { width: 44, height: 35, opacity: 0.35 }]] as const) {
    const children = [elements(HomeHeading({ welcome }))[0].props.children].flat().filter(isValidElement) as unknown as Node[];
    expect(children[0].type).toBe("Image");
    expect(children[0].props.style).toEqual(logo);

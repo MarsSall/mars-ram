@@ -4,10 +4,10 @@ The paired phone can list repositories and open **Gentle Shell, Pi or OpenCode**
 
 ## Read the installed host release
 
-`mars-ram version` prints a release such as `0.1.9`; `mars-ram version --json` prints exactly one bounded line:
+`mars-ram version` prints a release such as `0.1.10`; `mars-ram version --json` prints exactly one bounded line:
 
 ```json
-{"version":1,"release":"0.1.9"}
+{"version":1,"release":"0.1.10"}
 ```
 
 Both exit 0, without prompts, network or changes. Only the optional `--json` flag is accepted; other/duplicate arguments exit 2 with usage. The envelope `version: 1` is separate from both the release and the bridge protocol. A checkout with no valid release metadata prints `dev` (or `{"version":1,"release":"dev"}`), not an error.

@@ -87,7 +87,7 @@ describe("platform boundaries", () => {
 		expect(() => parseTailscale(status)).toThrow("Tailscale");
 	});
 	it("quotes Windows executable and script paths without invoking a shell", () => {
-		expect(windowsTaskCommand("C:\\Program Files\\node.exe", "C:\\User Files\\main.ts", 47811)).toBe('"C:\\Program Files\\node.exe" "C:\\User Files\\main.ts" serve --port 47811');
+		expect(windowsTaskCommand("C:\\Program Files\\node.exe", "C:\\User Files\\main.ts", 47811, undefined, "C:\\Windows")).toBe('"C:\\Windows\\System32\\conhost.exe" --headless "C:\\Program Files\\node.exe" "C:\\User Files\\main.ts" serve --port 47811');
 		expect(() => windowsTaskCommand('C:\\bad"path', "main.ts", 47811)).toThrow();
 	});
 	it("creates, runs then disables the LIMITED Windows task", async () => {
@@ -97,7 +97,12 @@ describe("platform boundaries", () => {
 			spawn: () => { throw new Error("not used"); },
 		});
 		expect(calls.map(c => c[1][0])).toEqual(["/create", "/run", "/change"]);
-		expect(calls[0]?.[1]).toContain("LIMITED"); expect(calls[2]?.[1]).toContain("/disable");
+		const root = process.env.SystemRoot || "C:\\Windows";
+		expect(calls).toEqual([
+			["schtasks.exe", ["/create", "/tn", "mars-ram-links", "/sc", "once", "/st", "23:59", "/tr", `"${root}\\System32\\conhost.exe" --headless "C:\\node.exe" "C:\\main.ts" serve --port 47811`, "/rl", "LIMITED", "/f"]],
+			["schtasks.exe", ["/run", "/tn", "mars-ram-links"]],
+			["schtasks.exe", ["/change", "/tn", "mars-ram-links", "/disable"]],
+		]);
 	});
 	it("uses detached no-shell Linux spawn and unrefs", async () => {
 		let unref = false;

@@ -5,6 +5,8 @@ import type { AttachmentRetention } from "../core/attachment-retention";
 import { getLocales } from "expo-localization";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { readGiftThemes, writeGiftThemes } from "../adapters/file-gift-themes";
+import { readSubagentsMode, writeSubagentsMode } from "../adapters/file-subagents-mode";
+import type { SubagentsMode } from "../core/subagents-mode";
 import { type GiftThemeData, normalizeGiftCode, openGiftTheme, refreshUnlockedGifts, type UnlockedGift } from "../core/gift-themes";
 import { sealedGifts } from "../core/gift-themes-sealed";
 import { en, type Strings } from "./i18n/en";
@@ -44,6 +46,9 @@ type Preferences = {
 	t: Strings;
 	showEmpty: boolean;
 	setShowEmpty: (value: boolean) => void;
+	/** How Home shows subagents; saved on the phone. */
+	subagentsMode: SubagentsMode;
+	setSubagentsMode: (mode: SubagentsMode) => void;
 };
 
 const PreferencesContext = createContext<Preferences | null>(null);
@@ -87,6 +92,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 	}, [gifts, themeName]);
 	const [language, setLanguage] = useState<LanguageChoice>("system");
 	const [showEmpty, setShowEmpty] = useState(false);
+	const [subagentsMode, updateSubagentsMode] = useState<SubagentsMode>(readSubagentsMode);
+	// A failed write keeps the choice for this session; it is chosen again next time.
+	const setSubagentsMode = useCallback((mode: SubagentsMode) => { updateSubagentsMode(mode); void writeSubagentsMode(mode).catch(() => undefined); }, []);
 	const value = useMemo<Preferences>(
 		() => ({
 			retention,
@@ -101,8 +109,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 			t: dictionaries[language === "system" ? systemLanguage() : language],
 			showEmpty,
 			setShowEmpty,
+			subagentsMode,
+			setSubagentsMode,
 		}),
-		[theme, gifts, unlockGift, language, showEmpty, retention],
+		[theme, gifts, unlockGift, language, showEmpty, retention, subagentsMode, setSubagentsMode],
 	);
 	return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }

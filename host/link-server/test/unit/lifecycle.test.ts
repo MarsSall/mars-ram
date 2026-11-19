@@ -51,6 +51,14 @@ it.each([true, false])("Windows task cleanup only ends confirmed boots (%j)", as
  expect(calls[0]?.join(" ")).toContain("schtasks.exe /delete /tn mars-ram-links /f");
  expect(calls[0]?.join(" ").includes("schtasks.exe /end")).toBe(confirmed);
 });
+it("ends then deletes the confirmed Windows task with the same fixed PowerShell command", async () => {
+	const calls: [string, string[]][] = [];
+	await stopWindowsTask(true, async (file, args) => { calls.push([file, args]); });
+	expect(calls).toEqual([["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+		"$ErrorActionPreference = 'Stop'; $task = Get-ScheduledTask | Where-Object { $_.TaskName -eq 'mars-ram-links' -and $_.TaskPath -eq '\\' }; if ($task) { "
+		+ "& schtasks.exe /end /tn mars-ram-links; if ($LASTEXITCODE -ne 0) { throw 'Task stop failed' }; "
+		+ "& schtasks.exe /delete /tn mars-ram-links /f; if ($LASTEXITCODE -ne 0) { throw 'Task removal failed' } }"]]]);
+});
 it("does not remove a newer boot's pid record", async () => {
 	const root = await mkdtemp(join(tmpdir(), "link-pid-test-")); cleanups.push(() => rm(root, { recursive: true, force: true }));
 	const record = { pid: process.pid, startedAt: new Date().toISOString(), instance: "a".repeat(22), ip: "127.0.0.1", port: 12345 };
@@ -64,7 +72,16 @@ it.each(["C:\\bad\nnode.exe", 'C:\\bad"node.exe', "C:\\directory\\"])("rejects a
 	expect(() => windowsTaskCommand(path, "C:\\main.ts", 47811)).toThrow();
 });
 it("keeps shell metacharacters as literal quoted path characters", () => {
-	expect(windowsTaskCommand("C:\\A & B\\node.exe", "C:\\a (b)\\main.ts", 47811)).toBe('"C:\\A & B\\node.exe" "C:\\a (b)\\main.ts" serve --port 47811');
+	expect(windowsTaskCommand("C:\\A & B\\node.exe", "C:\\a (b)\\main.ts", 47811, undefined, "C:\\Windows")).toBe('"C:\\Windows\\System32\\conhost.exe" --headless "C:\\A & B\\node.exe" "C:\\a (b)\\main.ts" serve --port 47811');
+});
+it("starts the task under a headless console host from the Windows folder", () => {
+	expect(windowsTaskCommand("C:\\node.exe", "C:\\main.ts", 47811, undefined, "D:\\Win Dir")).toBe('"D:\\Win Dir\\System32\\conhost.exe" --headless "C:\\node.exe" "C:\\main.ts" serve --port 47811');
+});
+it.each(["", "Windows", "C:\\Windows\\", 'C:\\Win"dows', "C:\\Win\ndows", "\\\\server\\share"])("rejects an unsafe Windows folder %j", root => {
+	expect(() => windowsTaskCommand("C:\\node.exe", "C:\\main.ts", 47811, undefined, root)).toThrow("Unsafe scheduled task path.");
+});
+it.each([0, 65536, 1.5])("rejects invalid task port %j", port => {
+	expect(() => windowsTaskCommand("C:\\node.exe", "C:\\main.ts", port)).toThrow("Invalid port.");
 });
 it("disables a Windows trigger even if task execution fails", async () => {
 	const calls: string[] = [];

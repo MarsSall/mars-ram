@@ -74,6 +74,7 @@ it("marks the floating chat's box, the project sheet's tabs and the selector's f
  expect(sheet).toMatch(/<View \{\.\.\.tabsAnchor\} accessibilityRole="tablist"/);
  const drawer = source("ui/herdr-switcher.tsx");
  expect(drawer).toContain(`useFirstVisitTip("sessionSelector", visible)`);
- expect(drawer).toMatch(/i === 0 \? <TourAnchor id="selector\.list">\{row\(computer, w\)\}<\/TourAnchor> : row\(computer, w\)/);
+ expect(drawer).toContain(`workspaces.map((w, i) => card(computer, w, i === 0))`);
+ expect(drawer).toContain(`{anchor ? <TourAnchor id="selector.list">{head}</TourAnchor> : head}`);
  expect(drawer).toMatch(/<TipLayer tips=\{MODAL_TIPS\} \/>\s*<\/View>\s*<\/Modal>/);
 });

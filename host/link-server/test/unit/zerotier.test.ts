@@ -106,7 +106,7 @@ describe("ZeroTier listener process", () => {
 		const spawned: string[][] = [];
 		await launchServer("linux", "/node", "/main.ts", 47811, { exec: async () => { throw new Error("unused"); }, spawn: (_file, args) => { spawned.push(args); return { unref() {} }; } }, zeroTierAddress);
 		expect(spawned).toEqual([["/main.ts", "serve", "--port", "47811", "--network", "zerotier", "--address", ZT]]);
-		expect(windowsTaskCommand("C:\\node.exe", "C:\\main.ts", 47811, zeroTierAddress)).toBe(`"C:\\node.exe" "C:\\main.ts" serve --port 47811 --network zerotier --address ${ZT}`);
+		expect(windowsTaskCommand("C:\\node.exe", "C:\\main.ts", 47811, zeroTierAddress, "C:\\Windows")).toBe(`"C:\\Windows\\System32\\conhost.exe" --headless "C:\\node.exe" "C:\\main.ts" serve --port 47811 --network zerotier --address ${ZT}`);
 		const calls: string[][] = [];
 		await launchServer("win32", "C:\\node.exe", "C:\\main.ts", 47811, { exec: async (_file, args) => { calls.push(args); }, spawn: () => { throw new Error("unused"); } }, zeroTierAddress);
 		expect(calls.map(args => args[2])).toEqual(["mars-ram-links-zerotier-10-147-20-49", "mars-ram-links-zerotier-10-147-20-49", "mars-ram-links-zerotier-10-147-20-49"]);

@@ -75,14 +75,14 @@ mars-ram version
 mars-ram version --json
 ```
 
-Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.9`); JSON is `{"version":1,"release":"0.1.9"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.10`); JSON is `{"version":1,"release":"0.1.10"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
 
 The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
 
 The app requires host **0.1.6**: `version` first shipped in 0.1.4, attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5, and private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, need 0.1.6. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run what the app shows: `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND` in `apps/mobile/src/core/host-update.ts`), otherwise the pinned commands, one per line in a normal (not administrator) terminal, for example:
 
 ```text
-pnpm add -g mars-ram@0.1.9
+pnpm add -g mars-ram@0.1.10
 mars-ram install
 ```
 

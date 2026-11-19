@@ -1,28 +1,21 @@
+// Ajustes (S9): the frequent things on top — Personalización, Notificaciones, «Más ajustes» and a compact «Acerca de».
 import { useState } from "react";
 import Constants from "expo-constants";
 import { appBuild, startTour } from "../../services";
 import { AppUpdateNotice } from "../../ui/app-update-notice";
-import { getLocales } from "expo-localization";
-import { privacyUrl, SOURCE_URL } from "../../core/about";
-import type { AttachmentRetention } from "../../core/attachment-retention";
 import { useRouter } from "expo-router";
-import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { registerSecretTap, SECRET_TAP_GAP_MS, type SecretTaps } from "../../core/secret-taps";
 import { GiftCodeDialog } from "../../ui/gift-code-dialog";
-import { securityRow } from "../../ui/key-security";
-import { DictationSettings } from "../../ui/dictation-settings";
 import { NotificationSettingsCard } from "../../ui/notification-settings";
-import { SecretFilesSetting } from "../../ui/secret-files-setting";
-import { useKeySecurity } from "../../ui/use-key-security";
 import { TourAnchor } from "../../ui/tour/anchors";
 import { useTourScroll } from "../../ui/tour/scroll";
-import { Card, Screen, SectionTitle, Segmented } from "../../ui/components";
-import { type LanguageChoice, usePreferences } from "../../ui/preferences";
+import { Card, Screen, SectionTitle } from "../../ui/components";
+import { usePreferences } from "../../ui/preferences";
 
 export default function SettingsScreen() {
 	const router = useRouter();
-	const { theme, language, setLanguage, t, showEmpty, setShowEmpty, retention, setRetention } = usePreferences();
-	const [preferenceError, setPreferenceError] = useState(false);
+	const { theme, t } = usePreferences();
 	const [secretTaps, setSecretTaps] = useState<SecretTaps | null>(null);
 	const [tapsLeft, setTapsLeft] = useState<number | null>(null);
 	const [giftDialog, setGiftDialog] = useState(false);
@@ -35,66 +28,27 @@ export default function SettingsScreen() {
 		if (result.open) setGiftDialog(true);
 		if (result.remaining !== null) { const shown = result.remaining; setTimeout(() => setTapsLeft(left => (left === shown ? null : left)), SECRET_TAP_GAP_MS); }
 	};
-	const security = useKeySecurity();
 	const tourScroll = useTourScroll();
-	const pending = security.status?.perComputer.some(computer => computer.phase !== "done") ?? false;
-	const changeUnlock = (value: boolean) => {
-		if (value) { void security.change(true); return; }
-		Alert.alert(t.keySecurity.warningTitle, `${t.keySecurity.warning}\n\n${t.keySecurity.rotationNotice}`, [
-			{ text: t.keySecurity.cancel, style: "cancel" },
-			{ text: t.keySecurity.confirm, onPress: () => { void security.change(false); } },
-		]);
-	};
-	const openLink = (url: string) => { void Linking.openURL(url).catch(() => Alert.alert(t.settings.linkFailed)); };
-	const label = (text: string) => <Text style={{ color: theme.colors.text, fontSize: 16, marginBottom: theme.spacing(2) }}>{text}</Text>;
 	const row = (text: string, value: string) => (
 		<View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
 			<Text style={{ color: theme.colors.text, fontSize: 16, flex: 1 }}>{text}</Text>
 			<Text style={{ color: theme.colors.textMuted }}>{value}</Text>
 		</View>
 	);
+	// A row that opens another screen: name, a short summary of what is inside, and the chevron.
+	const navRow = (text: string, summary: string) => (
+		<View style={{ flexDirection: "row", alignItems: "center", gap: theme.spacing(2) }}>
+			<Text style={{ color: theme.colors.text, fontSize: 16 }}>{text}</Text>
+			<Text numberOfLines={1} style={{ color: theme.colors.textMuted, flex: 1, textAlign: "right" }}>{summary}</Text>
+			<Text style={{ color: theme.colors.textMuted }}>›</Text>
+		</View>
+	);
 	return (
 		<Screen title={t.settings.title}>
 			<ScrollView {...tourScroll.props} contentContainerStyle={{ paddingBottom: theme.spacing(8) }}>
-				<SectionTitle>{t.settings.appearance}</SectionTitle>
-				<Card onPress={() => router.push("/personalization")}>{row(t.settings.personalization, "›")}</Card>
-				<Card>
-					{label(t.settings.language)}
-					<Segmented<LanguageChoice>
-						value={language}
-						onChange={setLanguage}
-						options={[{ value: "system", label: t.settings.system }, { value: "es", label: "Español" }, { value: "en", label: "English" }]}
-					/>
-				</Card>
-				<SectionTitle>{t.attachments.title}</SectionTitle>
-				<Card>
-					{label(t.attachments.retention)}
-					<Segmented<AttachmentRetention> value={retention} onChange={value => { setPreferenceError(false); void setRetention(value).catch(() => setPreferenceError(true)); }} options={[{ value: 1, label: t.attachments.day }, { value: 7, label: t.attachments.week }, { value: 30, label: t.attachments.month }, { value: "never", label: t.attachments.never }]} />
-					<Text style={{ color: theme.colors.textMuted, marginTop: 8 }}>{t.attachments.location}</Text>
-					{preferenceError ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger }}>{t.attachments.preferenceFailed}</Text> : null}
-				</Card>
-				<SecretFilesSetting />
-				<DictationSettings />
+				<Card onPress={() => router.push("/personalization")}>{navRow(t.settings.personalization, t.settings.personalizationSummary)}</Card>
 				<TourAnchor id="settings.notifications" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.notifications")}><NotificationSettingsCard /></TourAnchor>
-				<SectionTitle>{t.settings.security}</SectionTitle>
-				<Card>
-					<View style={{ flexDirection: "row", alignItems: "center", minHeight: 48 }}>
-						<Text style={{ color: theme.colors.text, fontSize: 16, flex: 1 }}>{t.keySecurity.label}</Text>
-						<Switch accessibilityLabel={t.keySecurity.label} value={security.status?.requireUnlock ?? true} disabled={!security.status || security.stale || security.busy || pending} onValueChange={changeUnlock} />
-					</View>
-					{!security.status && !security.error ? <Text style={{ color: theme.colors.textMuted }}>{t.keySecurity.loading}</Text> : null}
-					{security.busy || pending ? <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.textMuted }}>{security.busy ? t.keySecurity.changing : t.keySecurity.rotationPending}</Text> : null}
-					{security.stale && security.status ? <Text style={{ color: theme.colors.danger }}>{t.keySecurity.stale}</Text> : null}
-					{security.error ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger }}>{t.keySecurity[security.error]}</Text> : null}
-					{security.status?.perComputer.length === 0 ? <Text style={{ color: theme.colors.textMuted }}>{t.keySecurity.empty}</Text> : null}
-					{security.status?.perComputer.map(computer => {
-						const model = securityRow(computer);
-						return <Text key={computer.hostId} style={{ color: model.retry ? theme.colors.danger : theme.colors.textMuted, marginTop: 8 }}>{computer.name}: {t.keySecurity[model.textKey]}</Text>;
-					})}
-					{pending || security.status?.perComputer.some(computer => computer.lastError) || security.error || security.stale ? <Pressable accessibilityRole="button" accessibilityLabel={t.keySecurity.retry} disabled={security.busy} onPress={() => { void (security.stale || !security.status ? security.refresh() : security.resume()); }} style={{ minHeight: 48, justifyContent: "center", opacity: security.busy ? 0.5 : 1 }}>
-						<Text style={{ color: theme.colors.text }}>{t.keySecurity.retry}</Text>
-					</Pressable> : null}
-				</Card>
+				<Card onPress={() => router.push("/more-settings")} style={{ marginTop: theme.spacing(2) }}>{navRow(t.settings.more, t.settings.moreSummary)}</Card>
 				<SectionTitle>{t.settings.about}</SectionTitle>
 				<AppUpdateNotice />
 				<TourAnchor id="settings.about" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.about")}>
@@ -103,33 +57,15 @@ export default function SettingsScreen() {
 						{row(t.settings.version, version)}
 						{tapsLeft !== null ? <Text accessibilityLiveRegion="polite" style={{ alignSelf: "flex-end", marginTop: theme.spacing(1), color: theme.colors.accentText, backgroundColor: theme.colors.surfaceRaised, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 999, paddingHorizontal: theme.spacing(2.5), paddingVertical: theme.spacing(1), fontSize: 12 }}>{t.gifts.tapsLeft(tapsLeft)}</Text> : null}
 					</Pressable>
-					{row(t.settings.build, appBuild.build === null ? t.settings.unknownVersion : String(appBuild.build))}
 					<Pressable accessibilityRole="button" onPress={() => router.push("/whats-new")} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.whatsNew.open}</Text>
 					</Pressable>
 					<Pressable accessibilityRole="button" onPress={() => { void startTour(); }} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.tour.open}</Text>
 					</Pressable>
-					<Pressable accessibilityRole="link" onPress={() => openLink(privacyUrl(language, getLocales()[0]?.languageCode ?? undefined))} style={{ minHeight: 48, justifyContent: "center" }}>
-						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.settings.privacy}</Text>
-					</Pressable>
-					<Pressable accessibilityRole="link" onPress={() => openLink(SOURCE_URL)} style={{ minHeight: 48, justifyContent: "center" }}>
-						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.settings.source}</Text>
-					</Pressable>
 				</Card>
 				</TourAnchor>
 				<GiftCodeDialog visible={giftDialog} onClose={() => setGiftDialog(false)} />
-				{__DEV__ ? <>
-				<SectionTitle>{t.settings.prototype}</SectionTitle>
-				<Card>
-					<View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-						<Text style={{ color: theme.colors.text, fontSize: 16 }}>{t.settings.showEmpty}</Text>
-						<Switch accessibilityLabel={t.settings.showEmpty} value={showEmpty} onValueChange={setShowEmpty} />
-					</View>
-				</Card>
-				<SectionTitle>{t.settings.developer}</SectionTitle>
-				<Card onPress={() => router.push("/dev/ssh-probe")}>{row(t.settings.sshProbe, "›")}</Card>
-				</> : null}
 			</ScrollView>
 		</Screen>
 	);

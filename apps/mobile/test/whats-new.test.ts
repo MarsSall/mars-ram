@@ -210,7 +210,6 @@ describe("bundled changelog", () => {
  it("build 13 tells the first testers about the easter eggs and how to open them, without naming anyone or mentioning themes", () => {
   const note = RELEASE_NOTES.find(n => n.build === 13)!;
   expect(note).toBeDefined();
-  expect(RELEASE_NOTES[0]).toBe(note);
   const es = [...note.es.new, ...note.es.fixes].join("\n");
   const en = [...note.en.new, ...note.en.fixes].join("\n");
   for (const word of ["primeros testers", "easter eggs", "Ajustes", "tocá varias veces", "versión", "código"]) expect(es).toContain(word);
@@ -229,5 +228,21 @@ describe("bundled changelog", () => {
   for (const text of [es, en]) expect(text).not.toMatch(/cinlo|j0k3r|batmad|bojack|neko|tema|theme|SSH|JSON|versionCode/i);
   expect(note.es.new).toHaveLength(2);
   expect(note.es.new).toHaveLength(note.en.new.length);
+ });
+
+ it("build 14 names Agentes first, workspace cards, Home subagents in Personalización, Más ajustes and the Windows fix of mars-ram 0.1.10, without the surprises", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 14)!;
+  expect(note).toBeDefined();
+  expect(RELEASE_NOTES[0]).toBe(note);
+  const es = [...note.es.new, ...note.es.fixes].join("\n");
+  const en = [...note.en.new, ...note.en.fixes].join("\n");
+  for (const word of ["Agentes", "Espacios", "Personalización", "Más ajustes", "Windows", "mars-ram 0.1.10"]) expect(es).toContain(word);
+  for (const word of ["Agents", "Workspaces", "Personalization", "More settings", "Windows", "mars-ram 0.1.10"]) expect(en).toContain(word);
+  // Let them discover the rest on their own: no themes, easter eggs or gifts.
+  for (const text of [es, en]) expect(text).not.toMatch(/\btemas?\b|\bthemes?\b|easter|regal|gift|cinlo|j0k3r|batmad|bojack|marvin|ramons/i);
+  expect(note.es.new).toHaveLength(3);
+  expect(note.es.fixes).toHaveLength(1);
+  expect(note.es.new).toHaveLength(note.en.new.length);
+  expect(note.es.fixes).toHaveLength(note.en.fixes.length);
  });
 });

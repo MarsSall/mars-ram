@@ -2,6 +2,30 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.1.10
+
+Released together with Android build 14 of the app. Build 14 still works with mars-ram 0.1.6 through 0.1.9 (`MINIMUM_HOST_VERSION` stays 0.1.6): its changes (agents first in the terminal switcher, workspace cards, the Home subagents mode and its preview, the reorganized Settings) read nothing new from the computer, so nothing about the host is required for them. Host 0.1.10 also works with build 13 and older builds, which see no difference.
+
+Update in the computer's terminal (Linux, macOS or Windows), from 0.1.7:
+
+```text
+mars-ram update
+mars-ram doctor
+```
+
+From 0.1.8 on, `mars-ram update` runs `mars-ram doctor` itself; the second line does no harm. From 0.1.6 or older, in a normal (not administrator) terminal, one command per line:
+
+```text
+pnpm add -g mars-ram@0.1.10
+mars-ram install
+```
+
+The session bridge still speaks protocol **1.8**, so Pi sessions that are already running need no `/reload`.
+
+### Fixed
+
+- On Windows, the «Siempre atento» link server now starts without a console window. Before, it opened a terminal window that came back after you closed it: closing it stopped the server, and the phone started it again. A link server that an older host already started keeps its window until it stops; the next time it starts, 0.1.10 starts it without one.
+
 ## mars-ram 0.1.9
 
 Released together with Android build 13 of the app. Build 13 still works with mars-ram 0.1.6, 0.1.7 and 0.1.8 (`MINIMUM_HOST_VERSION` stays 0.1.6): the only app change that reads something new from the computer is the subagents counter on Inicio, and it uses an optional `subagents` field of the session state that older hosts simply do not send, so the counter does not show and everything else works as before. Host 0.1.9 also works with build 12, which ignores that field.
