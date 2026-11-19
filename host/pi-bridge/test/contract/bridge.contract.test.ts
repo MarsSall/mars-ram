@@ -3,7 +3,8 @@
 // RUN_MODEL_TESTS=1 (with PI_TEST_MODEL=<provider/model>), which also proves
 // send, steer, stop, and images.
 import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { Value } from "typebox/value";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	AbortResponse,
@@ -15,6 +16,7 @@ import {
 	type RegistryEntry,
 	SendMessageResponse,
 	StateResponse,
+	Subagents,
 } from "@workspace/protocol";
 import { client, type PiSession, startPiSession } from "./pi-session.ts";
 
@@ -60,10 +62,37 @@ describe("background subagents", () => {
 	});
 });
 
+describe("subagents", () => {
+	it("omits subagents when nothing answers the task request (plain Pi)", async () => {
+		const state = await expectDecodes(StateResponse, await client(entry).get("/state"), 200);
+		expect(state).not.toHaveProperty("subagents");
+	});
+
+	it("serves this session's Gentle Agents tasks, bounded, through Pi's real event bus", async () => {
+		const gentle = await startPiSession({ extensions: [resolve(import.meta.dirname, "fixtures/fake-gentle-agents.ts")] });
+		try {
+			const own = gentle.entries()[0]!;
+			const state = await expectDecodes(StateResponse, await client(own).get("/state"), 200);
+			expect(Value.Check(Subagents, state.subagents)).toBe(true);
+			const subagents = state.subagents as Subagents;
+			expect(subagents.available).toBe(true);
+			expect(subagents.items.map(({ id, agent, label, status, question }) => ({ id, agent, label, status, question }))).toEqual([
+				{ id: "task-2", agent: "explore", label: "Read the spec", status: "waiting", question: true },
+				{ id: "task-1", agent: "sdd-apply", label: "Implement the bridge", status: "running", question: false },
+				{ id: "task-3", agent: "review", label: "Queued review", status: "queued", question: false },
+			]);
+			for (const item of subagents.items) expect(item.since).toBeLessThanOrEqual(Date.now());
+		} finally {
+			await gentle.stop();
+		}
+	});
+});
+
 describe("responses", () => {
 	it("serves state with the envelope of the registered instance", async () => {
 		const state = await expectDecodes(StateResponse, await client(entry).get("/state"), 200);
 		expect(state).toMatchObject({ bridgeInstanceId: entry.bridgeInstanceId, sessionId: entry.sessionId, idle: true, activity: null });
+		if ("subagents" in state) expect(Value.Check(Subagents, state.subagents)).toBe(true);
 	});
 
 	it("reports terminal unavailable outside Herdr and rejects terminal operations", async () => {

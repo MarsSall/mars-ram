@@ -314,6 +314,44 @@ describe("SessionLister", () => {
 		expect(http.calls.filter((c) => c.includes("/state"))).toHaveLength(1);
 	});
 
+	it("carries the bounded subagents and leaves them out when absent, unavailable, empty, or malformed (S3, S6)", async () => {
+		const sub = (id: string, extra: Record<string, unknown> = {}) => ({ id, agent: "explore", label: `Task ${id}`, status: "running", question: false, since: 1000, ...extra });
+		host.registry(
+			"100.64.0.1",
+			entry("a", 1, "/w/with"), entry("b", 2, "/w/old"), entry("c", 3, "/w/none"), entry("d", 4, "/w/empty"), entry("e", 5, "/w/broken"),
+		);
+		http.states.set(1, state("a", { idle: false, subagents: { available: true, items: [sub("s1"), sub("s2", { status: "queued" }), { id: "" }] } }));
+		http.states.set(2, state("b", { idle: false }));
+		http.states.set(3, state("c", { subagents: { available: false, items: [sub("s3")] } }));
+		http.states.set(4, state("d", { subagents: { available: true, items: [] } }));
+		http.states.set(5, state("e", { subagents: "nonsense" }));
+
+		const [computer] = await lister.list([linux]);
+		const byKey = new Map(computer!.sessions.map((s) => [s.key, s]));
+
+		expect(byKey.get("linux/a")!.subagents).toEqual([sub("s1"), sub("s2", { status: "queued" })]);
+		expect(byKey.get("linux/a")!.status).toBe("working");
+		// An older bridge sends no field: the summary is exactly as before, with no subagents key.
+		expect(byKey.get("linux/b")).toEqual({ key: "linux/b", hostId: "linux", bridgeInstanceId: "b", project: "old", cwd: "/w/old", status: "working", lastActivityAt: 5000, lastMessage: null });
+		for (const key of ["linux/c", "linux/d", "linux/e"]) {
+			expect(byKey.get(key)).not.toHaveProperty("subagents");
+			expect(byKey.get(key)!.status).toBe("done");
+		}
+	});
+
+	it("needs the user when a subagent asks a question, even while the parent works (S5)", async () => {
+		const sub = (id: string, extra: Record<string, unknown> = {}) => ({ id, agent: "worker", label: id, status: "waiting", question: false, since: 1000, ...extra });
+		host.registry("100.64.0.1", entry("a", 1, "/w/asks"), entry("b", 2, "/w/waits"), entry("c", 3, "/w/idle-asks"));
+		http.states.set(1, state("a", { idle: false, subagents: { available: true, items: [sub("s1", { status: "running" }), sub("s2", { question: true })] } }));
+		http.states.set(2, state("b", { idle: false, subagents: { available: true, items: [sub("s3")] } }));
+		http.states.set(3, state("c", { idle: true, subagents: { available: true, items: [sub("s4", { question: true })] } }));
+
+		const [computer] = await lister.list([linux]);
+		const status = Object.fromEntries(computer!.sessions.map((s) => [s.key, s.status]));
+
+		expect(status).toEqual({ "linux/a": "attention", "linux/b": "working", "linux/c": "attention" });
+	});
+
 	it("keeps the computers in the order given", async () => {
 		const result = await lister.list([windows, linux]);
 		expect(result.map((c) => c.hostId)).toEqual(["win", "linux"]);

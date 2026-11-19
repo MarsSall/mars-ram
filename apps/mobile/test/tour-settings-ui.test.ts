@@ -26,7 +26,7 @@ vi.mock("../src/ui/components", () => ({ Card: "Card", Screen: "Screen", Section
 vi.mock("../src/ui/tour/anchors", () => ({ TourAnchor: "TourAnchor" }));
 vi.mock("../src/ui/tour/scroll", () => ({ useTourScroll: () => ({ props: { onScroll: "remeasure" }, place: (id: string) => `place:${id}` }) }));
 vi.mock("../src/ui/preferences", () => ({
- usePreferences: () => ({ t: language.t, theme: { name: "verde-profundo", spacing: (n: number) => n * 4, touch: 48, radius: { medium: 8 }, colors: {} }, language: "es", retention: 7 }),
+ usePreferences: () => ({ t: language.t, theme: { name: "verde-profundo", spacing: (n: number) => n * 4, touch: 48, radius: { medium: 8 }, colors: {} }, gifts: [], language: "es", retention: 7 }),
 }));
 
 const { default: SettingsScreen } = await import("../src/app/(tabs)/settings");

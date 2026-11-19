@@ -21,8 +21,8 @@ const check = (schema: Parameters<typeof decodeResponse>[0], data: unknown) => d
 const name = "20261023-101500-a1b2c3-screenshot.png";
 
 describe("protocol version", () => {
-	it("is 1.7: attachments move to the host's private temp folder; requests and responses are unchanged", () => {
-		expect(PROTOCOL_VERSION).toBe("1.7");
+	it("reads attachments from the host's private temp folder since 1.7; requests and responses are unchanged", () => {
+		expect(PROTOCOL_VERSION).toBe("1.8");
 		expect(UPLOADS_IN_TEMP_MINOR).toBe(7);
 	});
 

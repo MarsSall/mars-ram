@@ -1,10 +1,20 @@
 // Shared design tokens, including the terminal palette.
+import type { GiftColors, GiftMascot, GiftThemeData } from "../core/gift-themes";
+
 export type ThemeName = "verde-profundo" | "oro-y-verde";
-export function resolveThemeName(value: unknown): ThemeName {
- return value === "oro-y-verde" || value === "verde-profundo" ? value : "verde-profundo";
+/** A built-in theme name, or the id of a gift theme unlocked on this phone. */
+export type ThemeId = ThemeName | (string & {});
+/** The saved theme when it is built in or unlocked here; anything else falls back to the default. */
+export function resolveThemeName(value: unknown, unlockedGiftIds: readonly string[] = []): ThemeId {
+ if (value === "oro-y-verde" || value === "verde-profundo") return value;
+ return typeof value === "string" && unlockedGiftIds.includes(value) ? value : "verde-profundo";
 }
 export type Theme = {
- name: ThemeName;
+ name: ThemeId;
+ /** Gift themes may replace the working spinner with their own frames. */
+ working?: { frames: readonly string[]; intervalMs: number };
+ /** Gift themes may draw a pixel-art mascot under the logo on the home welcome. */
+ mascot?: GiftMascot;
  colors: { fileModified: string; fileDeleted: string; fileUncommitted: string; fileLastCommit: string; background: string; surface: string; surfaceRaised: string; border: string; text: string; textMuted: string; accent: string; /** Accent for text, links and icons on dark surfaces (accent itself is a fill). */ accentText: string; /** Active tab label. */ tabActive: string; /** Active tab icon: darker than the label, still ≥ 3:1. */ tabActiveIcon: string; /** Translucent card fill so the glow shows through. */ card: string; onAccent: string; attention: string; working: string; done: string; danger: string; terminalBackground: string; terminalText: string };
  primaryFill: { backgroundImage?: string; shadowColor?: string };
  spacing: (steps: number) => number;
@@ -27,6 +37,16 @@ const oroYVerde = {
  // Burnished gold: light top, dark lower edge.
  primaryFill: { backgroundImage: "linear-gradient(180deg, #F2D88E 0%, #D9B45F 30%, #B38A33 62%, #A07A2C 100%)" },
 };
+// Gift colors must cover exactly the theme tokens.
+type SameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false;
+const giftColorsMatch: SameKeys<GiftColors, Theme["colors"]> = true;
+void giftColorsMatch;
+
+export function giftTheme(data: GiftThemeData): Theme {
+ return { ...shared, name: data.id, colors: { ...data.colors }, primaryFill: { ...data.primaryFill }, ...(data.working ? { working: { frames: [...data.working.frames], intervalMs: data.working.intervalMs } } : {}),
+  ...(data.mascot ? { mascot: { palette: { ...data.mascot.palette }, rows: [...data.mascot.rows], pixel: { ...data.mascot.pixel }, ...(data.mascot.caption !== undefined ? { caption: data.mascot.caption } : {}) } } : {}) };
+}
+
 export const themes: Record<ThemeName, Theme> = {
  "verde-profundo": { ...shared, ...verdeProfundo, name: "verde-profundo" },
  "oro-y-verde": { ...shared, ...oroYVerde, name: "oro-y-verde" },

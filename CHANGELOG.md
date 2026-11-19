@@ -2,6 +2,30 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.1.9
+
+Released together with Android build 13 of the app. Build 13 still works with mars-ram 0.1.6, 0.1.7 and 0.1.8 (`MINIMUM_HOST_VERSION` stays 0.1.6): the only app change that reads something new from the computer is the subagents counter on Inicio, and it uses an optional `subagents` field of the session state that older hosts simply do not send, so the counter does not show and everything else works as before. Host 0.1.9 also works with build 12, which ignores that field.
+
+Update in the computer's terminal (Linux, macOS or Windows), from 0.1.7:
+
+```text
+mars-ram update
+mars-ram doctor
+```
+
+From 0.1.8 on, `mars-ram update` runs `mars-ram doctor` itself; the second line does no harm. From 0.1.6 or older, in a normal (not administrator) terminal, one command per line:
+
+```text
+pnpm add -g mars-ram@0.1.9
+mars-ram install
+```
+
+The session bridge now speaks protocol **1.8**. Pi sessions that are already running keep working with build 13, but report their subagents only after `/reload` (or a restart of the session).
+
+### New
+
+- The session bridge reports the session's running Gentle Shell subagents (queued, running or waiting, and whether one is asking a question) in an optional `subagents` field of the session state, at most 8 per session. It reads them from Gentle Agents in the same Pi process over Pi's event bus; finished subagents drop out. Only with Gentle Shell: a plain Pi session leaves the field out and behaves exactly as before. App build 13 shows them on Inicio as a counter on each session that opens the list.
+
 ## mars-ram 0.1.8
 
 Released together with Android build 12 of the app. Build 12 still works with mars-ram 0.1.6 and 0.1.7 (`MINIMUM_HOST_VERSION` stays 0.1.6): the only app change that reads something new from the computer is the switcher line for Herdr saved machines, and it uses an optional `machines` field of `mars-ram herdr list` that older hosts simply do not send, so the line does not show and everything else works as before. Host 0.1.8 also works with build 11, which ignores that field.

@@ -7,6 +7,24 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 13,
+  version: "1.0.0",
+  es: {
+   new: [
+    "Un regalo para los primeros testers, que ayudaron a que la app exista: hay easter eggs escondidos. Si te pasaron un código, entrá a Ajustes, tocá varias veces seguidas la versión de la app y escribí el código. Lo que desbloquees lo podés compartir con quien quieras.",
+    "En Inicio, cada sesión muestra cuántos subagentes tiene trabajando; al tocar el contador ves cuáles son y si alguno te pregunta algo. Necesita mars-ram 0.1.9 en la computadora y Gentle Shell.",
+   ],
+   fixes: [],
+  },
+  en: {
+   new: [
+    "A gift for the first testers, who helped make the app happen: there are easter eggs hidden inside. If someone gave you a code, open Settings, tap the app version several times in a row and type the code. Whatever you unlock, you can share with anyone you like.",
+    "On Home, each session shows how many subagents it has working; tap the counter to see which ones they are and whether any of them is asking you something. It needs mars-ram 0.1.9 on the computer and Gentle Shell.",
+   ],
+   fixes: [],
+  },
+ },
+ {
   build: 12,
   version: "1.0.0",
   es: {

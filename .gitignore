@@ -8,3 +8,6 @@ ghidra-go-diagnostic-projects/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Plain hidden gift themes and their codes; only sealed entries are committed (scripts/seal-gift-theme.ts).
+.gifts/

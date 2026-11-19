@@ -1,15 +1,19 @@
 import { useRouter } from "expo-router";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { PrimaryButton, Screen } from "./components";
+import { GiftMascot } from "./gift-mascot";
 import { InstallSteps } from "./install-help";
 import { usePreferences } from "./preferences";
 
 /** Decorative mark: the adjacent heading supplies its accessible name. Screen owns the glow. */
 export function HomeHeading({ welcome = false }: { welcome?: boolean }) {
 	const { theme, t } = usePreferences();
+	const logoWidth = welcome ? 250 : 120;
 	return (
 		<View style={{ alignItems: "center", padding: theme.spacing(4), gap: theme.spacing(2) }}>
-			<Image source={require("../../assets/brand/carnero.png")} accessible={false} resizeMode="contain" style={{ width: welcome ? 250 : 120, height: welcome ? 198 : 95 }} />
+			{/* A gift mascot takes the stage: the ram shrinks to about two thirds above it. */}
+			<Image source={require("../../assets/brand/carnero.png")} accessible={false} resizeMode="contain" style={theme.mascot ? (welcome ? { width: 170, height: 135 } : { width: 82, height: 65 }) : { width: logoWidth, height: welcome ? 198 : 95 }} />
+			{theme.mascot ? <GiftMascot mascot={theme.mascot} width={logoWidth} captionColor={theme.colors.attention} /> : null}
 			<Text accessibilityRole="header" style={{ color: theme.colors.text, fontSize: 30, fontWeight: "700", textAlign: "center" }}>{welcome ? t.home.brand : t.home.title}</Text>
 			{welcome ? <Text style={{ color: theme.colors.textMuted, fontSize: 16, textAlign: "center" }}>{t.home.tagline}</Text> : null}
 		</View>

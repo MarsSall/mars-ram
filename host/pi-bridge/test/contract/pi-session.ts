@@ -28,15 +28,18 @@ export type PiSession = {
 	stop(): Promise<void>;
 };
 
-/** With `headless: false`, the RPC session runs like a background subagent: without PI_BRIDGE_HEADLESS. */
-export async function startPiSession(options: { headless?: boolean } = {}): Promise<PiSession> {
+/**
+ * With `headless: false`, the RPC session runs like a background subagent: without PI_BRIDGE_HEADLESS.
+ * `extensions` are loaded before the bridge, for example a stand-in for Gentle Agents.
+ */
+export async function startPiSession(options: { headless?: boolean; extensions?: string[] } = {}): Promise<PiSession> {
 	const headless = options.headless ?? true;
 	const root = mkdtempSync(join(tmpdir(), "bridge-contract-"));
 	const registry = join(root, "registry");
 	const uploads = join(root, "uploads");
 	// Model tests name their model explicitly: RPC mode may not resolve the interactive default.
 	const model = process.env.PI_TEST_MODEL ? ["--model", process.env.PI_TEST_MODEL, "--thinking", "low"] : [];
-	const [command, args, shell] = piCommand(["--mode", "rpc", "-ne", "-e", EXTENSION, "--no-session", ...model]);
+	const [command, args, shell] = piCommand(["--mode", "rpc", "-ne", ...(options.extensions ?? []).flatMap((path) => ["-e", path]), "-e", EXTENSION, "--no-session", ...model]);
 	const child = spawn(command, args, {
 		cwd: root,
 		// The disposable RPC session is not the parent's interactive pane. Never inherit its target.

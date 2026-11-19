@@ -16,8 +16,9 @@ import { registryDir, uploadsFolder } from "./config.ts";
 import { BridgeSession } from "./core/bridge-session.ts";
 import { summarize } from "./core/message-summary.ts";
 import { publishesSession } from "./core/publish-policy.ts";
-import type { PiSessionPort } from "./core/ports.ts";
+import type { EventBusPort, PiSessionPort } from "./core/ports.ts";
 import { RunOutcome } from "./core/run-outcome.ts";
+import { SubagentTracker } from "./core/subagents.ts";
 
 const EVENT_CAPACITY = 1000;
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
@@ -30,6 +31,13 @@ export default function bridge(pi: ExtensionAPI) {
 	let ctx: ExtensionContext | undefined;
 	let running: Running | undefined;
 	const outcome = new RunOutcome();
+	const subagents = new SubagentTracker(Date.now);
+	let disconnectSubagents = () => {};
+	const stopSubagents = () => {
+		disconnectSubagents();
+		disconnectSubagents = () => {};
+		subagents.reset();
+	};
 
 	const live = (): ExtensionContext => {
 		if (!ctx) throw new Error("The bridge has no active Pi session.");
@@ -71,6 +79,7 @@ export default function bridge(pi: ExtensionAPI) {
 			instanceId: randomUUID(),
 			capacity: EVENT_CAPACITY,
 			clock: Date.now,
+			subagents,
 			...(terminal ? { terminal } : {}),
 		});
 		const server = await startHttpServer({ session, token, maxBodyBytes: MAX_BODY_BYTES, heartbeatMs: HEARTBEAT_MS });
@@ -96,9 +105,17 @@ export default function bridge(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, c) => {
 		ctx = c;
-		await stop();
+		stopSubagents();
 		// Background subagents load this extension too; they are not sessions the user follows.
-		if (!publishesSession((c as { mode?: string }).mode, process.env)) return;
+		const publishes = publishesSession((c as { mode?: string }).mode, process.env);
+		// Listen before any await so a Gentle Agents snapshot sent during this session start is not missed.
+		if (publishes) {
+			let sessionId: string | undefined;
+			try { sessionId = c.sessionManager.getSessionId(); } catch { /* No id, no reading. */ }
+			if (sessionId) disconnectSubagents = subagents.connect((pi as { events?: EventBusPort }).events, sessionId);
+		}
+		await stop();
+		if (!publishes) return;
 		try {
 			await start(c);
 			running?.session.record({ type: "session_start", reason: event.reason });
@@ -106,7 +123,10 @@ export default function bridge(pi: ExtensionAPI) {
 			if (c.hasUI) c.ui.notify(`Mobile bridge could not start: ${(error as Error).message}`, "error");
 		}
 	});
-	pi.on("session_shutdown", async () => stop());
+	pi.on("session_shutdown", async () => {
+		stopSubagents();
+		await stop();
+	});
 
 	pi.on("agent_start", async (_e, c) => {
 		ctx = c;

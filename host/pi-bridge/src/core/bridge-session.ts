@@ -3,6 +3,7 @@
 import {
 	type AbortResponse,
 	ATTACHMENT_MAX_BYTES,
+	boundSubagents,
 	withAttachedFiles,
 	type BridgeEvent,
 	type BridgeEventInput,
@@ -23,7 +24,7 @@ import {
 	type TerminalScreenResponse,
 	type TerminalFocusResponse,
 } from "@workspace/protocol";
-import type { PiSessionPort, ResolvedUpload, TerminalPort, TerminalResult, UploadStorePort } from "./ports.ts";
+import type { PiSessionPort, ResolvedUpload, SubagentsPort, TerminalPort, TerminalResult, UploadStorePort } from "./ports.ts";
 
 const MAX_PROMPT_ARGS_BYTES = 16_384;
 const MEGABYTE = 1024 * 1024;
@@ -34,6 +35,8 @@ export type BridgeSessionOptions = {
 	pi: PiSessionPort;
 	terminal?: TerminalPort;
 	uploads?: UploadStorePort;
+	/** Since 1.8: the session's subagents; without a reading the state omits the field. */
+	subagents?: SubagentsPort;
 	instanceId: string;
 	/** How many events are kept for replay. */
 	capacity: number;
@@ -49,6 +52,7 @@ export class BridgeSession {
 	private readonly pi: PiSessionPort;
 	private readonly terminal: TerminalPort | undefined;
 	private readonly uploads: UploadStorePort | undefined;
+	private readonly subagents: SubagentsPort | undefined;
 	private readonly capacity: number;
 	private readonly clock: () => number;
 	private readonly log: BridgeEvent[] = [];
@@ -64,6 +68,7 @@ export class BridgeSession {
 		this.pi = options.pi;
 		this.terminal = options.terminal;
 		this.uploads = options.uploads;
+		this.subagents = options.subagents;
 		this.instanceId = options.instanceId;
 		this.capacity = options.capacity;
 		this.clock = options.clock;
@@ -139,6 +144,7 @@ export class BridgeSession {
 	}
 
 	state(): StateResponse {
+		const subagents = this.subagents?.read();
 		return {
 			...this.envelope(),
 			terminal: this.terminal !== undefined,
@@ -152,6 +158,7 @@ export class BridgeSession {
 			lastSeq: this.seq,
 			oldestSeq: this.log[0]?.seq ?? null,
 			lastActivityAt: this.lastActivityAt,
+			...(subagents === undefined ? {} : { subagents: boundSubagents(subagents) }),
 		};
 	}
 

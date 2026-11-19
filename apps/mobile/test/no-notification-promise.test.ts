@@ -7,7 +7,9 @@ describe("notification honesty", () => {
  it("adds the opt-in card without removing existing settings", () => {
   const source = readFileSync(join(import.meta.dirname, "../src/app/(tabs)/settings.tsx"), "utf8");
   expect(source).toContain("<NotificationSettingsCard />");
-  for (const existing of ["<DictationSettings />", "changeUnlock", "setRetention", "setTheme", "setLanguage"]) expect(source).toContain(existing);
+  for (const existing of ["<DictationSettings />", "changeUnlock", "setRetention", "setLanguage"]) expect(source).toContain(existing);
+  // The theme moved to Ajustes › Personalización (S16).
+  expect(readFileSync(join(import.meta.dirname, "../src/app/personalization.tsx"), "utf8")).toContain("setTheme");
  });
  it("both languages disclose force-stop, idle deadlines, Tailscale, battery and passive-listener limits", () => {
   expect(notificationCopy.es.limits).toMatch(/forzar la detención/);

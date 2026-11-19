@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type Vie
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SessionStatus } from "../core/session-list";
 import { usePreferences } from "./preferences";
+import { useFrameCycle } from "./use-reduced-motion";
 
 export function Screen({ title, children, footer, headerRight }: { title?: string; children: ReactNode; footer?: ReactNode; headerRight?: ReactNode }) {
 	const { theme } = usePreferences();
@@ -55,12 +56,16 @@ export function Card({ children, onPress, style }: { children: ReactNode; onPres
 	);
 }
 
+const noFrames: readonly string[] = [];
 export function StatusPill({ status }: { status: SessionStatus }) {
 	const { theme, t } = usePreferences();
 	const color = theme.colors[status];
+	// Themes with their own working frames animate them in place of the dot (first frame with reduced motion).
+	const working = status === "working" ? theme.working : undefined;
+	const frame = useFrameCycle(working?.frames ?? noFrames, working?.intervalMs ?? 1000, working !== undefined);
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" }}>
-			<View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+			{working ? <Text accessible={false} importantForAccessibility="no" style={{ color, fontSize: 13, lineHeight: 16, minWidth: 12, textAlign: "center" }}>{frame}</Text> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />}
 			<Text style={{ color, fontSize: 13, fontWeight: "600" }}>{t.status[status]}</Text>
 		</View>
 	);

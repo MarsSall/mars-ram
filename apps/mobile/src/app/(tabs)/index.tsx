@@ -16,6 +16,7 @@ import { useSessions } from "../../ui/use-sessions";
 import { ShortcutsSection } from "../../ui/shortcuts";
 import { HostUpdateNotice } from '../../ui/host-update-notice';
 import { AppUpdateNotice } from "../../ui/app-update-notice";
+import { sheetSession, SubagentsCounter, SubagentsSheet } from "../../ui/subagents";
 import { TourAnchor } from "../../ui/tour/anchors";
 import { useTourScroll } from "../../ui/tour/scroll";
 
@@ -28,6 +29,14 @@ export default function HomeScreen() {
 	const phone = usePhoneNetworkState(data);
 	const [ordered, setOrdered] = useState<SessionGroups>({ computers: [], needsYou: [], groupOrder: {} });
 	const nextOrder = useRef<SessionRefreshReason>("focus");
+	// The session whose subagents sheet is open; the sheet reads it from each refresh (S4).
+	const [subagentsKey, setSubagentsKey] = useState<string | null>(null);
+	const sheet = sheetSession([...ordered.needsYou, ...ordered.computers.flatMap((computer) => computer.sessions)], subagentsKey);
+	const sheetGone = subagentsKey !== null && sheet === null;
+	useEffect(() => {
+		// The session ended or its subagents finished while the sheet was open: close it, never show a stale list.
+		if (sheetGone) setSubagentsKey(null);
+	}, [sheetGone]);
 
 	useFocusEffect(useCallback(() => {
 		// Apply explicit ordering to the fresh focus result, not a stale cached snapshot.
@@ -83,6 +92,7 @@ export default function HomeScreen() {
 					{session.lastMessage}
 				</Text>
 			) : null}
+			{session.subagents ? <SubagentsCounter items={session.subagents} onOpen={() => setSubagentsKey(session.key)} /> : null}
 			{session.reloadNeeded ? <Text style={{ color: c.textMuted, fontSize: 13, marginTop: theme.spacing(2) }}>{t.hostUpdate.reload}</Text> : null}
 			{priority ? <Text style={{ color: c.textMuted, fontSize: 13, textTransform: "uppercase", marginTop: theme.spacing(2) }}>{nameOf(session.hostId)}</Text> : null}
 		</Card>
@@ -147,6 +157,7 @@ export default function HomeScreen() {
 					<Text style={{ color: c.textMuted, fontSize: 12, textAlign: "center", marginTop: theme.spacing(4) }}>{t.sessions.updated(formatTime(data.updatedAt))}</Text>
 				) : null}
 			</ScrollView>
+			<SubagentsSheet visible={sheet !== null} title={sheet?.project ?? ""} items={sheet?.subagents ?? []} onClose={() => setSubagentsKey(null)} now={Date.now()} />
 		</Screen>
 	);
 }

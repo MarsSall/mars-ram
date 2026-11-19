@@ -7,23 +7,34 @@ import { privacyUrl, SOURCE_URL } from "../../core/about";
 import type { AttachmentRetention } from "../../core/attachment-retention";
 import { useRouter } from "expo-router";
 import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { registerSecretTap, SECRET_TAP_GAP_MS, type SecretTaps } from "../../core/secret-taps";
+import { GiftCodeDialog } from "../../ui/gift-code-dialog";
 import { securityRow } from "../../ui/key-security";
 import { DictationSettings } from "../../ui/dictation-settings";
 import { NotificationSettingsCard } from "../../ui/notification-settings";
 import { SecretFilesSetting } from "../../ui/secret-files-setting";
-import { TerminalFontSettings } from "../../ui/terminal-font-settings";
-import { TerminalKeysEntry } from "../../ui/terminal-keys-entry";
 import { useKeySecurity } from "../../ui/use-key-security";
 import { TourAnchor } from "../../ui/tour/anchors";
 import { useTourScroll } from "../../ui/tour/scroll";
 import { Card, Screen, SectionTitle, Segmented } from "../../ui/components";
 import { type LanguageChoice, usePreferences } from "../../ui/preferences";
-import type { ThemeName } from "../../ui/theme";
 
 export default function SettingsScreen() {
 	const router = useRouter();
-	const { theme, setTheme, language, setLanguage, t, showEmpty, setShowEmpty, retention, setRetention } = usePreferences();
+	const { theme, language, setLanguage, t, showEmpty, setShowEmpty, retention, setRetention } = usePreferences();
 	const [preferenceError, setPreferenceError] = useState(false);
+	const [secretTaps, setSecretTaps] = useState<SecretTaps | null>(null);
+	const [tapsLeft, setTapsLeft] = useState<number | null>(null);
+	const [giftDialog, setGiftDialog] = useState(false);
+	const version = appBuild.version ?? Constants.expoConfig?.version ?? t.settings.unknownVersion;
+	// Hidden gesture: seven quick taps on the version open the gift code field.
+	const tapVersion = () => {
+		const result = registerSecretTap(secretTaps, Date.now());
+		setSecretTaps(result.state);
+		setTapsLeft(result.remaining);
+		if (result.open) setGiftDialog(true);
+		if (result.remaining !== null) { const shown = result.remaining; setTimeout(() => setTapsLeft(left => (left === shown ? null : left)), SECRET_TAP_GAP_MS); }
+	};
 	const security = useKeySecurity();
 	const tourScroll = useTourScroll();
 	const pending = security.status?.perComputer.some(computer => computer.phase !== "done") ?? false;
@@ -46,10 +57,7 @@ export default function SettingsScreen() {
 		<Screen title={t.settings.title}>
 			<ScrollView {...tourScroll.props} contentContainerStyle={{ paddingBottom: theme.spacing(8) }}>
 				<SectionTitle>{t.settings.appearance}</SectionTitle>
-				<Card>
-					{label(t.settings.theme)}
-					<Segmented<ThemeName> value={theme.name} onChange={setTheme} options={[{ value: "verde-profundo", label: t.settings.deepGreen }, { value: "oro-y-verde", label: t.settings.goldAndGreen }]} />
-				</Card>
+				<Card onPress={() => router.push("/personalization")}>{row(t.settings.personalization, "›")}</Card>
 				<Card>
 					{label(t.settings.language)}
 					<Segmented<LanguageChoice>
@@ -65,7 +73,6 @@ export default function SettingsScreen() {
 					<Text style={{ color: theme.colors.textMuted, marginTop: 8 }}>{t.attachments.location}</Text>
 					{preferenceError ? <Text accessibilityRole="alert" style={{ color: theme.colors.danger }}>{t.attachments.preferenceFailed}</Text> : null}
 				</Card>
-				<TerminalFontSettings><TerminalKeysEntry open={() => router.push("/terminal-keys")} /></TerminalFontSettings>
 				<SecretFilesSetting />
 				<DictationSettings />
 				<TourAnchor id="settings.notifications" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.notifications")}><NotificationSettingsCard /></TourAnchor>
@@ -92,7 +99,10 @@ export default function SettingsScreen() {
 				<AppUpdateNotice />
 				<TourAnchor id="settings.about" inset={{ horizontal: theme.spacing(2) }} onLayout={tourScroll.place("settings.about")}>
 				<Card>
-					{row(t.settings.version, appBuild.version ?? Constants.expoConfig?.version ?? t.settings.unknownVersion)}
+					<Pressable accessibilityLabel={`${t.settings.version} ${version}`} onPress={tapVersion} style={{ minHeight: theme.touch, justifyContent: "center" }}>
+						{row(t.settings.version, version)}
+						{tapsLeft !== null ? <Text accessibilityLiveRegion="polite" style={{ alignSelf: "flex-end", marginTop: theme.spacing(1), color: theme.colors.accentText, backgroundColor: theme.colors.surfaceRaised, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 999, paddingHorizontal: theme.spacing(2.5), paddingVertical: theme.spacing(1), fontSize: 12 }}>{t.gifts.tapsLeft(tapsLeft)}</Text> : null}
+					</Pressable>
 					{row(t.settings.build, appBuild.build === null ? t.settings.unknownVersion : String(appBuild.build))}
 					<Pressable accessibilityRole="button" onPress={() => router.push("/whats-new")} style={{ minHeight: 48, justifyContent: "center" }}>
 						<Text style={{ color: theme.colors.accentText, fontSize: 16 }}>{t.whatsNew.open}</Text>
@@ -108,6 +118,7 @@ export default function SettingsScreen() {
 					</Pressable>
 				</Card>
 				</TourAnchor>
+				<GiftCodeDialog visible={giftDialog} onClose={() => setGiftDialog(false)} />
 				{__DEV__ ? <>
 				<SectionTitle>{t.settings.prototype}</SectionTitle>
 				<Card>

@@ -4,7 +4,7 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const PROTOCOL_VERSION = "1.7";
+export const PROTOCOL_VERSION = "1.8";
 
 /** The one value that names the product; change it when the final name is chosen. */
 export const APP_ID = "mars-ram";
@@ -130,6 +130,76 @@ export type RunOutcome = Static<typeof RunOutcome>;
 export const LastOutcome = Type.Object({ outcome: RunOutcome, seq: Type.Integer({ minimum: 1 }) });
 export type LastOutcome = Static<typeof LastOutcome>;
 
+/** Since 1.8: the most subagents one session state lists, and the longest agent tag and label (in code points). */
+export const SUBAGENTS_MAX_ITEMS = 8;
+export const SUBAGENT_ID_MAX_LENGTH = 64;
+export const SUBAGENT_AGENT_MAX_LENGTH = 24;
+export const SUBAGENT_LABEL_MAX_LENGTH = 60;
+
+export const SubagentStatus = Type.Union([Type.Literal("queued"), Type.Literal("running"), Type.Literal("waiting")]);
+export type SubagentStatus = Static<typeof SubagentStatus>;
+
+/** Since 1.8: one subagent of the session; `since` is when the bridge first saw it (milliseconds since 1970). */
+export const SubagentItem = Type.Object({
+	id: Type.String({ minLength: 1, maxLength: SUBAGENT_ID_MAX_LENGTH }),
+	agent: Type.String({ minLength: 1, maxLength: SUBAGENT_AGENT_MAX_LENGTH }),
+	label: Type.String({ maxLength: SUBAGENT_LABEL_MAX_LENGTH }),
+	status: SubagentStatus,
+	question: Type.Boolean(),
+	since: Type.Integer({ minimum: 0 }),
+});
+export type SubagentItem = Static<typeof SubagentItem>;
+
+/** Since 1.8: `available: false` means the session has no subagent source (no Gentle Agents); then `items` is empty. */
+export const Subagents = Type.Object({
+	available: Type.Boolean(),
+	items: Type.Array(SubagentItem, { maxItems: SUBAGENTS_MAX_ITEMS }),
+});
+export type Subagents = Static<typeof Subagents>;
+
+const NO_SUBAGENTS: Subagents = { available: false, items: [] };
+
+const codePoints = (text: string, max: number) => Array.from(text).slice(0, max).join("");
+/** One line of text: whitespace runs (newlines included) become one space, ends trimmed. */
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/**
+ * The one rule that turns anything into a valid `Subagents` value, shared by the bridge (before it
+ * publishes) and the app (after it decodes the state). Never throws. Absent or malformed input, or
+ * `available` other than `true`, is `{ available: false, items: [] }`. Items without a valid id
+ * (1–64 characters), agent, known status, or `since` are dropped, as are repeated ids (first wins);
+ * agent and label become one line and are cut to 24 and 60 code points; `question` is true only when
+ * it is `true`. Items asking a question come first, then oldest `since`, then id; at most 8 are kept.
+ */
+export function boundSubagents(raw: unknown): Subagents {
+	if (!raw || typeof raw !== "object") return NO_SUBAGENTS;
+	const { available, items } = raw as { available?: unknown; items?: unknown };
+	if (available !== true) return NO_SUBAGENTS;
+	if (!Array.isArray(items)) return { available: true, items: [] };
+	const seen = new Set<string>();
+	const kept: SubagentItem[] = [];
+	for (const item of items) {
+		if (!item || typeof item !== "object") continue;
+		const { id, agent, label, status, question, since } = item as Record<string, unknown>;
+		if (typeof id !== "string" || id.length === 0 || Array.from(id).length > SUBAGENT_ID_MAX_LENGTH || seen.has(id)) continue;
+		if (status !== "queued" && status !== "running" && status !== "waiting") continue;
+		if (typeof since !== "number" || !Number.isFinite(since) || since < 0) continue;
+		const tag = typeof agent === "string" ? codePoints(oneLine(agent), SUBAGENT_AGENT_MAX_LENGTH) : "";
+		if (!tag) continue;
+		seen.add(id);
+		kept.push({
+			id,
+			agent: tag,
+			label: typeof label === "string" ? codePoints(oneLine(label), SUBAGENT_LABEL_MAX_LENGTH) : "",
+			status,
+			question: question === true,
+			since: Math.floor(since),
+		});
+	}
+	kept.sort((a, b) => Number(b.question) - Number(a.question) || a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	return { available: true, items: kept.slice(0, SUBAGENTS_MAX_ITEMS) };
+}
+
 export const ImageInput = Type.Object({ data: Type.String({ minLength: 1 }), mimeType: Type.String({ minLength: 1 }) });
 
 /**
@@ -188,6 +258,12 @@ export const StateResponse = Type.Object({
 	activity: Type.Optional(Activity),
 	/** Since 1.6: latest settle's known outcome and its instance-local event seq; absent if unknown. */
 	lastOutcome: Type.Optional(LastOutcome),
+	/**
+	 * Since 1.8: the session's subagents, shaped as `Subagents`. Deliberately not validated here, so a
+	 * malformed value never makes the whole state undecodable: read it only through `boundSubagents`,
+	 * which turns anything invalid into `{ available: false, items: [] }`. Absent on older bridges.
+	 */
+	subagents: Type.Optional(Type.Unknown()),
 });
 
 export const HistoryResponse = Type.Object({

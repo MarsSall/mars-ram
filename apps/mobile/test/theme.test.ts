@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveThemeName, themes } from "../src/ui/theme";
+import { giftTheme, resolveThemeName, themes } from "../src/ui/theme";
+import { parseGiftThemeData } from "../src/core/gift-themes";
 
 function contrast(a: string, b: string): number {
  const luminance = (hex: string) => {
@@ -16,6 +17,43 @@ describe("theme preferences", () => {
  });
  it.each(["verde-profundo", "oro-y-verde"])("round-trips %s", value => {
   expect(resolveThemeName(JSON.parse(JSON.stringify(value)))).toBe(value);
+  expect(resolveThemeName(value, ["sample-gift"])).toBe(value);
+ });
+ it("keeps a gift theme only while it is unlocked on this phone", () => {
+  expect(resolveThemeName("sample-gift", ["sample-gift"])).toBe("sample-gift");
+  expect(resolveThemeName("sample-gift", [])).toBe("verde-profundo");
+  expect(resolveThemeName("sample-gift")).toBe("verde-profundo");
+ });
+});
+
+describe("gift themes", () => {
+ it("builds a full theme from gift data, with the shared spacing and radius", () => {
+  const data = parseGiftThemeData({
+   id: "sample-gift", label: "Sample", greeting: { es: { title: "Hola", body: "Tuyo" }, en: { title: "Hi", body: "Yours" } },
+   colors: { ...themes["verde-profundo"].colors }, primaryFill: { shadowColor: "#126E46" }, working: { frames: ["◐", "◓"], intervalMs: 350 },
+  })!;
+  const theme = giftTheme(data);
+  expect(theme.name).toBe("sample-gift");
+  expect(theme.colors).toEqual(data.colors);
+  expect(theme.primaryFill).toEqual({ shadowColor: "#126E46" });
+  expect(theme.working).toEqual({ frames: ["◐", "◓"], intervalMs: 350 });
+  expect(theme.radius).toEqual(themes["verde-profundo"].radius);
+  expect(theme.spacing(3)).toBe(themes["verde-profundo"].spacing(3));
+ });
+ it("carries the gift's mascot, and only gifts have one", () => {
+  const mascot = { palette: { a: "#123456" }, rows: ["a.a"], pixel: { width: 2, height: 3 }, caption: "Sample" };
+  const data = parseGiftThemeData({
+   id: "sample-gift", label: "Sample", greeting: { es: { title: "Hola", body: "Tuyo" }, en: { title: "Hi", body: "Yours" } },
+   colors: { ...themes["verde-profundo"].colors }, primaryFill: {}, mascot,
+  })!;
+  expect(giftTheme(data).mascot).toEqual(mascot);
+  expect(giftTheme({ ...data, mascot: undefined })).not.toHaveProperty("mascot");
+  expect(themes["verde-profundo"].mascot).toBeUndefined();
+  expect(themes["oro-y-verde"].mascot).toBeUndefined();
+ });
+ it("keeps the built-in themes on their usual working indicator", () => {
+  expect(themes["verde-profundo"].working).toBeUndefined();
+  expect(themes["oro-y-verde"].working).toBeUndefined();
  });
 });
 

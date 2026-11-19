@@ -1,6 +1,6 @@
 // Use case: the live Pi sessions of every saved computer (PRD R2, R6).
 // Tunnels stay open between refreshes; a bridge that does not answer is never listed.
-import { PROTOCOL_VERSION, type RegistryEntry, type StateResponse } from "@workspace/protocol";
+import { boundSubagents, PROTOCOL_VERSION, type RegistryEntry, type StateResponse, type SubagentItem } from "@workspace/protocol";
 import { needsBridgeReload } from './host-update';
 import { bridgeClient, type BridgeEndpoint, type BridgeHttp } from "./bridge-client";
 import { discoverBridges, openBridge } from "./bridge-discovery";
@@ -27,6 +27,8 @@ export type SessionSummary = {
 	status: SessionStatus;
 	lastActivityAt: number;
 	lastMessage: string | null;
+	/** Since protocol 1.8: the session's subagents, bounded; absent when the bridge reports none or cannot know. */
+	subagents?: SubagentItem[];
 };
 
 export type ComputerState = "ok" | "no-pi" | "unreachable" | "locked" | "identity-changed";
@@ -56,6 +58,17 @@ const MAX_MESSAGE_CHARS = 300;
 export function statusOf(state: Pick<StateResponse, "idle" | "pendingPrompt">): SessionStatus {
 	if (state.pendingPrompt !== null) return "attention";
 	return state.idle ? "done" : "working";
+}
+
+/** The subagents to show: absent on older bridges, `available: false`, or an empty list (S3, S6). */
+export function subagentsOf(raw: unknown): SubagentItem[] | undefined {
+	const { items } = boundSubagents(raw);
+	return items.length > 0 ? items : undefined;
+}
+
+/** A subagent asking a question needs the user even while the parent works (S5). */
+export function summaryStatus(state: Pick<StateResponse, "idle" | "pendingPrompt">, subagents: SubagentItem[] | undefined): SessionStatus {
+	return subagents?.some((item) => item.question) ? "attention" : statusOf(state);
 }
 
 /** The last part of a folder path, for Linux and Windows paths alike. */
@@ -139,6 +152,7 @@ export class SessionLister {
 				tunnel.lastSeq = state.value.lastSeq;
 			}
 		}
+		const subagents = subagentsOf(state.value.subagents);
 		return {
 			key,
 			hostId,
@@ -149,9 +163,10 @@ export class SessionLister {
 			...(state.value.lastOutcome === undefined ? {} : { lastOutcome: state.value.lastOutcome }),
 			project: projectName(entry.cwd),
 			cwd: entry.cwd,
-			status: statusOf(state.value),
+			status: summaryStatus(state.value, subagents),
 			lastActivityAt: state.value.lastActivityAt ?? entry.startedAt,
 			lastMessage: tunnel.lastMessage,
+			...(subagents ? { subagents } : {}),
 		};
 	}
 

@@ -1,6 +1,6 @@
 // Ports the bridge core needs. Adapters implement them; the core never
 // imports Pi, Node networking, or the file system.
-import type { HistoryResponse, ImageInput, StateResponse } from "@workspace/protocol";
+import type { HistoryResponse, ImageInput, StateResponse, Subagents } from "@workspace/protocol";
 
 export type TerminalResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -26,6 +26,20 @@ export interface UploadStorePort {
 	/** The upload with this name, or null when it is missing, not a regular file, or resolves outside the folder. */
 	resolve(name: string): Promise<ResolvedUpload | null>;
 	readBase64(path: string): Promise<string>;
+}
+
+/** Pi's in-process event bus, shared by every extension of the session. */
+export interface EventBusPort {
+	emit(channel: string, data: unknown): void;
+	on(channel: string, handler: (data: unknown) => void): () => void;
+}
+
+/** A reading of the session's subagents, before the protocol bounds are applied. */
+export type SubagentsReading = Subagents;
+
+/** The session's subagents; undefined while there is no reading at all. */
+export interface SubagentsPort {
+	read(): SubagentsReading | undefined;
 }
 
 /** The live Pi session the bridge is loaded into. */

@@ -17,7 +17,7 @@ Every request needs `Authorization: Bearer <token>`. Every response carries `pro
 
 | Request | Does |
 |---------|------|
-| `GET /state` | Idle or working, queued messages, pending dialog, model, event numbers, time of the last event, `terminal` availability |
+| `GET /state` | Idle or working, queued messages, pending dialog, model, event numbers, time of the last event, `terminal` availability; since protocol 1.8 optional `subagents` (`{ available, items }`, at most 8, built with `boundSubagents` from `@workspace/protocol`) |
 | `GET /terminal` | Visible ANSI screen of this session's own Herdr pane (200); 404 outside Herdr |
 | `POST /terminal/input` | `{ "kind": "text", "text": "…", "enter": true, "attachments"?: ["<upload name>"] }` or `{ "kind": "keys", "keys": ["esc", "ctrl+c", "up"] }`; 202 after delivery to Herdr, 404 outside Herdr |
 | `POST /terminal/focus` | No body or target; focuses this session's inherited Herdr workspace and tab (200, `status: "focused"`); 404 outside Herdr. Since protocol 1.3 |
@@ -31,6 +31,8 @@ Since terminal first, the app opens Herdr itself over SSH and no longer uses `GE
 The terminal adapter is enabled only with a valid inherited `HERDR_PANE_ID`. It uses `HERDR_BIN_PATH` (default `herdr`) and inherits `HERDR_SOCKET_PATH`; execution uses bounded `execFile` calls without a shell on Linux and native Windows. Requests cannot select another pane, command, or file. Focus reads `herdr pane get <inherited pane>` for `result.pane.tab_id`, validates the scoped pane/workspace/tab IDs and that the tab belongs to the same workspace, then runs `herdr workspace focus <workspace>` followed by `herdr tab focus <tab>`. It never accepts a target from the request. Herdr shares focus between clients: opening a session on the phone also moves the PC's view (the user's S11 choice). Malformed metadata or a failed command stops the sequence and returns a generic error without subprocess details. Text is passed literally to Herdr as one argument (Herdr types leading dashes such as `--help` as text). With `enter: true` it goes through one `herdr pane run`, which sends the text as one bracketed paste when the program enabled it, then Enter; without it, `herdr pane send-text` types it raw, so a newline acts as Enter. A failure can still mean some input reached the pane; do not blindly retry.
 
 Attachments (since protocol 1.2) are files the app copied into the host's attachments folder. Since protocol 1.7 that is the private temp folder `mars-ram uploads-dir --json` names: `/tmp/mars-ram-<uid>/uploads` on Linux and macOS, `%TEMP%\mars-ram\uploads` on Windows. The bridge uses the same path policy (`@workspace/protocol/uploads-folder`) and re-checks it before every lookup without creating or repairing anything: both folders must be real folders, owned by the user and closed to group and others (on Windows, not a junction or link); otherwise every attachment resolves to nothing. `~/.mars-ram/uploads`, used by apps before 1.7, is never read: an older app's attachment fails with the usual "not on the computer" refusal. `PI_BRIDGE_UPLOADS_DIR` overrides the folder in tests and skips the policy check. They are named, never given as paths: up to 10 names of letters, digits, `.`, `_`, and `-`, never `.part` or a Windows device name. The bridge resolves a name inside that folder only and refuses links, hard links, a linked folder, folders, and files over 25 MB; it reads through the handle it checked. Images (PNG, JPEG, GIF, WebP) are attached natively when the model accepts images and Pi's `images.blockImages` is off, up to 50 MB of images per message. Every file's absolute path is appended to the text after "Attached files:", in the chat and in the terminal. A missing or refused upload fails the whole request and names only the upload.
+
+Subagents (since protocol 1.8) come from Gentle Agents in the same Pi process, over Pi's event bus. On session start the bridge listens on `gentle-pi:herdr-desktop:tasks` and asks once on `gentle-pi:herdr-desktop:tasks-request` with `{ sessionId }`; Gentle Agents answers and announces every later change with `{ sessionId, tasks: [{ id, agent, label, status, pendingQuery }] }`. Snapshots of another session or of an unexpected shape are ignored. `queued`, `running`, and `waiting` tasks are listed, with `question` from `pendingQuery`; finished ones (`completed`, `failed`, `cancelled`, `timed_out`) drop out. The snapshot has no start time, so `since` is when this bridge first saw the task. After the first valid snapshot `state.subagents` is `{ available: true, items }`; while nothing has answered (plain Pi, no Gentle Agents) the field is left out. Session replacement starts over and shutdown stops listening. Background sessions that are not published do not listen.
 
 ## Known limits
 
@@ -62,7 +64,7 @@ Only interactive terminal sessions are published. Pi sessions in `rpc`, `json` o
 
 | Path | Layer |
 |------|-------|
-| `src/core/` | Event log, pending dialogs, and operations against the `PiSessionPort` |
+| `src/core/` | Event log, pending dialogs, subagents tracker, and operations against the `PiSessionPort` |
 | `src/adapters/` | HTTP and SSE server, token, registry, and file permissions per platform |
 | `src/extension.ts` | Pi adapter: maps Pi events to the core and implements the port |
 | `test/unit/` | Core and adapters with fakes |

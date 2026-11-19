@@ -192,7 +192,6 @@ describe("bundled changelog", () => {
  it("build 12 names the link confirmation, Herdr's other machines, mars-ram 0.1.8 and the network choice, in plain words", () => {
   const note = RELEASE_NOTES.find(n => n.build === 12)!;
   expect(note).toBeDefined();
-  expect(RELEASE_NOTES[0]).toBe(note);
   for (const side of [note.es, note.en]) {
    const text = [...side.new, ...side.fixes].join("\n");
    for (const word of ["Herdr", "mars-ram 0.1.8", "mars-ram update", "mars-ram doctor", "mars-ram pair", "Windows", "Tailscale", "ZeroTier"]) expect(text).toContain(word);
@@ -206,5 +205,29 @@ describe("bundled changelog", () => {
   expect(note.es.new.join("\n")).toContain("«Este Herdr también muestra: …»");
   expect(note.en.new.join("\n")).toContain("«Open the terminal?»");
   expect(note.en.new.join("\n")).toContain("«This Herdr also shows: …»");
+ });
+
+ it("build 13 tells the first testers about the easter eggs and how to open them, without naming anyone or mentioning themes", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 13)!;
+  expect(note).toBeDefined();
+  expect(RELEASE_NOTES[0]).toBe(note);
+  const es = [...note.es.new, ...note.es.fixes].join("\n");
+  const en = [...note.en.new, ...note.en.fixes].join("\n");
+  for (const word of ["primeros testers", "easter eggs", "Ajustes", "tocá varias veces", "versión", "código"]) expect(es).toContain(word);
+  for (const word of ["first testers", "easter eggs", "Settings", "tap", "version", "code"]) expect(en).toContain(word);
+  // The surprise stays a surprise: no names and no word about themes.
+  for (const text of [es, en]) expect(text).not.toMatch(/cinlo|j0k3r|batmad|bojack|neko|tema|theme|SSH|JSON|versionCode/i);
+  expect(note.es.new).toHaveLength(note.en.new.length);
+ });
+
+ it("build 13 says Home shows each session's running subagents, needing mars-ram 0.1.9 and Gentle Shell", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 13)!;
+  const es = [...note.es.new, ...note.es.fixes].join("\n");
+  const en = [...note.en.new, ...note.en.fixes].join("\n");
+  for (const word of ["Inicio", "subagentes", "mars-ram 0.1.9", "Gentle Shell"]) expect(es).toContain(word);
+  for (const word of ["Home", "subagents", "mars-ram 0.1.9", "Gentle Shell"]) expect(en).toContain(word);
+  for (const text of [es, en]) expect(text).not.toMatch(/cinlo|j0k3r|batmad|bojack|neko|tema|theme|SSH|JSON|versionCode/i);
+  expect(note.es.new).toHaveLength(2);
+  expect(note.es.new).toHaveLength(note.en.new.length);
  });
 });

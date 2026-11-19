@@ -79,9 +79,9 @@ describe("terminal screen reads the saved layout live", () => {
  });
 });
 
-describe("Ajustes › Terminal › «Personalizar teclas»", () => {
+describe("Ajustes › Personalización › Terminal › «Personalizar teclas»", () => {
  it("opens the editor route from the terminal card, and only «Guardar» persists", () => {
-  expect(read("../../src/app/(tabs)/settings.tsx")).toContain("<TerminalFontSettings><TerminalKeysEntry open={() => router.push(\"/terminal-keys\")} /></TerminalFontSettings>");
+  expect(read("../../src/app/personalization.tsx")).toContain("<TerminalFontSettings><TerminalKeysEntry open={() => router.push(\"/terminal-keys\")} /></TerminalFontSettings>");
   expect(read("../../src/app/terminal-keys.tsx")).toContain("<TerminalKeysEditor close={() => router.back()} />");
   const editor = read("../../src/ui/terminal-keys-editor.tsx");
   expect(editor.match(/terminalKeys\.set\(/g)).toHaveLength(1);
