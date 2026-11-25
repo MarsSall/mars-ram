@@ -16,6 +16,12 @@ describe.skipIf(process.platform === 'win32')('program lookup', () => {
   expect(await findPrograms(join(dir, 'bin'))).toEqual({ pi, opencode: join(dir, 'bin', 'opencode') });
  });
 
+ it('finds Claude Code by its claude executable and records it as claude-code', async () => {
+  const claude = await tool('claude'); await tool('claude-code');
+  expect(await findPrograms(join(dir, 'bin'))).toEqual({ 'claude-code': claude });
+  expect(await installedProgram('claude-code', {}, join(dir, 'bin'))).toBe(true);
+ });
+
  it('finds a program through its recorded path when the SSH PATH lacks it', async () => {
   const pi = await tool('pi');
   expect(await installedProgram('pi', { pi }, '/usr/bin:/bin')).toBe(true);

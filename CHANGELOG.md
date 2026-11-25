@@ -2,6 +2,35 @@
 
 Releases of the computer side, the `mars-ram` npm package and GitHub release archive. What changed in the phone app is in its «Novedades» screen (`apps/mobile/src/core/release-notes.ts`).
 
+## mars-ram 0.2.0
+
+Released together with Android build 15 of the app. Build 15 still works with mars-ram 0.1.6 through 0.1.10 (`MINIMUM_HOST_VERSION` stays 0.1.6): its Claude Code and Codex sessions need 0.2.0, but an older host simply lists none of them, and the key bar and terminal fixes need nothing from the computer. Host 0.2.0 also works with build 14 and older builds, which do not show Claude Code or Codex sessions.
+
+Update in the computer's terminal (Linux, macOS or Windows), from 0.1.7:
+
+```text
+mars-ram update
+mars-ram doctor
+```
+
+From 0.1.8 on, `mars-ram update` runs `mars-ram doctor` itself; the second line does no harm. From 0.1.6 or older, in a normal (not administrator) terminal, one command per line:
+
+```text
+pnpm add -g mars-ram@0.2.0
+mars-ram install
+```
+
+The bridges now speak protocol **1.9** (agent kind, capabilities and approvals). Pi sessions that are already running keep working and need no `/reload`: nothing changes for Pi.
+
+### New
+
+- **Claude Code and Codex live sessions (experimental).** `mars-ram install` asks before adding its hooks to `~/.claude/settings.json` and `$CODEX_HOME/hooks.json` (`~/.codex/hooks.json`): it keeps your other settings and hooks, saves a backup first, refuses a file it cannot read safely without changing it, and `mars-ram uninstall` removes only its own entries. Codex runs them only after you trust them once: open Codex and type `/hooks`. Each `claude` or `codex` session then gets its own bridge on the computer: the phone shows the conversation (from Claude Code's transcript or Codex's rollout), and in a Herdr pane it can also send messages and stop the run with Escape.
+- **Approvals with buttons.** When Claude Code or Codex would ask for permission, the phone shows the exact request and answers allow or deny through the agent's own `PermissionRequest` hook. With no answer in time (300 s by default, `approvalTimeoutSeconds` 10–540), the agent asks in its own terminal as usual. Outside Herdr a session can still be approved from the phone, but not written to.
+- **Why the chat is experimental.** Like other phone clients of these agents, the chat types into the agent's terminal. Before typing a message and again before its Enter, the bridge reads the pane and sends nothing while a permission or selection dialog is on screen, or when it cannot read it; it also holds messages back while an approval the phone did not answer may be open in the terminal. A dialog that opens in the instant between that read and the keystroke, or a rendering the check does not recognize, is not caught. When an agent is asking in its terminal, answer there.
+- Shortcuts can launch `--program claude-code` or `--program codex`, and `mars-ram doctor` checks their hooks.
+- On Windows, `mars-ram doctor` now checks that the folders holding tokens, hook records, private links and notification state are private, file by file, and no longer reports a problem when another account can only read the rest of `~/.mars-ram`. Codex's Windows sandbox adds such a read-only entry for `CodexSandboxUsers` every time it starts; doctor shows it as a warning that names the account.
+- Live Codex sessions on Windows were checked for hooks installation and trust, but a phone session with a real Codex on Windows was not verified yet.
+
 ## mars-ram 0.1.10
 
 Released together with Android build 14 of the app. Build 14 still works with mars-ram 0.1.6 through 0.1.9 (`MINIMUM_HOST_VERSION` stays 0.1.6): its changes (agents first in the terminal switcher, workspace cards, the Home subagents mode and its preview, the reorganized Settings) read nothing new from the computer, so nothing about the host is required for them. Host 0.1.10 also works with build 13 and older builds, which see no difference.

@@ -9,6 +9,8 @@ describe("parseArguments", () => {
 		[["uploads-dir", "--json"], { ok: true, command: "uploads-dir" }],
 		[["doctor"], { ok: true, command: "doctor" }],
 		[["update"], { ok: true, command: "update" }],
+		[["hook", "claude", "Stop"], { ok: true, command: "hook", args: ["claude", "Stop"] }],
+		[["bridge", "claude", "e30"], { ok: true, command: "bridge", args: ["claude", "e30"] }],
 		[["version", "--json"], { ok: true, command: "version", json: true }],
 		[["pair", "--ssh-port", "2222"], { ok: true, command: "pair", sshPort: 2222 }],
 		[["pair-zt"], { ok: true, command: "pair", sshPort: 22, network: "zerotier" }],

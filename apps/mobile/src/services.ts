@@ -1,6 +1,7 @@
 // Wires the use cases to their adapters. Screens import from here, never from adapters directly.
 import Ssh from "../modules/ssh/src/SshModule";
 import * as Clipboard from "expo-clipboard";
+import { sessionCapabilities } from "@workspace/protocol";
 import { fetchBridgeHttp } from "./adapters/bridge-http";
 import { fileHostCatalog } from "./adapters/file-host-catalog";
 import { fileLinkHistory } from "./adapters/file-link-history";
@@ -28,6 +29,7 @@ import { confirmManualHost, discoverIdentity, type ManualHostDeps, type ManualHo
 import { pairWithComputer, type PairingDeps } from "./core/pairing";
 import { checkReachability } from "./core/reachability";
 import { SessionLister } from "./core/session-list";
+import { openSessionTarget, type OpenTarget } from "./core/session-open";
 import { bridgeClient } from "./core/bridge-client";
 import type { AttachmentUploads } from "./core/attachment-uploads";
 import { AttachmentHistory } from "./core/attachment-history";
@@ -57,6 +59,9 @@ import { fileTerminalFont } from "./adapters/file-terminal-font";
 import { TerminalFontPreference } from "./core/terminal-font";
 import { fileTerminalKeys } from "./adapters/file-terminal-keys";
 import { TerminalKeysPreference } from "./core/terminal-keys";
+import { fileKeyBarMode } from "./adapters/file-key-bar-mode";
+import { KeyBarModePreference } from "./core/key-bar-visibility";
+import { nativeSystemGestureInsets } from "./adapters/native-system-gesture-insets";
 import { fileSecretFiles } from "./adapters/file-secret-files";
 import { SecretFilesPreference } from "./core/secret-files";
 
@@ -72,6 +77,10 @@ export const attachmentPreference = {
 export const terminalFont = new TerminalFontPreference(fileTerminalFont);
 /** The one global bar + D-pad layout and custom buttons; read before any terminal opens, updates live. */
 export const terminalKeys = new TerminalKeysPreference(fileTerminalKeys);
+/** How the terminal key bar shows (Personalizar teclas): always, auto-hide or one tap; read before any terminal opens. */
+export const keyBarMode = new KeyBarModePreference(fileKeyBarMode);
+/** Android's bottom gesture zone (dp); the hidden key bar sits above it. null when unavailable. */
+export const systemGestureInsets = nativeSystemGestureInsets;
 /** Project browser: hide .env files, private keys and credential files until «Mostrar» (default on). */
 export const secretFiles = new SecretFilesPreference(fileSecretFiles);
 
@@ -265,18 +274,17 @@ function sessionUploads(key: string): AttachmentUploads {
 let lastListing: TourListing | null = null;
 
 export const sessions = {
-	/** null is unknown/unreachable, not evidence that a session is outside Herdr. */
-	terminalCapability: async (key: string): Promise<boolean | null> => {
-		const endpoint = await sessionEndpoint(key, false);
-		if (typeof endpoint === "string") return null;
-		const state = await bridgeClient.state(fetchBridgeHttp, endpoint);
-		return state.ok ? state.value.terminal === true : null;
-	},
+	/** Where a tapped session opens, with fresh ids when the card's bridge restarted; null is unknown/unreachable. */
+	openTarget: (key: string): Promise<OpenTarget | null> => openSessionTarget(key, {
+		endpoint: sessionEndpoint,
+		state: (endpoint) => bridgeClient.state(fetchBridgeHttp, endpoint),
+		successor: (stale) => lister.successor(stale),
+	}),
 	terminalAvailable: async (key: string): Promise<boolean> => {
 		const endpoint = await sessionEndpoint(key, false);
 		if (typeof endpoint === "string") return false;
 		const state = await bridgeClient.state(fetchBridgeHttp, endpoint);
-		return state.ok && state.value.terminal === true;
+		return state.ok && state.value.terminal === true && sessionCapabilities(state.value).capabilities.terminal;
 	},
 	list: async () => {
 		const hosts = await catalog.list();

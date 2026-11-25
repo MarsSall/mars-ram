@@ -6,16 +6,18 @@ import { initialWindowMetrics, useSafeAreaInsets } from "react-native-safe-area-
 import { terminalHtml } from "../../../../assets/terminal/page";
 import type { HerdrState, HerdrTerminal } from "../../../core/herdr-terminal";
 import { applyTerminalCtrl, tapTerminalCtrl, decodeWebMessage, encodeTerminalMessage, terminalChromeInsets, type TerminalCtrlState, type TerminalMessage } from "../../../core/terminal-controls";
-import { proxyKeyBytes, proxyTextBytes, terminalKeyboard } from "../../../core/terminal-keyboard";
+import { proxyInput, terminalKeyboard } from "../../../core/terminal-keyboard";
 import { CUSTOM_HOLD_MS, catalogKeyBytes, terminalKeyInfo, type KeyId } from "../../../core/terminal-keys";
 import { addAttachment, type Attachment } from "../../../core/attachment-draft";
 import type { AttachmentSource } from "../../../core/media-source";
-import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, sessions, terminalFont, terminalKeys } from "../../../services";
+import { catalog, chooseAttachments, clipboard, createHerdrTerminal, herdrSwitcher, keyBarMode, sessions, terminalFont, terminalKeys } from "../../../services";
 import { AttachmentButton } from "../../../ui/attachment-composer";
 import { attachmentError } from "../../../ui/attachment-messages";
 import { FloatingTerminalPad } from "../../../ui/floating-terminal-pad";
 import { FloatingSessionChat } from "../../../ui/floating-session-chat";
 import { ChatHandle } from "../../../ui/chat-handle";
+import { KeyBarDock, KeyBarHandles, KeyBarHoverEdge, useKeyBarVisibility } from "../../../ui/key-bar-dock";
+import { keyBarHandleSlot } from "../../../core/key-bar-visibility";
 import { usePreferences } from "../../../ui/preferences";
 import { customAccessibleName, customButtonOf, customInput, keyName, terminalBarItems } from "../../../ui/terminal-key-view";
 import { herdrKeyBytes, parseHerdrKeys, type HerdrKeys } from "../../../core/herdr-keys";
@@ -25,6 +27,7 @@ import { usePaneChat } from "../../../ui/use-pane-chat";
 import { useShellBlurClose } from "../../../ui/use-shell-blur-close";
 import { terminalScreenPlan } from "../../../core/terminal-screen-plan";
 import { useLiveSession } from "../../../ui/use-live-session";
+import { ApprovalList } from "../../../ui/approvals";
 import { terminalActivityStatus } from "../../../ui/terminal-status";
 import { TerminalActivity } from "../../../ui/terminal-activity";
 import { HerdrSwitcherDrawer } from "../../../ui/herdr-switcher";
@@ -32,7 +35,7 @@ import { ServerViewer, type ServerSelection } from "../../../ui/server-viewer";
 import { ProjectSheet, type SheetMode } from "../../../ui/project-sheet";
 import { TourAnchor } from "../../../ui/tour/anchors";
 import { useFirstVisitTip } from "../../../ui/tour/tips";
-import { terminalTips } from "../../../ui/tour/tip-gate";
+import { approvalTip, keyBarTabTip, terminalTips } from "../../../ui/tour/tip-gate";
 import { terminalDictation } from "../../../core/dictation";
 import { DictationMic, DictationModelSheet, DictationStatus, dictationVisible, useDictation } from "../../../ui/dictation";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -75,6 +78,10 @@ export default function TerminalScreen() {
  // One saved bar + D-pad layout for every computer; «Guardar» in Settings reaches an open terminal live.
  const [keys, setKeys] = useState(terminalKeys.get);
  useEffect(() => { setKeys(terminalKeys.get()); return terminalKeys.subscribe(setKeys); }, []);
+ // How the bar shows (Personalizar teclas): always, auto-hide or one tap; changes reach an open terminal live.
+ const [barSettings, setBarSettings] = useState(keyBarMode.get);
+ useEffect(() => { setBarSettings(keyBarMode.get()); return keyBarMode.subscribe(setBarSettings); }, []);
+ const barMode = barSettings.mode;
  const [bounds, setBounds] = useState({ width: 0, height: 0 });
  const [ctrlState, setCtrlState] = useState<TerminalCtrlState>({ mode: "off", tappedAt: null }); const ctrl = useRef(ctrlState);
  const [computerName, setComputerName] = useState(params.computer ?? s.title);
@@ -89,9 +96,14 @@ export default function TerminalScreen() {
  const [project, setProject] = useState<SheetMode | null>(null);
  // Dictation types at the prompt as one bracketed paste, never Enter (voice-dictation 04).
  const dictating = useDictation(text => { void write(terminalDictation(text)); });
+ // An open D-pad or a recording mic keep a hidden-mode bar up (key-bar-autohide S2).
+ const barVisibility = useKeyBarVisibility(barMode, { pad: padOpen, mic: dictating.state.phase !== "idle" });
  const switcherActive = useRef(false);
  // Hidden native input: the key bar's keyboard button opens the Android keyboard on it and its typing goes to the terminal (terminal-keyboard-first-press).
  const proxy = useRef<TextInputInstance>(null); const [proxyActive, setProxyActive] = useState(false);
+ // Each edit of the hidden input is sent once; it is recreated empty on blur (keyboard-paste-repeat).
+ const [proxyGeneration, setProxyGeneration] = useState(0); const sendTyped = useRef<(bytes: Uint8Array) => void>(() => {});
+ const [typed] = useState(() => proxyInput({ send: bytes => sendTyped.current(bytes) }));
  const [kbd] = useState(() => terminalKeyboard({
   proxyFocused: () => proxy.current?.isFocused() ?? false,
   keyboardVisible: () => Keyboard.isVisible(),
@@ -140,6 +152,8 @@ export default function TerminalScreen() {
  useFirstVisitTip("terminal", tips.terminal);
  useFirstVisitTip("chatFloating", tips.chatFloating);
  useFirstVisitTip("projectSheet", tips.projectSheet);
+ // The approval cards sit above the floating chat too, so only the overlays that cover them hold this tip.
+ useFirstVisitTip("approval", approvalTip({ focused: screenFocused, overlay: switcherOpen || project !== null || serverSelection !== null || dictating.needsModel, pending: sessionKey ? live.view?.conversation?.approvals.length ?? 0 : 0, canAnswer: live.view?.conversation?.capabilities.approvals ?? false }));
  useEffect(() => {
   if (!terminal || state.status !== "open") { setKeysReady(false); return; }
   let alive = true;
@@ -228,6 +242,7 @@ export default function TerminalScreen() {
   return result.ok;
  }
  function input(bytes: Uint8Array) { const next = applyTerminalCtrl(ctrl.current, bytes); updateCtrl(next.state); void write(next.bytes); }
+ sendTyped.current = input;
  // Catalog keys go through Ctrl like typed input, in the page's cursor mode; agent keys use this computer's Herdr binding.
  // A custom button with «Ignorar Ctrl» sends its text as written and leaves Ctrl for the next key.
  function act(id: KeyId, gesture: "tap" | "hold") {
@@ -287,6 +302,15 @@ export default function TerminalScreen() {
  const activityStatus = terminalActivityStatus(Boolean(sessionKey) && open && !pageFailed, live.view, s.activity);
 
  const chrome = terminalChromeInsets(stableInsets, keyboard);
+ // The hidden modes' tab and 💬 never cover the terminal (key-bar-autohide S8): in the empty bottom band
+ // (the safe-area padding, where Android draws its home line) when they fit, else in a thin row the terminal
+ // gives up; with the keyboard open there is no band, so the row sits above it.
+ const handleSlot = keyBarHandleSlot(barMode, barSettings.handleSize, chrome.bottom);
+ // The tab exists only in the hidden modes with a slot; its tip waits like the terminal's own.
+ useFirstVisitTip("keyBarTab", keyBarTabTip(tips.terminal, barMode, handleSlot !== null));
+ // 💬 on the bar's top edge in «Siempre visible», centred in the handles' band or row in the hidden modes (S6).
+ const chatHandle = sessionKey && !chatOpen ? <TourAnchor id="terminal.chatHandle"><ChatHandle state="closed" fit={handleSlot ? { size: barSettings.handleSize, height: handleSlot.height } : undefined} change={next => { if (next === "full") fullChat(); else if (next === "floating") { blurTerminal(); setChatOpen(true); } }} /></TourAnchor> : null;
+ const barHandles = <KeyBarHandles mode={barMode} shown={barVisibility.state.shown} dispatch={barVisibility.dispatch} slot={handleSlot} size={barSettings.handleSize} chat={chatHandle} />;
  return <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.terminalBackground }}>
  <View style={{ flex: 1, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: chrome.bottom }}>
  <ServerViewer topInset={stableInsets.top} selection={serverSelection} close={() => setServerSelection(null)}>
@@ -325,7 +349,7 @@ export default function TerminalScreen() {
     onMessage={event => {
      const message = decodeWebMessage(event.nativeEvent.data); if (!message) return;
      if (message.type === "ready") { setReady(true); setPageFailed(false); mode.current = false; kbd.pageReady(true); }
-     else if (message.type === "tap") kbd.terminalTapped();
+     else if (message.type === "tap") { kbd.terminalTapped(); barVisibility.dispatch({ type: "terminal-tap" }); }
      else if (message.type === "input" && !switcherActive.current) input(message.bytes);
      else if (message.type === "size") terminal?.resize(message.cols, message.rows);
      else if (message.type === "cursorMode") mode.current = message.enabled;
@@ -343,7 +367,8 @@ export default function TerminalScreen() {
    {prefixNotice ? <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, padding: 10, borderRadius: 10, backgroundColor: c.surface }}><Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{s.prefixSent}</Text></View> : null}
    {holdHint ? <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, padding: 10, borderRadius: 10, backgroundColor: c.surface }}><Text accessibilityLiveRegion="polite" style={{ color: c.attention }}>{s.holdToSend}</Text></View> : null}
   </View>
-  {chatOpen && sessionKey ? <FloatingSessionChat key={sessionKey} sessionKey={sessionKey} live={live} expand={fullChat} close={() => { setChatOpen(false); Keyboard.dismiss(); }} /> : null}
+  {sessionKey && live.view?.conversation?.approvals.length ? <ApprovalList anchor={screenFocused} approvals={live.view.conversation.approvals} canAnswer={live.view.conversation.capabilities.approvals} answer={live.answer} /> : null}
+  {chatOpen && sessionKey ? <FloatingSessionChat key={sessionKey} sessionKey={sessionKey} live={live} {...(chatSession?.key === sessionKey ? { agent: chatSession.agent ?? "pi", project: chatSession.project } : {})} expand={fullChat} close={() => { setChatOpen(false); Keyboard.dismiss(); }} /> : null}
   {selection ? <View style={{ flexDirection: "row", gap: 4 }}>{button(s.copy, () => { void clipboard.writeText(selection).then(() => setSelection("")).catch(() => setError(s.keyFailed)); })}{button(s.close, () => setSelection(""), "×")}</View> : null}
   {error ? <Text accessibilityRole="alert" style={{ color: c.danger, paddingHorizontal: 8 }}>{error}</Text> : null}
   {detail ? <View>{button(s.details, () => setDetails(value => !value))}{details ? <Text selectable style={{ color: c.textMuted }}>{detail}</Text> : null}</View> : null}
@@ -359,9 +384,9 @@ export default function TerminalScreen() {
   </View> : null}
   {progress ? <Text accessibilityLiveRegion="polite" style={{ color: c.text }}>{t.attachments.uploading(...progress)}</Text> : null}
   {dictationVisible(dictating) ? <View style={{ marginHorizontal: 10, marginTop: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface }}><DictationStatus d={dictating} terminal /></View> : null}
-  <View style={{ paddingHorizontal: 10, paddingTop: 6, paddingBottom: 8 }}>
-  {sessionKey && !chatOpen ? <View pointerEvents="box-none" style={{ position: "absolute", top: -4, left: 0, right: 0, alignItems: "center", zIndex: 2 }}><TourAnchor id="terminal.chatHandle"><ChatHandle state="closed" change={next => { if (next === "full") fullChat(); else if (next === "floating") { blurTerminal(); setChatOpen(true); } }} /></TourAnchor></View> : null}
-  <View accessibilityLabel={s.toolbar} style={{ flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0, padding: 6, borderWidth: 1, borderRadius: 30, borderColor: c.border, backgroundColor: c.surface }}>
+  <KeyBarDock mode={barMode} shown={barVisibility.state.shown} dispatch={barVisibility.dispatch} chat={chatHandle}>
+  {/* Any finger on a key keeps a hidden-mode bar up and restarts its idle wait. */}
+  <View accessibilityLabel={s.toolbar} onTouchStart={() => barVisibility.dispatch({ type: "key-press", held: true })} onTouchEnd={event => barVisibility.dispatch({ type: "key-press", held: event.nativeEvent.touches.length > 0 })} onTouchCancel={() => barVisibility.dispatch({ type: "key-press", held: false })} style={{ flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0, padding: 6, borderWidth: 1, borderRadius: 30, borderColor: c.border, backgroundColor: c.surface }}>
    {terminalBarItems(keys, { keyboard, prefixPanel }).filter(item => !shell || item.id !== "prefix").map(({ id: name, info }) => <View key={name} style={{ width: info.width, flexGrow: 1, flexShrink: 1, height: 44, alignItems: "center", justifyContent: "center" }}>
     {name === "attach" ? <>
      <AttachmentButton compact label={s.attach} disabled={!open || sending} busy={sending} select={attach} />
@@ -378,18 +403,24 @@ export default function TerminalScreen() {
      : key(name, keyName(info, s), info.label, info.send !== null && "binding" in info.send && !keysReady)}
    </View>)}
   </View>
-  </View>
+  </KeyBarDock>
+  {handleSlot?.place === "row" ? barHandles : null}
  </ServerViewer>
  </View>
- {/* Keyboard target after a key-bar open: text, Backspace and Enter go to the terminal. */}
+ {/* Keyboard target after a key-bar open: text, Backspace and Enter go to the terminal.
+   Multiline with submitBehavior="newline": Enter inserts "\n", which proxyInput's diff sends as one CR.
+   A single-line input would close the keyboard on Enter (RN ReactEditText.onKeyUp hides it on
+   KEYCODE_ENTER whenever !isMultiline, whatever the submit behaviour). */}
  <View pointerEvents="none" importantForAccessibility="no-hide-descendants" style={{ position: "absolute", left: 0, bottom: 0, width: 1, height: 1, opacity: 0 }}>
-  <TextInput ref={proxy} keyboardType="visible-password" autoCapitalize="none" autoCorrect={false} autoComplete="off" spellCheck={false} importantForAutofill="no" caretHidden contextMenuHidden submitBehavior="submit"
-   onFocus={() => setProxyActive(true)} onBlur={() => setProxyActive(false)}
-   onChangeText={text => { if (!text) return; input(proxyTextBytes(text)); proxy.current?.clear(); }}
-   onKeyPress={({ nativeEvent }) => { if (nativeEvent.key === "Backspace") input(proxyKeyBytes("Backspace")!); }}
-   onSubmitEditing={() => input(proxyKeyBytes("Enter")!)} style={{ width: 1, height: 1, padding: 0 }} />
+  <TextInput key={proxyGeneration} ref={proxy} keyboardType="visible-password" autoCapitalize="none" autoCorrect={false} autoComplete="off" spellCheck={false} importantForAutofill="no" caretHidden contextMenuHidden multiline submitBehavior="newline"
+   onFocus={() => setProxyActive(true)} onBlur={() => { setProxyActive(false); typed.reset(); setProxyGeneration(n => n + 1); }}
+   onChangeText={text => typed.change(text)}
+   onKeyPress={({ nativeEvent }) => typed.key(nativeEvent.key)}
+   style={{ width: 1, height: 1, padding: 0 }} />
  </View>
  <View {...edgeSwipe.panHandlers} style={{ position: "absolute", left: 0, top: chrome.stripHeight, bottom: 80, width: 18 }} />
+ <KeyBarHoverEdge height={barMode === "auto" ? chrome.bottom : 0} dispatch={barVisibility.dispatch} />
+ {handleSlot?.place === "band" ? <View pointerEvents="box-none" style={{ position: "absolute", left: insets.left, right: insets.right, bottom: 0, height: handleSlot.height }}>{barHandles}</View> : null}
  <HerdrSwitcherDrawer visible={switcherOpen} hostId={hostId} close={closeSwitcher} chooseServer={(computer, server) => { blurTerminal(); setServerSelection({ computer, server }); }} choose={async (computer, workspace, tab) => {
   if (computer.id === hostId && !shell) {
    const result = await herdrSwitcher.focus(computer, workspace, tab);

@@ -164,8 +164,12 @@ describe("screen wiring", () => {
   expect(screen).not.toContain("kbd.keyboardShown");
  });
  it("routes the hidden input's text, Backspace and Enter to the terminal", () => {
-  expect(screen).toContain("input(proxyTextBytes(text))");
-  expect(screen).toContain('input(proxyKeyBytes("Backspace")!)');
-  expect(screen).toContain('input(proxyKeyBytes("Enter")!)');
+  // Diffed and mapped by proxyInput (keyboard-paste-repeat.test.ts), sent through input().
+  expect(screen).toContain("proxyInput({ send: bytes => sendTyped.current(bytes) })");
+  expect(screen).toContain("sendTyped.current = input;");
+  expect(screen).toContain("onChangeText={text => typed.change(text)}");
+  expect(screen).toContain("onKeyPress={({ nativeEvent }) => typed.key(nativeEvent.key)}");
+  // Enter arrives as "\n" in the multiline input's text (keyboard-paste-repeat.test.ts).
+  expect(screen).toContain('submitBehavior="newline"');
  });
 });

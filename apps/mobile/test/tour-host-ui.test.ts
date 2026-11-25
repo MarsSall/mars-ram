@@ -170,7 +170,7 @@ it("mounts the tips over the screens, below the tour", () => {
  const order = inside.map(n => n.type);
  const layer = inside.find(n => n.type === "TipLayer")!;
  expect(layer.props.tips).toBe(ROOT_TIPS);
- expect(ROOT_TIPS).toEqual(["terminal", "chatFloating", "projectSheet"]);
+ expect(ROOT_TIPS).toEqual(["terminal", "chatFloating", "projectSheet", "keyBarTab", "approval"]);
  expect(order.indexOf("TipLayer")).toBeGreaterThan(order.indexOf("Stack"));
  expect(order.indexOf("TipLayer")).toBeLessThan(order.indexOf(TourHost));
 });

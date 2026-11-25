@@ -24,6 +24,15 @@ function fake() {
 }
 
 describe("installation", () => {
+	it("hostOnly installs the host copies and the CLI without any Pi home, for another agent's hooks", async () => {
+		const f = fake();
+		expect(await new Installation(f.ports).install([], true)).toEqual([]);
+		expect(f.calls).toEqual([]);
+		expect(await new Installation(f.ports).install([], true, { hostOnly: true })).toEqual([]);
+		expect(f.calls).toEqual(["preflight", "recover", "build"]);
+		expect(f.record()).toMatchObject({ homes: [], pending: [], copy: "/copy" });
+	});
+
 	it("selects all homes or excludes numbered homes; rejects invalid answers", () => {
 		expect(selectHomes(["a", "b"], "")).toEqual(["a", "b"]);
 		expect(selectHomes(["a", "b"], "1")).toEqual(["b"]);

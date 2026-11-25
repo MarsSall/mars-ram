@@ -1,8 +1,8 @@
 // Follows one session live: loads a consistent snapshot, applies the event stream from where
 // it ends, and reconnects on its own after a drop (PRD R3, R4).
-import { type BridgeEvent, type LastOutcome, decodeEvent, decodeResponse, ReplayHeader } from "@workspace/protocol";
+import { type ApprovalDecision, type BridgeEvent, type LastOutcome, decodeEvent, decodeResponse, ReplayHeader } from "@workspace/protocol";
 import { bridgeClient, type BridgeEndpoint, type BridgeHttp } from "./bridge-client";
-import { addQueued, applyEvent, type Conversation, fromSnapshot } from "./conversation";
+import { addQueued, applyEvent, type Conversation, fromSnapshot, resolveApproval } from "./conversation";
 import type { Attachment } from "./attachment-draft";
 import { uploadAttachments, type AttachmentUploads, type UploadProgress } from "./attachment-uploads";
 
@@ -48,6 +48,14 @@ export type LiveView = {
 
 export type ActionResult = { ok: true; imagesWithheld?: "none" | "model" | "blocked" } | { ok: false; message: string };
 
+/**
+ * The bridge refused a message because the agent now waits for the user in its terminal (a Claude Code or Codex
+ * dialog); the draft stays. The UI translates this exact text. Pi's bridge never answers this refusal.
+ */
+export const AGENT_ASKING_MESSAGE = "The agent is asking something in its terminal. Answer there and send again.";
+/** host/cli agent-session's interruptedSubmission: `no_session` with this prefix covers "asks for the user". */
+const INTERRUPTED_PREFIX = "Interrupted:";
+
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000];
 const STOP_SLOW_MS = 10_000;
 const SNAPSHOT_TRIES = 3;
@@ -87,7 +95,12 @@ export class LiveSession {
 		if (uploaded && !uploaded.ok) return uploaded;
 		const sent = await bridgeClient.send(this.deps.http, this.current, { text: trimmed, ...(uploaded?.ok ? { attachments: uploaded.names } : {}) })
 			.catch(() => ({ ok: false as const, message: "The message could not be sent. Keep your draft and try again." }));
-		if (!sent.ok) return { ok: false, message: sent.message };
+		if (!sent.ok) {
+			// The host's interrupted refusal also covers a session that just ended: once this view knows it ended, the
+			// host's own words stay (a closed session otherwise answers «Session ended.»).
+			const asking = "code" in sent && sent.code === "no_session" && sent.message.startsWith(INTERRUPTED_PREFIX) && this.view.phase !== "ended";
+			return { ok: false, message: asking ? AGENT_ASKING_MESSAGE : sent.message };
+		}
 		// Shown only now that the computer confirmed it; a direct send appears when the agent takes it.
 		if (sent.value.status === "queued" && this.view.conversation) {
 			this.update({ conversation: addQueued(this.view.conversation, `q${++this.queuedCount}`, trimmed, uploaded?.ok ? uploaded.names : []) });
@@ -106,6 +119,23 @@ export class LiveSession {
 				if (this.view.conversation?.stopping) this.update({ stopSlow: true });
 			}, STOP_SLOW_MS);
 		}
+		return { ok: true };
+	}
+
+	/** Answers a pending approval; on success it leaves the screen even before `approval_resolved` arrives. */
+	async answerApproval(id: string, decision: ApprovalDecision): Promise<ActionResult> {
+		const conversation = this.view.conversation;
+		if (!this.current || !conversation) return { ok: false, message: "The session is not connected." };
+		const pending = conversation.approvals.find((a) => a.id === id);
+		if (!conversation.capabilities.approvals || !pending || !pending.choices.includes(decision)) return { ok: false, message: "This approval is no longer pending." };
+		const result = await bridgeClient.approval(this.deps.http, this.current, { id, decision })
+			.catch(() => ({ ok: false as const, message: "The answer could not be sent. Try again." }));
+		if (!result.ok) {
+			// Answered elsewhere meanwhile (the terminal, or the agent gave up): nothing is pending anymore.
+			if ("code" in result && result.code === "not_found" && this.view.conversation) this.update({ conversation: resolveApproval(this.view.conversation, id) });
+			return { ok: false, message: result.message };
+		}
+		if (this.view.conversation) this.update({ conversation: resolveApproval(this.view.conversation, id) });
 		return { ok: true };
 	}
 

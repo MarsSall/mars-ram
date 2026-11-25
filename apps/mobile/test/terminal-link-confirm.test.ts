@@ -11,8 +11,8 @@ import { allowedSystemPath } from "../src/core/link-policy";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const ports = vi.hoisted(() => ({ hosts: vi.fn(), list: vi.fn(), terminalCapability: vi.fn() }));
-vi.mock("../src/services", () => ({ catalog: { list: ports.hosts }, sessions: { list: ports.list, terminalCapability: ports.terminalCapability } }));
+const ports = vi.hoisted(() => ({ hosts: vi.fn(), list: vi.fn(), openTarget: vi.fn() }));
+vi.mock("../src/services", () => ({ catalog: { list: ports.hosts }, sessions: { list: ports.list, openTarget: ports.openTarget } }));
 vi.mock("react-native", () => ({ View: "View", Text: "Text", Pressable: "Pressable", ActivityIndicator: "ActivityIndicator" }));
 vi.mock("../src/ui/components", () => ({ PrimaryButton: "PrimaryButton", Screen: "Screen" }));
 vi.mock("../src/ui/preferences", () => ({ usePreferences: vi.fn() }));
@@ -32,7 +32,7 @@ describe("a terminal link stops at a confirmation", () => {
 		// Only the local saved-computer list is read: no discovery (SSH), no terminal check, no focus.
 		expect(ports.hosts).toHaveBeenCalledOnce();
 		expect(ports.list).not.toHaveBeenCalled();
-		expect(ports.terminalCapability).not.toHaveBeenCalled();
+		expect(ports.openTarget).not.toHaveBeenCalled();
 	});
 
 	it("an unknown computer or a malformed link goes to Inicio without a prompt", async () => {

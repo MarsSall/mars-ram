@@ -14,12 +14,14 @@ export default function OpenSession() {
  const [failed, setFailed] = useState(false); const [attempt, setAttempt] = useState(0);
  useEffect(() => {
   let alive = true; setFailed(false);
-  void sessions.terminalCapability(params.id).then(capability => {
+  void sessions.openTarget(params.id).then(target => {
    if (!alive) return;
-   const destination = sessionDestination(capability);
-   if (destination === "unavailable") { setFailed(true); return; }
-   if (destination === "terminal") router.replace({ pathname: "/session/terminal/[id]", params });
-   else router.replace({ pathname: "/session/[id]", params: { ...params, notHerdr: "1" } });
+   const destination = sessionDestination(target ? target.terminal : null);
+   if (!target || destination === "unavailable") { setFailed(true); return; }
+   // The card may name a bridge that restarted: open the live one of the same session (claude-codex L19).
+   const next = { ...params, id: target.key };
+   if (destination === "terminal") router.replace({ pathname: "/session/terminal/[id]", params: next });
+   else router.replace({ pathname: "/session/[id]", params: { ...next, notHerdr: "1" } });
   }).catch(() => { if (alive) setFailed(true); });
   return () => { alive = false; };
  }, [params.id, params.project, params.cwd, params.computer, attempt, router]);

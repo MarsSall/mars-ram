@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { join, posix, win32 } from 'node:path';
 import { APP_ID } from '@workspace/protocol';
 import { safeAbsolute, type RepoFiles } from '../core/repos.ts';
-import type { Program } from '../core/launch.ts';
+import { PROGRAMS, type Program } from '../core/launch.ts';
 export function createRepoFiles(platform = process.platform): RepoFiles {
  const paths = platform === 'win32' ? win32 : posix;
  return {
@@ -56,7 +56,7 @@ export function createRepoConfig(home = homedir(), files = createRepoFiles()) {
   },
  };
 }
-const PROGRAM_NAMES: readonly Program[] = ['gentle-shell', 'pi', 'opencode'];
+const PROGRAM_NAMES: readonly Program[] = ['gentle-shell', 'pi', 'opencode', 'claude-code', 'codex'];
 async function executableFile(file: string, windows: boolean): Promise<boolean> {
  try { await access(file, windows ? constants.F_OK : constants.X_OK); return (await lstat(await realpath(file))).isFile(); } catch { return false; }
 }
@@ -65,7 +65,8 @@ async function onPath(program: Program, path: string): Promise<string | null> {
  for (const dir of path.split(windows ? ';' : ':')) {
   if (!paths.isAbsolute(dir)) continue; // Never search cwd/relative PATH entries.
   for (const suffix of windows ? ['.exe', '.cmd', '.bat', ''] : ['']) {
-   const file = paths.join(dir, program + suffix);
+   // The program's executable name (claude-code runs `claude`), never a caller-chosen string.
+   const file = paths.join(dir, PROGRAMS[program] + suffix);
    if (await executableFile(file, windows)) return file;
   }
  }

@@ -70,7 +70,7 @@
 
 Mars-RAM (Remote Agent Manager) conecta tu teléfono Android con tus propias computadoras por SSH, sobre tu red de Tailscale o, como alternativa, de ZeroTier. Seguí las sesiones de agentes en vivo, respondé desde el chat o la terminal completa y retomá el trabajo en tu escritorio.
 
-Sesiones en vivo con chat: hoy con Pi; se van a sumar más agentes. La terminal completa de Herdr funciona con cualquier agente o programa.
+Sesiones en vivo con chat: Pi, Claude Code y Codex (estos dos, en modo experimental). Con Claude Code y Codex también respondés sus pedidos de permiso con botones. La terminal completa de Herdr funciona con cualquier agente o programa.
 
 Sin cuenta de Mars-RAM ni servicio en la nube operado por nosotros. Las sesiones corren en tus computadoras; el teléfono es otra forma de acceder a ellas.
 
@@ -84,7 +84,7 @@ Sin cuenta de Mars-RAM ni servicio en la nube operado por nosotros. Las sesiones
 
 **En tu computadora**, necesitás:
 
-- [Node.js](https://nodejs.org) **24 o más nuevo** y [Pi](https://pi.dev) para las sesiones en vivo con chat.
+- [Node.js](https://nodejs.org) **24 o más nuevo** y, para las sesiones en vivo con chat, al menos uno de [Pi](https://pi.dev), [Claude Code](https://code.claude.com) o [Codex](https://developers.openai.com/codex).
 - [Tailscale](https://tailscale.com) en la computadora y en el teléfono (o ZeroTier, mirá más abajo). En macOS alcanza con la app de Tailscale: Mars-RAM encuentra su comando dentro de `Tailscale.app`.
 - Un servidor SSH: `sshd` en Linux, **Sesión remota** (Remote Login) en macOS u **OpenSSH Server** en Windows.
 
@@ -110,9 +110,11 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Después ejecutá `mars-ram pair`. La [guía de instalación completa](./docs/install.es.md) explica los requisitos, cómo revisar el instalador antes de ejecutarlo y cómo resolver problemas.
 
-**Actualizar:** ejecutá `mars-ram update` (mars-ram 0.1.7 o más nuevo): actualiza el paquete con el gestor con el que lo instalaste y ejecuta `mars-ram install` de la versión nueva. Hasta la 0.1.6, en una terminal normal (no de administrador), ejecutá de nuevo `pnpm add -g mars-ram` (o `npm i -g mars-ram`) y después `mars-ram install`, un comando por línea. La versión 14 de la app necesita mars-ram 0.1.6 y te da los comandos para actualizar; el QR más chico que muestra mars-ram desde la 0.1.7 necesita la versión 11 de la app o una más nueva. mars-ram 0.1.10 mantiene el protocolo 1.8: si venís de la 0.1.9, las sesiones de Pi abiertas no necesitan `/reload`; si venís de una versión anterior, escribí `/reload` en cada sesión de Pi abierta (o reiniciala) para que muestre sus subagentes. Si `mars-ram doctor` sigue diciendo que hay copias desactualizadas, ejecutá `mars-ram install` otra vez. Mirá el [registro de cambios](./CHANGELOG.md) (en inglés).
+**Actualizar:** ejecutá `mars-ram update` (mars-ram 0.1.7 o más nuevo): actualiza el paquete con el gestor con el que lo instalaste y ejecuta `mars-ram install` de la versión nueva. Hasta la 0.1.6, en una terminal normal (no de administrador), ejecutá de nuevo `pnpm add -g mars-ram` (o `npm i -g mars-ram`) y después `mars-ram install`, un comando por línea. La versión 15 de la app necesita mars-ram 0.1.6 y te da los comandos para actualizar (sus sesiones de Claude Code y Codex necesitan mars-ram 0.2.0); el QR más chico que muestra mars-ram desde la 0.1.7 necesita la versión 11 de la app o una más nueva. mars-ram 0.2.0 habla el protocolo 1.9: si venís de la 0.1.9 o la 0.1.10, las sesiones de Pi abiertas no necesitan `/reload`; si venís de una versión anterior, escribí `/reload` en cada sesión de Pi abierta (o reiniciala) para que muestre sus subagentes. Si `mars-ram doctor` sigue diciendo que hay copias desactualizadas, ejecutá `mars-ram install` otra vez. Mirá el [registro de cambios](./CHANGELOG.md) (en inglés).
 
-**Diagnosticar:** ejecutá `mars-ram doctor` para revisar la configuración sin modificarla.
+**Claude Code y Codex:** `mars-ram install` pregunta antes de agregar sus hooks a `~/.claude/settings.json` o `~/.codex/hooks.json`. Deja tus otros ajustes y hooks como estaban, guarda primero una copia, y `mars-ram uninstall` saca solo sus propias entradas. Codex los ejecuta recién cuando confiás en ellos una vez: abrí Codex y escribí `/hooks`. Las sesiones aparecen en el teléfono cuando ejecutás `claude` o `codex` en una terminal; si las abrís en un pane de Herdr, también les podés escribir y frenarlas desde el teléfono. El chat de estos dos agentes es experimental: escribe en su terminal y no manda nada mientras haya una pregunta abierta en pantalla; si el agente pregunta en su terminal, respondé ahí. No se listan las sesiones de Claude Code que abren otras herramientas, como los harnesses que lo usan como motor de su modelo.
+
+**Diagnosticar:** ejecutá `mars-ram doctor` para revisar la configuración sin modificarla. En Windows, un aviso de que otros usuarios pueden leer el código y la configuración de Mars-RAM (por ejemplo CodexSandboxUsers, que agrega el sandbox de Codex) es normal con Codex: tus tokens y links siguen privados, y doctor muestra un problema si no lo están.
 
 **¿El teléfono no encuentra la computadora por Tailscale?** El DNS privado de Android saltea el MagicDNS de Tailscale. Apagalo (Ajustes › Conexiones › Más ajustes de conexión › DNS privado › Desactivado) y escaneá un código nuevo; la app te avisa cuando lo detecta.
 
@@ -126,7 +128,7 @@ Una vez vinculado el teléfono:
 
 1. Abrí tu computadora en la app y elegí una sesión de agentes en vivo para seguirla o responder.
 2. Usá la terminal completa de Herdr cuando necesites el teclado, o el chat para enviar una instrucción, foto o archivo.
-3. Agregá un atajo para abrir Gentle Shell, Pi u OpenCode en un repositorio sin escribir el comando cada vez.
+3. Agregá un atajo para abrir Gentle Shell, Pi, OpenCode, Claude Code o Codex en un repositorio sin escribir el comando cada vez.
 
 <p align="center"><img src="./docs/assets/brand/divider.svg" width="480" alt="" /></p>
 
@@ -159,9 +161,10 @@ Una vez vinculado el teléfono:
 | --- | --- |
 | **Conexión guiada** | Agregá una computadora paso a paso por Tailscale o ZeroTier; si el escaneo falla, la app te dice qué revisar. |
 | **ZeroTier como alternativa** | Vinculá con el mismo `mars-ram pair` para las sesiones, la terminal, los archivos, los links privados y Siempre atento. |
-| **Sesiones de agentes en vivo** | Leé, respondé y frená una sesión desde el teléfono. |
-| **Terminal completa** | Usá cualquier agente o programa en Herdr, con una barra de teclas pensada para una mano y sin sugerencias del teclado. Ordená la barra y el D-pad flotante arrastrando, elegí teclas de una lista o creá tus propios botones (Ajustes › Personalizar teclas). Recuerda el tamaño de letra; cambialo pellizcando o en Ajustes. |
-| **Atajos guiados** | Abrí Gentle Shell, Pi u OpenCode en un repositorio. |
+| **Sesiones de agentes en vivo** | Leé, respondé y frená sesiones de Pi, Claude Code y Codex desde el teléfono. |
+| **Aprobaciones con botones** | Cuando Claude Code o Codex piden permiso, lo aprobás o rechazás desde el teléfono. Si no respondés, el agente pregunta en su propia terminal, como siempre. |
+| **Terminal completa** | Usá cualquier agente o programa en Herdr, con una barra de teclas pensada para una mano y sin sugerencias del teclado. Ordená la barra y el D-pad flotante arrastrando, elegí teclas de una lista o creá tus propios botones (Ajustes › Personalización › Personalizar teclas). La barra puede estar Siempre visible, ser Autodesplegable o aparecer Con un toque, con una pestañita junto a 💬 para mostrarla u ocultarla y un tamaño de pestañita ajustable. Recuerda el tamaño de letra; cambialo pellizcando o en Ajustes. |
+| **Atajos guiados** | Abrí Gentle Shell, Pi, OpenCode, Claude Code o Codex en un repositorio. |
 | **Abrir una terminal** | Desde Inicio, al lado de «Agregar atajo»: elegí la computadora y qué abrir, Herdr o una terminal común (tu shell de inicio de sesión, en tu carpeta personal, en Linux, macOS o Windows). |
 | **Archivos del proyecto** | Explorá archivos con su estado en git, diffs e historial. Los archivos secretos, como `.env` y las claves privadas, quedan ocultos hasta que tocás Mostrar. |
 | **Dictado en el dispositivo** | Convertí voz en texto en tu teléfono; el audio no se envía por la red. El modelo de voz se descarga en segundo plano, aunque cierres la app. |
@@ -177,7 +180,7 @@ Una vez vinculado el teléfono:
 | Ruta | Responsabilidad |
 | --- | --- |
 | [`apps/mobile`](./apps/mobile/) | Cliente Android: interfaz en React Native / Expo y módulo SSH nativo en Kotlin |
-| [`host/cli`](./host/cli/) | Instalación, vinculación, diagnóstico y herramientas de archivos y Git en la computadora |
+| [`host/cli`](./host/cli/) | Instalación, vinculación, diagnóstico y herramientas de archivos y Git en la computadora; los hooks de Claude Code y Codex y su puente por sesión |
 | [`host/pi-bridge`](./host/pi-bridge/) | Extensión de Pi que expone cada sesión en vivo por HTTP local y eventos |
 | [`host/link-server`](./host/link-server/) | Sirve copias privadas de archivos con vencimiento en la dirección de Tailscale de la computadora y, en las vinculadas por ZeroTier, en su dirección de ZeroTier; también envía los avisos de Siempre atento |
 | [`packages/protocol`](./packages/protocol/) | Esquemas compartidos y versionados de solicitudes, respuestas y eventos, con pruebas de contrato |

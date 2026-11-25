@@ -17,7 +17,7 @@ Every request needs `Authorization: Bearer <token>`. Every response carries `pro
 
 | Request | Does |
 |---------|------|
-| `GET /state` | Idle or working, queued messages, pending dialog, model, event numbers, time of the last event, `terminal` availability; since protocol 1.8 optional `subagents` (`{ available, items }`, at most 8, built with `boundSubagents` from `@workspace/protocol`) |
+| `GET /state` | Idle or working, queued messages, pending dialog, model, event numbers, time of the last event, `terminal` availability; since protocol 1.8 optional `subagents` (`{ available, items }`, at most 8, built with `boundSubagents` from `@workspace/protocol`). The Pi bridge leaves out the protocol 1.9 fields `agent`, `capabilities` and `approvals`: an absent `agent` means Pi with every capability above except approvals, and it serves no `POST /approval` |
 | `GET /terminal` | Visible ANSI screen of this session's own Herdr pane (200); 404 outside Herdr |
 | `POST /terminal/input` | `{ "kind": "text", "text": "…", "enter": true, "attachments"?: ["<upload name>"] }` or `{ "kind": "keys", "keys": ["esc", "ctrl+c", "up"] }`; 202 after delivery to Herdr, 404 outside Herdr |
 | `POST /terminal/focus` | No body or target; focuses this session's inherited Herdr workspace and tab (200, `status: "focused"`); 404 outside Herdr. Since protocol 1.3 |
@@ -65,7 +65,7 @@ Only interactive terminal sessions are published. Pi sessions in `rpc`, `json` o
 | Path | Layer |
 |------|-------|
 | `src/core/` | Event log, pending dialogs, subagents tracker, and operations against the `PiSessionPort` |
-| `src/adapters/` | HTTP and SSE server, token, registry, and file permissions per platform |
+| `src/adapters/` | HTTP and SSE server, token, registry, file permissions per platform and the Herdr terminal: re-exports of `@workspace/protocol/bridge-host`, shared with the CLI's Claude Code bridge; the Pi bridge passes no hook channel |
 | `src/extension.ts` | Pi adapter: maps Pi events to the core and implements the port |
 | `test/unit/` | Core and adapters with fakes |
 | `test/contract/` | The real bridge in a disposable Pi session |

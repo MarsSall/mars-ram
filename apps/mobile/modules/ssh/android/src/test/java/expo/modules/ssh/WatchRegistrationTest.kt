@@ -16,6 +16,15 @@ class WatchRegistrationTest {
     assertEquals("1.6", decoded.protocolVersion)
     assertEquals("project", decoded.project)
   }
+  @Test fun protocol19AgentAndCapabilitiesStillParse() {
+    val capabilities = mapOf("message" to true, "steer" to false, "abort" to true, "attachments" to false, "terminal" to true, "approvals" to true, "future" to 1)
+    for ((agent, expected) in listOf("claude-code" to "claude-code", "codex" to "codex", "pi" to "pi", "future" to null, 5 to null, null to null)) {
+      val decoded = decodeWatchRegistration(entry() + mapOf("protocolVersion" to "1.9", "agent" to agent, "capabilities" to capabilities))
+      assertEquals("agent=$agent", expected, decoded?.agent)
+      assertEquals("bridge", decoded?.id)
+    }
+    assertNull(decodeWatchRegistration(entry())!!.agent)
+  }
   @Test fun rejectsNonStringEnvelopeFieldsRatherThanCoercing() {
     for (field in listOf("bridgeInstanceId", "sessionId", "protocolVersion")) {
       for (value in listOf(123, true, listOf("x"), mapOf("x" to 1), null)) {

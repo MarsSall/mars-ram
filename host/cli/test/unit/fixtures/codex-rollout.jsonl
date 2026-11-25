@@ -1,0 +1,22 @@
+{"timestamp": "2026-11-20T10:00:00Z", "type": "session_meta", "payload": {"id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "session_id": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "timestamp": "2026-11-20T10:00:00Z", "cwd": "/work/zorro", "originator": "codex_cli_rs", "cli_version": "0.999.0", "model_provider": "openai"}}
+{"timestamp": "2026-11-20T10:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "<permissions instructions>sandbox…</permissions instructions>"}]}}
+{"timestamp": "2026-11-20T10:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /work/zorro\n\n<INSTRUCTIONS>be brief</INSTRUCTIONS>"}]}}
+{"timestamp": "2026-11-20T10:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/work/zorro</cwd>\n</environment_context>"}]}}
+{"timestamp": "2026-11-20T10:00:01Z", "type": "turn_context", "payload": {"turn_id": "t1", "cwd": "/work/zorro", "model": "gpt-invented-5", "approval_policy": "on-request"}}
+{"timestamp": "2026-11-20T10:00:01Z", "type": "event_msg", "payload": {"type": "user_message", "message": "¿Cuántos zorros hay?", "images": []}}
+{"timestamp": "2026-11-20T10:00:01Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "¿Cuántos zorros hay?"}, {"type": "input_image", "image_url": "data:image/png;base64,AAAA"}]}}
+{"timestamp": "2026-11-20T10:00:02Z", "type": "response_item", "payload": {"type": "reasoning", "summary": [{"type": "summary_text", "text": "thinking"}], "encrypted_content": "xyz"}}
+{"timestamp": "2026-11-20T10:00:02Z", "type": "response_item", "payload": {"type": "function_call", "name": "shell", "arguments": "{\"command\":[\"rg\",\"-c\",\"zorro\"]}", "call_id": "call_rg1"}}
+{"timestamp": "2026-11-20T10:00:02Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call_rg1", "output": "{\"output\":\"3\\n\",\"metadata\":{\"exit_code\":0,\"duration_seconds\":0.1}}"}}
+{"timestamp": "2026-11-20T10:00:03Z", "type": "response_item", "payload": {"type": "custom_tool_call", "status": "completed", "call_id": "call_patch1", "name": "apply_patch", "input": "*** Begin Patch\n*** End Patch"}}
+{"timestamp": "2026-11-20T10:00:03Z", "type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": "call_patch1", "output": [{"type": "input_text", "text": "Done!"}]}}
+{"timestamp": "2026-11-20T10:00:03Z", "type": "response_item", "payload": {"type": "function_call", "name": "shell", "arguments": "{}", "call_id": "call_bad"}}
+{"timestamp": "2026-11-20T10:00:03Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call_bad", "output": "{\"output\":\"boom\",\"metadata\":{\"exit_code\":2}}"}}
+{"timestamp": "2026-11-20T10:00:04Z", "type": "event_msg", "payload": {"type": "agent_message", "message": "Hay tres zorros."}}
+{"timestamp": "2026-11-20T10:00:04Z", "type": "response_item", "payload": {"type": "message", "id": "msg_a1", "role": "assistant", "content": [{"type": "output_text", "text": "Hay tres zorros.", "annotations": []}], "phase": "final_answer"}}
+{"timestamp": "2026-11-20T10:00:04Z", "type": "event_msg", "payload": {"type": "token_count", "info": null}}
+{"timestamp": "2026-11-20T10:00:05Z", "type": "compacted", "payload": {"message": "summary"}}
+{"timestamp": "2026-11-20T10:00:05Z", "type": "some_future_item", "payload": {"type": "message", "role": "user", "content": "ignored"}}
+not json at all
+[1,2,3]
+{"timestamp": "2026-11-20T10:00:06Z", "type": "event_msg", "payload": {"type": "turn_aborted", "turn_id": "t2", "reason": "interrupted"}}

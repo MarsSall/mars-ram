@@ -1,12 +1,13 @@
 // When a first-visit tip may show: its screen is ready, no tour runs, every target is measured and
 // nothing has moved for a moment (a keyboard or a sheet still settling). No React Native imports.
 import { TIPS, type AppTour, type TipId } from "../../core/tour";
+import type { KeyBarMode } from "../../core/key-bar-visibility";
 import type { TourAnchorRegistry } from "./anchor-registry";
 
 /** How long the targets must stay put before the tip shows. */
 export const TIP_SETTLE_MS = 700;
 /** Tips shown by the root layer, over the terminal and its sheets; the selector's shows inside its Modal. */
-export const ROOT_TIPS: readonly TipId[] = ["terminal", "chatFloating", "projectSheet"];
+export const ROOT_TIPS: readonly TipId[] = ["terminal", "chatFloating", "projectSheet", "keyBarTab", "approval"];
 export const MODAL_TIPS: readonly TipId[] = ["sessionSelector"];
 
 /** Which of the terminal screen's tips may show: none under another overlay, the terminal's own only with nothing open. */
@@ -14,6 +15,12 @@ export function terminalTips(s: { focused: boolean; chatOpen: boolean; switcherO
  const free = s.focused && !s.switcherOpen && !s.serverOpen && !s.modelOpen;
  return { terminal: free && !s.chatOpen && !s.sheetOpen, chatFloating: free && s.chatOpen && !s.sheetOpen, projectSheet: free && s.sheetOpen };
 }
+
+/** The key bar tab's tip: when the terminal's own tip could show and the tab is drawn (a hidden mode with its slot). */
+export const keyBarTabTip = (terminalFree: boolean, mode: KeyBarMode, hasSlot: boolean): boolean => terminalFree && mode !== "always" && hasSlot;
+
+/** The approval's tip: a focused screen with no overlay over it and a pending approval that has buttons. */
+export const approvalTip = (s: { focused: boolean; overlay: boolean; pending: number; canAnswer: boolean }): boolean => s.focused && !s.overlay && s.pending > 0 && s.canAnswer;
 
 type Tour = Pick<AppTour, "claimTip" | "releaseTip" | "shownTip" | "isRunning" | "subscribe">;
 type Registry = Pick<TourAnchorRegistry, "rect" | "measure" | "subscribe">;

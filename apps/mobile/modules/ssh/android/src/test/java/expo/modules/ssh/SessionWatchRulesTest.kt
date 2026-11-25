@@ -136,4 +136,73 @@ class SessionWatchRulesTest {
     rules.remove(other, 2000)
     assertTrue(rules.shouldStop(122_000))
   }
+
+  @Test fun approvalRequestNeedsResponseLikePromptStart() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0, agent = "claude-code")
+    assertNull(rules.event(key, 10, "approval_request", now = 1, approvalId = "a")) // Replay is silent.
+    val alert = rules.event(key, 11, "approval_request", now = 2, approvalId = "a")
+    assertEquals(WatchNotice.NEEDS_RESPONSE, alert?.notice)
+    assertEquals("claude-code", alert?.agent)
+    // Waiting keeps the watch alive past the idle grace; the change resets the deadline.
+    assertFalse(rules.shouldStop(200_000))
+    assertFalse(rules.shouldStop(7_200_001))
+    assertTrue(rules.shouldStop(7_200_002))
+  }
+
+  @Test fun approvalResolvedClearsOnlyItsIdAndWaitingStaysWhileAnyRemain() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0)
+    rules.event(key, 11, "approval_request", now = 1000, approvalId = "a")
+    rules.event(key, 12, "approval_request", now = 1000, approvalId = "b")
+    assertNull(rules.event(key, 13, "approval_resolved", now = 2000, approvalId = "unknown"))
+    assertNull(rules.event(key, 14, "approval_resolved", now = 2000, approvalId = "a"))
+    assertFalse(rules.shouldStop(200_000)) // "b" is still pending.
+    assertNull(rules.event(key, 15, "approval_resolved", now = 3000, approvalId = "b"))
+    assertFalse(rules.shouldStop(122_999))
+    assertTrue(rules.shouldStop(123_000))
+  }
+
+  @Test fun snapshotApprovalsCountAsWaitingAndResolveById() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0, approvals = listOf("a", "b"))
+    assertFalse(rules.shouldStop(200_000))
+    rules.event(key, 11, "approval_resolved", now = 1000, approvalId = "a")
+    rules.event(key, 12, "agent_settled", "completed", false, 1000)
+    assertFalse(rules.shouldStop(200_000))
+    rules.event(key, 13, "approval_resolved", now = 2000, approvalId = "b")
+    assertTrue(rules.shouldStop(122_000))
+  }
+
+  @Test fun pendingPromptAndApprovalsAreIndependent() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0, waiting = true, approvals = listOf("a"))
+    rules.event(key, 11, "prompt_end", now = 1000)
+    assertFalse(rules.shouldStop(200_000))
+    rules.event(key, 12, "prompt_start", now = 1000)
+    rules.event(key, 13, "approval_resolved", now = 1000, approvalId = "a")
+    assertFalse(rules.shouldStop(200_000))
+  }
+
+  @Test fun approvalEventsWithoutIdAndUnknownEventsAreIgnored() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0)
+    assertNull(rules.event(key, 11, "approval_request", now = 1000))
+    assertNull(rules.event(key, 12, "approval_future", now = 1000, approvalId = "a"))
+    assertTrue(rules.shouldStop(120_000))
+  }
+
+  @Test fun resnapshotReplacesEventTrackedApprovals() {
+    val rules = SessionWatchRules(0)
+    rules.snapshot(key, "project", 10, false, 0)
+    rules.event(key, 11, "approval_request", now = 1000, approvalId = "a")
+    rules.snapshot(key, "project", 12, false, 2000)
+    assertTrue(rules.shouldStop(122_000))
+  }
+
+  @Test fun legacyAlertsCarryNoAgent() {
+    val rules = SessionWatchRules(0)
+    baseline(rules)
+    assertNull(rules.event(key, 11, "prompt_start", now = 1)?.agent)
+  }
 }

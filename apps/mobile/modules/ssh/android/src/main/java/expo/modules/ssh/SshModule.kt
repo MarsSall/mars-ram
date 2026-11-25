@@ -168,6 +168,14 @@ class SshModule : Module() {
       }
     }
 
+    // Terminal key bar: Android's bottom gesture zone, so the hidden bar's reveal strip sits above it.
+    AsyncFunction("systemGestureInsets") Coroutine { ->
+      withContext(Dispatchers.Main) {
+        val view = appContext.currentActivity?.window?.decorView
+        if (view == null) null else runCatching { readSystemGestureInsets(view, android.os.Build.VERSION.SDK_INT) }.getOrNull()
+      }
+    }
+
     // Connection wizard: read-only checks of the phone's side; no permission beyond ACCESS_NETWORK_STATE.
     AsyncFunction("phoneNetworkState") {
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()

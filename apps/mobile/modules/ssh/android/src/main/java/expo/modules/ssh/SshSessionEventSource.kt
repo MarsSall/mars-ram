@@ -161,7 +161,8 @@ internal class SshSessionEventSource(private val appId: String) : SessionEventSo
       envelope(json, entry)
       val seq = integer(json, "lastSeq") ?: throw IOException()
       if (seq < 0 || json.opt("idle") !is Boolean || !json.has("pendingPrompt")) throw IOException()
-      output.send(WatchEvent.Snapshot(key, entry.project, seq, !json.getBoolean("idle"), !json.isNull("pendingPrompt"), entry.protocolVersion))
+      output.send(WatchEvent.Snapshot(key, entry.project, seq, !json.getBoolean("idle"), !json.isNull("pendingPrompt"), entry.protocolVersion,
+        boundWatchApprovalIds(json.opt("approvals")), watchAgent(json.opt("agent")) ?: entry.agent))
       cursor.seq = seq
       cursor.initialized = true
     } finally { requests.remove(request); request.disconnect() }
@@ -203,7 +204,7 @@ internal class SshSessionEventSource(private val appId: String) : SessionEventSo
                   // Validate only the projection needed for policy, ignoring additive/unknown events.
                   if (type == "agent_settled" && (json.opt("aborted") !is Boolean || json.opt("pendingMessages") !is Boolean)) throw IOException()
                   val outcome = if (json.has("outcome")) json.opt("outcome") as? String ?: throw IOException() else null
-                  output.send(WatchEvent.Event(key, seq, type, outcome, json.optBoolean("aborted"), entry.protocolVersion))
+                  output.send(WatchEvent.Event(key, seq, type, outcome, json.optBoolean("aborted"), entry.protocolVersion, watchApprovalId(json.opt("id"))))
                   cursor.seq = seq
                 }
               }

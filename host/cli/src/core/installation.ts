@@ -22,8 +22,9 @@ export class Installation {
 		await this.ports.preflight();
 		return this.ports.readRecord();
 	}
-	async install(homes: string[], confirmed: boolean): Promise<string[]> {
-		if (!confirmed || homes.length === 0) return [];
+	/** `hostOnly`: install the host copies (CLI, link server) even with no Pi home, for another agent's hooks. */
+	async install(homes: string[], confirmed: boolean, options: { hostOnly?: boolean } = {}): Promise<string[]> {
+		if (!confirmed || (homes.length === 0 && !options.hostOnly)) return [];
 		await this.ports.preflight();
 		await this.ports.recover();
 		const previous = await this.ports.readRecord();

@@ -22,7 +22,7 @@ const name = "20261023-101500-a1b2c3-screenshot.png";
 
 describe("protocol version", () => {
 	it("reads attachments from the host's private temp folder since 1.7; requests and responses are unchanged", () => {
-		expect(PROTOCOL_VERSION).toBe("1.8");
+		expect(PROTOCOL_VERSION).toBe("1.9");
 		expect(UPLOADS_IN_TEMP_MINOR).toBe(7);
 	});
 

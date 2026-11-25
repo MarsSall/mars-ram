@@ -6,7 +6,7 @@ import { groupSessions, type ComputerSessions } from "./session-list";
 export type TourScreen = "home" | "computers" | "files" | "settings" | "terminal";
 export type TourAnchorId =
  | "home.sessions" | "home.openTerminal" | "tabs.bar" | "terminal.project" | "terminal.selector" | "computers.add" | "files.createLink" | "settings.notifications" | "settings.about"
- | "terminal.chatHandle" | "terminal.prefix" | "chat.composer" | "projectSheet.tabs" | "selector.list";
+ | "terminal.chatHandle" | "terminal.prefix" | "chat.composer" | "projectSheet.tabs" | "selector.list" | "terminal.keyBarTab" | "approvals.first";
 export type TourStepId = "sessions" | "openTerminal" | "tabs" | "diffs" | "selector" | "addComputer" | "createLink" | "notifications" | "about" | "done";
 /** navigate: the tap reaches the real control; action: the tap only advances; finish: «Empezar» closes. */
 export type TourStepKind = "navigate" | "action" | "finish";
@@ -75,14 +75,18 @@ export function presentStep(run: TourRun): TourPresentation {
  return { ...base, mode: "target", anchor: current.anchor, screen: current.screen };
 }
 
-export type TipId = "terminal" | "chatFloating" | "projectSheet" | "sessionSelector";
-export const TIP_IDS: readonly TipId[] = ["terminal", "chatFloating", "projectSheet", "sessionSelector"];
+export type TipId = "terminal" | "chatFloating" | "projectSheet" | "sessionSelector" | "keyBarTab" | "approval";
+export const TIP_IDS: readonly TipId[] = ["terminal", "chatFloating", "projectSheet", "sessionSelector", "keyBarTab", "approval"];
 /** Each tip's targets, numbered in the bubble when there is more than one. */
 export const TIPS: Record<TipId, { anchors: TourAnchorId[] }> = {
  terminal: { anchors: ["terminal.chatHandle", "terminal.prefix"] },
  chatFloating: { anchors: ["chat.composer"] },
  projectSheet: { anchors: ["projectSheet.tabs"] },
  sessionSelector: { anchors: ["selector.list"] },
+ // The hidden key bar modes' tab; «Siempre visible» has none, so the terminal's own tip does not wait for it.
+ keyBarTab: { anchors: ["terminal.keyBarTab"] },
+ // The first pending approval with buttons, on the screen in front (session chat or terminal).
+ approval: { anchors: ["approvals.first"] },
 };
 
 export type TipClaim = "shown" | "wait" | "seen";

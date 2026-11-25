@@ -42,3 +42,15 @@ it('S7: hosts with mars-ram update get that one command; older ones the pinned m
  for (const release of ['0.1.6', '0.1.5', '0.1.7-rc.1', 'missing', 'unknown']) expect(hostUpdateInstructions(release, '0.1.8')).toEqual({ command: 'pnpm add -g mars-ram@0.1.8\nmars-ram install', manual: true });
  expect(() => hostUpdateInstructions('0.1.5', '0.1.8;evil')).toThrow();
 });
+it('asks a Pi bridge for /reload only below the Pi features the app uses, not for the app protocol alone', async () => {
+ const { MINIMUM_PI_BRIDGE_PROTOCOL, piBridgeReloadNeeded } = await import('../src/core/host-update');
+ const { PROTOCOL_VERSION } = await import('@workspace/protocol');
+ expect(MINIMUM_PI_BRIDGE_PROTOCOL).toBe('1.8');
+ expect(PROTOCOL_VERSION).toBe('1.9');
+ // The bug this rule prevents: comparing with the app protocol would flag every 1.8 Pi.
+ expect(needsBridgeReload('1.8', PROTOCOL_VERSION)).toBe(true);
+ expect(piBridgeReloadNeeded('1.8')).toBe(false);
+ expect(piBridgeReloadNeeded('1.9')).toBe(false);
+ expect(piBridgeReloadNeeded('1.7')).toBe(true);
+ for (const version of ['2.0', '0.9', 'unknown', '']) expect(piBridgeReloadNeeded(version)).toBe(false);
+});

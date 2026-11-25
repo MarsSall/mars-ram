@@ -139,6 +139,8 @@ declare class SshModule extends NativeModule<SshEvents> {
 	isIgnoringBatteryOptimizations(): boolean;
 	/** Opens the general system screen; does not request the restricted exemption permission. */
 	openBatteryOptimizationSettings(): Promise<void>;
+	/** Bottom system gesture zone and navigation bar of the current window in dp (rounded up); null before Android 10 or without an activity. */
+	systemGestureInsets(): Promise<{ mandatoryBottom: number; navigationBottom: number } | null>;
 	/** Read-only checks for the connection wizard; privateDnsActive is missing below Android 9. */
 	phoneNetworkState(): Promise<NativePhoneNetworkState>;
 	/** Play Store page of Tailscale (market://, then https). Rejects STORE_UNAVAILABLE. */

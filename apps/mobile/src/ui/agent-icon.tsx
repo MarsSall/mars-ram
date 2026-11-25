@@ -1,10 +1,12 @@
 import { Image, View } from "react-native";
 import type { Program } from "../core/shortcuts";
 import { usePreferences } from "./preferences";
+import { AgentGlyph } from "./agent-badge";
 
-/** Official program marks; the Gentle Shell rose is shared with the Herdr drawer. */
+/** Official program marks for Pi and OpenCode; the Gentle Shell rose is shared with the Herdr drawer; Claude Code and Codex get original glyphs. */
 export function AgentIcon({ program, size = 24 }: { program: Program; size?: number }) {
  const { theme: { colors: c } } = usePreferences();
+ if (program === "claude-code" || program === "codex") return <AgentGlyph agent={program} size={size} />;
  if (program !== "gentle-shell") return <Image accessible={false} resizeMode="contain" source={program === "pi" ? require("../../assets/brand/pi.png") : require("../../assets/brand/opencode.png")} style={{ width: size, height: size }} />;
  const lines = [
   [[12,3.2],[9,3.9],[7,5.7],[6.1,8.4],[7,11.1],[9.2,13],[12,13.7],[14.8,13],[17,11.1],[17.9,8.4],[17,5.7],[15,3.9],[12,3.2]],

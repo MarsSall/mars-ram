@@ -235,9 +235,9 @@ class SessionWatchService : Service() {
         source.events().collect { event ->
           val now = SystemClock.elapsedRealtime()
           when (event) {
-            is WatchEvent.Snapshot -> rules.snapshot(event.key, event.project, event.seq, event.active, now, event.waiting, event.protocolVersion)
+            is WatchEvent.Snapshot -> rules.snapshot(event.key, event.project, event.seq, event.active, now, event.waiting, event.protocolVersion, event.approvals, event.agent)
             is WatchEvent.Removed -> rules.remove(event.key, now)
-            is WatchEvent.Event -> rules.event(event.key, event.seq, event.type, event.outcome, event.aborted, now, event.protocolVersion)?.let { alert ->
+            is WatchEvent.Event -> rules.event(event.key, event.seq, event.type, event.outcome, event.aborted, now, event.protocolVersion, event.approvalId)?.let { alert ->
               sessionAlert(alert)
             }
             is WatchEvent.HostState -> {
@@ -289,12 +289,8 @@ class SessionWatchService : Service() {
     }
   }
   private fun sessionAlert(alert: SessionAlert) {
-    val state = when (alert.notice) {
-      WatchNotice.NEEDS_RESPONSE -> text("necesita tu respuesta", "needs your response")
-      WatchNotice.COMPLETED -> text("terminó", "finished")
-      WatchNotice.FAILED -> text("falló", "failed")
-    }
-    notify("session:${notificationWatchId(alert.key.hostId)}:${notificationWatchId(alert.key.bridgeInstanceId)}", "${alert.project}: $state", alert.key)
+    val state = watchNoticeText(alert.project, alert.notice, alert.agent, spanish)
+    notify("session:${notificationWatchId(alert.key.hostId)}:${notificationWatchId(alert.key.bridgeInstanceId)}", state, alert.key)
   }
 
   private fun notification(channel: String, state: String, key: SessionKey?): NotificationCompat.Builder {

@@ -35,7 +35,33 @@ export type PaneChatBinding = {
  routeKey: string | undefined;
  key: string | undefined;
  session?: SessionSummary;
+ /** The pane the user chose (route or switcher); a later session there may fill an empty target. */
+ pane?: string;
 };
+
+/** initial: first resolution for this route; explicit: the user picked a tab in the switcher; poll: timer, resume, list refresh. */
+export type PaneChatReason = "initial" | "explicit" | "poll";
+
+/** claude-codex L20: the chat target changes only by an explicit user action. Herdr focus changes,
+ * notices, status updates and list refreshes (poll) never retarget it; they only refresh its metadata. */
+export function nextPaneChatBinding(previous: PaneChatBinding | null, hostId: string, routeKey: string | undefined, pane: FocusedHerdrPane, sessions: readonly SessionSummary[], reason: PaneChatReason): PaneChatBinding {
+ const prior = previous?.hostId === hostId && previous.routeKey === routeKey ? previous : null;
+ const find = (key: string | undefined) => key === undefined ? undefined : sessions.find(s => s.hostId === hostId && s.key === key);
+ if (reason === "explicit") {
+  const key = terminalChatSession(hostId, routeKey, pane, sessions);
+  return { hostId, routeKey, key, session: find(key), pane: pane ?? undefined };
+ }
+ if (!prior) {
+  // Opening a session's terminal is the explicit choice of that session.
+  if (routeKey) { const route = find(routeKey); return { hostId, routeKey, key: routeKey, session: route, pane: route?.terminalPane }; }
+  const key = terminalChatSession(hostId, undefined, pane, sessions);
+  return { hostId, routeKey, key, session: find(key), pane: pane ?? undefined };
+ }
+ if (prior.key !== undefined) return { ...prior, session: find(prior.key) ?? prior.session };
+ // Empty target after an explicit pick: only a session in that chosen pane fills it.
+ const started = chatSessionForPane(hostId, prior.pane, sessions);
+ return started ? { ...prior, key: started.key, session: started } : prior;
+}
 
 /** Never expose a previous route's cached session while its replacement is loading. */
 export function currentPaneChatBinding(binding: PaneChatBinding | null, hostId: string, routeKey: string | undefined): Pick<PaneChatBinding, "key" | "session"> {

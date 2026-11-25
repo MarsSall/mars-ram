@@ -136,7 +136,7 @@ it("the tip variant rings each target, has «Entendido» and no counter or skip"
  const onDone = vi.fn();
  const nodes = elements(CoachMarkView({ variant: "tip", tip: "terminal", targets: [{ x: 11, y: 647, width: 48, height: 48 }, { x: 77, y: 708, width: 46, height: 46 }], window, insets, bubbleHeight: 120, theme, t: es, reduceMotion: false, pulse: { scale: 1, opacity: 0.9 }, onDone }));
  expect(nodes.filter(n => n.props.testID === "tour-ring")).toHaveLength(2);
- expect(texts(nodes)).toEqual(expect.arrayContaining(["Sugerencia · Terminal", "Deslizá hacia arriba para el chat.", "PREFIX envía la tecla de Herdr.", "1", "2"]));
+ expect(texts(nodes)).toEqual(expect.arrayContaining(["Sugerencia · Terminal", "Tocá 💬 para abrir el chat.", "PREFIX envía la tecla de Herdr.", "1", "2"]));
  expect(texts(nodes).some(line => / de 9/.test(line))).toBe(false);
  expect(button(nodes, "Saltar recorrido")).toBeUndefined();
  const done = button(nodes, "Entendido")!;
@@ -147,10 +147,10 @@ it("the tip variant rings each target, has «Entendido» and no counter or skip"
 
 it("carries the spec's copy in Spanish and the same keys in English", () => {
  expect(TOUR_STEPS.map(s => es.tour.steps[s.id])).toEqual([
-  "Acá vas a ver tus sesiones activas.", "Acá abrís una terminal en la computadora que elijas.", "Con estas pestañas te movés por la app.", "Acá ves los cambios y diffs del proyecto.", "Tocá acá para ver agentes y workspaces.",
+  "Acá vas a ver tus sesiones activas: Pi, Claude Code (◐) y Codex (⬡).", "Acá abrís una terminal en la computadora que elijas.", "Con estas pestañas te movés por la app.", "Acá ves los cambios y diffs del proyecto.", "Tocá acá para ver agentes y workspaces.",
   "Tocá + para agregar otra computadora.", "«Crear link» te da un link privado por 24 h.", "Acá elegís los avisos, como Siempre atento.", "En Acerca de, «Ver tutorial» repite este recorrido.", "Listo: ya sabés dónde está cada cosa.",
  ]);
- expect(es.tips.lines).toEqual({ terminal: ["Deslizá hacia arriba para el chat.", "PREFIX envía la tecla de Herdr."], chatFloating: ["Lo que escribas acá le llega al agente."], projectSheet: ["Acá ves archivos, cambios y ramas del proyecto."], sessionSelector: ["Tocá el nombre para cambiar de sesión."] });
+ expect(es.tips.lines).toEqual({ terminal: ["Tocá 💬 para abrir el chat.", "PREFIX envía la tecla de Herdr."], chatFloating: ["Lo que escribas acá le llega al agente."], projectSheet: ["Acá ves archivos, cambios y ramas del proyecto."], sessionSelector: ["Tocá el nombre para cambiar de sesión."], keyBarTab: ["Tocá esta pestañita para mostrar u ocultar las teclas; se configura en Personalización › Personalizar teclas."], approval: ["Revisá el pedido y tocá Aprobar o Rechazar. Si no respondés, el agente pregunta en su terminal."] });
  expect(es.tour).toMatchObject({ skip: "Saltar recorrido", start: "Empezar", open: "Ver tutorial" });
  expect(es.tips.done).toBe("Entendido");
  const keys = (value: object): string[] => Object.entries(value).flatMap(([k, v]) => v && typeof v === "object" && !Array.isArray(v) ? keys(v).map(n => `${k}.${n}`) : [k]).sort();

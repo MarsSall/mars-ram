@@ -5,7 +5,7 @@ import { existsSync, readFileSync, readdirSync, statSync, lstatSync, realpathSyn
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, win32 } from "node:path";
-import { decodeRegistryEntry } from "@workspace/protocol";
+import { decodeRegistryEntry, REGISTRY_DIRECTORY } from "@workspace/protocol";
 import { checkUploadsFolder, currentHost, type UploadsFolderHost } from "@workspace/protocol/uploads-folder";
 import type { DoctorPorts, RegistryObservation, WindowsDefaultShell } from "../core/doctor.ts";
 import { createInstallAdapter, findPi, executableHerdr } from "./installation.ts";
@@ -57,10 +57,57 @@ export function pairingKeysAllowForwarding(contents: string): boolean {
 		return !options.includes("no-port-forwarding") && (!options.includes("restrict") || options.includes("port-forwarding"));
 	});
 }
-export function parseWindowsAcl(value: { owner: string; user: string; grants: string[] }): { safe: boolean; administratorOwner: boolean } {
-	const allowed = new Set([value.user, "S-1-5-18", "S-1-5-32-544"]);
-	return { safe: !!value.user && allowed.has(value.owner) && value.grants.length > 0 && value.grants.every((sid) => allowed.has(sid)), administratorOwner: value.owner === "S-1-5-32-544" };
+/** The folders under ~/.mars-ram that hold secrets on Windows, each restricted to the current user with a protected
+ * ACL when created: agents (agent hook tokens in lock markers), bridges (bridge tokens), links (link copies, tokens
+ * and server identity records) and notify (per-phone notification secrets). Code, logs and settings are not secrets. */
+export const WINDOWS_SECRET_FOLDERS = ["agents", "bridges", "links", "notify"] as const;
+/** One Allow entry: SID, FileSystemRights as an unsigned 32-bit mask, and its account name when it is not allowed. */
+export type WindowsAclRule = { sid: string; rights: number; name?: string | null };
+/** dir: a directory; reparse: a reparse point (junction, symlink, mount point), never followed and never private. */
+export type WindowsAclItem = { owner: string; protected: boolean; dir: boolean; reparse: boolean; rules: WindowsAclRule[] };
+// Read and execute only: ReadData/ListDirectory, ReadExtendedAttributes, ExecuteFile/Traverse, ReadAttributes,
+// ReadPermissions, Synchronize, GENERIC_EXECUTE and GENERIC_READ. Every other bit can write, delete, change
+// permissions or take ownership.
+const READ_ONLY_RIGHTS = 0x1 | 0x8 | 0x20 | 0x80 | 0x20000 | 0x100000 | 0x20000000 | 0x80000000;
+const validItem = (item: unknown): item is WindowsAclItem => {
+	const value = item as WindowsAclItem;
+	// A missing or error marker mixed into an ACL is a malformed result, never a valid one.
+	return !!value && typeof value === "object" && !("missing" in value) && !("error" in value)
+		&& typeof value.owner === "string" && typeof value.protected === "boolean" && typeof value.dir === "boolean" && typeof value.reparse === "boolean" && Array.isArray(value.rules)
+		&& value.rules.every((rule) => !!rule && typeof rule.sid === "string" && Number.isInteger(rule.rights) && rule.rights >= 0 && rule.rights <= 0xFFFFFFFF);
+};
+/** Exactly `{missing: true}`: anything else that mentions missing is malformed. */
+const reportedMissing = (item: unknown) => !!item && typeof item === "object" && Object.keys(item).length === 1 && (item as { missing?: unknown }).missing === true;
+/**
+ * Judges Mars-RAM's Windows ACLs by SID. Secret folders and every descendant must be owned by and allow only the user,
+ * SYSTEM and Administrators, and none may be a reparse point; a secret folder under the root that inherits from a
+ * root with other entries is unsafe too, and a secret folder outside the root (an overridden bridge registry) must
+ * be protected. The root and every secret folder must be a directory and not a reparse point. The root must have such
+ * an owner, and other accounts may only read it: they are returned as readers. When the root is itself the bridge
+ * registry (`rootSecret`), it holds tokens and is judged as a secret folder: private and protected, no readers.
+ */
+export function judgeWindowsAcl(user: string, root: unknown, folders: unknown[], entries: unknown[], outside: unknown[] = [], rootSecret = false): { safe: boolean; administratorOwner: boolean; readers: string[] } {
+	const allowed = new Set([user, "S-1-5-18", "S-1-5-32-544"]);
+	if (!user || !validItem(root)) return { safe: false, administratorOwner: false, readers: [] };
+	const extra = root.rules.filter((rule) => !allowed.has(rule.sid));
+	const privateItem = (item: unknown): item is WindowsAclItem => validItem(item) && !item.reparse && allowed.has(item.owner) && item.rules.length > 0 && item.rules.every((rule) => allowed.has(rule.sid));
+	const folder = (item: unknown): item is WindowsAclItem => privateItem(item) && item.dir;
+	const safe = root.dir && !root.reparse && allowed.has(root.owner) && root.rules.length > 0 && extra.every((rule) => (rule.rights & ~READ_ONLY_RIGHTS) === 0)
+		&& (!rootSecret || (folder(root) && root.protected))
+		&& folders.every((item) => folder(item) && (item.protected || !extra.length)) && entries.every(privateItem)
+		&& outside.every((item) => folder(item) && item.protected);
+	return { safe, administratorOwner: root.owner === "S-1-5-32-544", readers: safe ? [...new Set(extra.map((rule) => rule.name || rule.sid))] : [] };
 }
+// Read-only: paths travel base64-encoded as data, never as script text. Get-Item -Force gives the type and the
+// ReparsePoint attribute of the path itself (a junction or symlink is reported, not followed). Allow entries are read
+// as SIDs; only accounts outside user/SYSTEM/Administrators are translated to names (a bounded lookup), sent as UTF-8
+// base64 so the console code page cannot garble them. A path Test-Path does not find is reported as missing (the
+// caller re-checks it); any other failure is an error, which the caller judges unsafe.
+const aclScript = (data: string) => `$ErrorActionPreference='Stop'; $s=[System.Security.Principal.SecurityIdentifier]; $n=[System.Security.Principal.NTAccount]; $u=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $k=@($u,'S-1-5-18','S-1-5-32-544'); $paths=ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}'))); $items=@(foreach ($p in @($paths)) { try { if (-not (Test-Path -LiteralPath $p)) { @{missing=$true}; continue }; $i=Get-Item -LiteralPath $p -Force; $a=Get-Acl -LiteralPath $p; @{owner=$a.GetOwner($s).Value; 'protected'=$a.AreAccessRulesProtected; dir=[bool]$i.PSIsContainer; reparse=[bool](($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0); rules=@($a.GetAccessRules($true,$true,$s) | Where-Object { $_.AccessControlType -eq 'Allow' } | ForEach-Object { $r=$_; $sid=$r.IdentityReference.Value; $name=$null; if ($k -notcontains $sid) { try { $name=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($r.IdentityReference.Translate($n).Value)) } catch { $name=$null } }; @{sid=$sid; rights=([int64][int]$r.FileSystemRights) -band 4294967295; name64=$name} })} } catch { @{error=$true} } }); @{user=$u; items=$items} | ConvertTo-Json -Compress -Depth 5`;
+// Keep each command line well under Windows' 32,767-character limit, and the whole check bounded.
+const ACL_PATHS_PER_CALL = 32;
+const ACL_DATA_PER_CALL = 6000;
+const ACL_MAX_PATHS = 1024;
 export function parseSshService(output: string): boolean { return /^\s*[^:\r\n]+:\s*4(?:\s|$)/m.test(output); }
 export function parseDefaultShell(output: string): WindowsDefaultShell {
 	if (!output.trim()) return "cmd";
@@ -77,6 +124,8 @@ export interface DoctorIO {
 	read(path: string): string | undefined;
 	list(path: string): string[];
 	mode(path: string): number;
+	/** lstat's type: a symlink or junction is a link, never followed. Optional for fakes; without it only mode -1 is a link. */
+	type?(path: string): "directory" | "file" | "link" | "other";
 }
 const io: DoctorIO = {
 	run: (command, args) => execFileSync(command, args, { encoding: "utf8", windowsHide: true, shell: false, timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] }),
@@ -91,6 +140,11 @@ const io: DoctorIO = {
 		// Symlinks/directories in the token registry are not regular private files.
 		if (stat.isSymbolicLink()) return -1;
 		return stat.mode & 0o7777;
+	},
+	type: (path) => {
+		// Node reports Windows junctions as symbolic links too.
+		const stat = lstatSync(path);
+		return stat.isSymbolicLink() ? "link" : stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other";
 	},
 };
 
@@ -121,7 +175,7 @@ export function copyIsCurrent(copy: string): boolean {
 	} catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 }
 
-export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.Platform; io?: DoctorIO; installation?: DoctorPorts["installation"]; pi?: typeof findPi; uploadsHost?: UploadsFolderHost } = {}): DoctorPorts {
+export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; io?: DoctorIO; installation?: DoctorPorts["installation"]; pi?: typeof findPi; uploadsHost?: UploadsFolderHost; claudeHooks?: DoctorPorts["claudeHooks"]; codexHooks?: DoctorPorts["codexHooks"] } = {}): DoctorPorts {
 	const home = options.home ?? homedir();
 	const platform = options.platform ?? process.platform;
 	const fs = options.io ?? io;
@@ -129,24 +183,67 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
 	const root = paths.join(home, ".mars-ram");
 	const bridges = paths.join(root, "bridges");
 	const programData = process.env.ProgramData ?? "C:\\ProgramData";
+	const env = options.env ?? process.env;
+	// lstat's type; a fake without type() only knows links by mode -1.
+	const kind = (path: string) => fs.type ? fs.type(path) : fs.mode(path) === -1 ? "link" : undefined;
+	// Only a drive path (X:\) or a UNC share (\\server\share\) names the same folder for every bridge; a drive-less
+	// \path depends on the current drive, and C:path on that drive's current folder.
+	const fullyQualified = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]+[\\/]+[^\\/]+/.test(path);
+	/**
+	 * A fully qualified PI_BRIDGE_REGISTRY_DIR (Windows), walked with lstat from below its drive or share root down to the
+	 * leaf before the leaf is used: the first component that is a link, junction or not a folder (`unfollowed`, and
+	 * nothing below it is touched), or whether the leaf exists. Undefined without such an override.
+	 */
+	const overrideWay = (): { leaf: string; unfollowed?: string; present: boolean } | undefined => {
+		const value = env.PI_BRIDGE_REGISTRY_DIR;
+		if (platform !== "win32" || value === undefined || !fullyQualified(value)) return undefined;
+		const leaf = win32.resolve(value);
+		const top = win32.parse(leaf).root;
+		let path = top;
+		for (const part of leaf.slice(top.length).split(/[\\/]+/).filter(Boolean)) {
+			path = win32.join(path, part);
+			let found: ReturnType<typeof kind>;
+			try { found = kind(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { leaf, present: false }; throw error; }
+			if (found !== undefined && found !== "directory") return { leaf, unfollowed: path, present: false };
+		}
+		return { leaf, present: true };
+	};
 	let registryPromise: Promise<RegistryObservation> | undefined;
 	const registry = async (): Promise<RegistryObservation> => {
 		// Cache a single read-only snapshot for the loaded/permissions checks.
 		return registryPromise ??= Promise.resolve().then(() => {
+			// On Windows the root and the registry folder must be real folders and entries real files before anything is
+			// listed or read: a symlink, junction or file in their place is reported, never followed.
+			// The same holds for every folder on the way to a PI_BRIDGE_REGISTRY_DIR override, checked after the root.
+			const unfollowed: string[] = [];
+			const absent = (): RegistryObservation => ({ exists: false, entries: [], modes: [], ...(unfollowed.length ? { unfollowed } : {}) });
+			if (platform === "win32") {
+				for (const folder of [root, bridges]) {
+					let found: ReturnType<typeof kind>;
+					try { found = kind(folder); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return absent(); throw error; }
+					if (found !== undefined && found !== "directory") { unfollowed.push(folder); return absent(); }
+					if (folder === root) { const way = overrideWay(); if (way?.unfollowed) unfollowed.push(way.unfollowed); }
+				}
+			}
 			let directoryMode: number;
-			try { directoryMode = fs.mode(bridges); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { exists: false, entries: [], modes: [] }; throw error; }
+			try { directoryMode = fs.mode(bridges); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return absent(); throw error; }
 			const entries: RegistryObservation["entries"] = [];
 			const modes: (number | undefined)[] = [];
 			for (const name of fs.list(bridges)) {
 				const path = paths.join(bridges, name);
 				try { modes.push(fs.mode(path)); } catch { modes.push(undefined); }
+				if (platform === "win32") {
+					let found: ReturnType<typeof kind>;
+					try { found = kind(path); } catch { continue; }
+					if (found === "link") { unfollowed.push(path); continue; }
+				}
 				if (!name.endsWith(".json")) continue;
 				try {
 					const decoded = decodeRegistryEntry(JSON.parse(fs.read(path) ?? "null"));
 					entries.push({ name, ...(decoded.ok ? { pid: decoded.value.pid } : {}) });
 				} catch { entries.push({ name }); }
 			}
-			return { exists: true, directoryMode, entries, modes };
+			return { exists: true, directoryMode, entries, modes, ...(unfollowed.length ? { unfollowed } : {}) };
 		});
 	};
 	return {
@@ -172,28 +269,106 @@ export function createDoctorAdapter(options: { home?: string; platform?: NodeJS.
 			const homes = await Promise.all((await installer.candidateHomes()).map(async (path) => ({ path, registered: await installer.isRegistered(path, copy) })));
 			return { present: !!record, current: !!record && copyIsCurrent(copy), homes };
 		}),
+		claudeHooks: options.claudeHooks ?? (async () => createInstallAdapter({ home }).claude.status()),
+		codexHooks: options.codexHooks ?? (async () => createInstallAdapter({ home }).codex.status()),
 		registry,
 		alive(pid) {
 			if (!Number.isInteger(pid) || pid <= 0) return false;
 			try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 		},
 		async acl() {
-			// Encode the literal path as data, and the complete fixed read-only script for PowerShell.
-			// -Command concatenates argv on Windows; passing a raw path there is not safe.
-			const parse = (path: string) => {
-				const data = Buffer.from(path, "utf8").toString("base64");
-				const script = `$ErrorActionPreference='Stop'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}')); $a=Get-Acl -LiteralPath $p; $u=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $s=[System.Security.Principal.SecurityIdentifier]; @{owner=$a.GetOwner($s).Value; user=$u; grants=@($a.Access | Where-Object AccessControlType -eq Allow | ForEach-Object { $_.IdentityReference.Translate($s).Value })} | ConvertTo-Json -Compress`;
-				return parseWindowsAcl(JSON.parse(fs.run("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")])));
-			};
-			const rootAcl = parse(root);
-			// Check the token-bearing children as well as the product root.
-			const observation = await registry();
-			let safe = rootAcl.safe;
-			if (observation.exists) {
-				safe = parse(bridges).safe && safe;
-				for (const name of fs.list(bridges)) safe = parse(paths.join(bridges, name)).safe && safe;
+			// The root, and every secret folder that exists with all its descendants: the bridges' writers and the link
+			// server restrict each nested record (session lock markers with hook tokens, link.json, link copies) on its
+			// own, so a private folder says nothing about them. Code, logs and settings are judged only through the root,
+			// where other accounts may read (Codex's sandbox adds such an entry).
+			const key = (path: string) => win32.resolve(path).toLowerCase();
+			const inRoot = (path: string) => key(path).startsWith(`${key(root)}\\`);
+			const exists = (path: string) => { try { fs.mode(path); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== "ENOENT"; } };
+			const folders = WINDOWS_SECRET_FOLDERS.map((name) => paths.join(root, name));
+			// The registry the bridges publish to, resolved as they do (PI_BRIDGE_REGISTRY_DIR, else ~/.mars-ram/bridges).
+			// An override that is not fully qualified (relative, empty, drive-less) depends on each bridge's working folder or
+			// drive, so it cannot be checked: unsafe. An override that is the root makes the root a secret folder.
+			const override = env.PI_BRIDGE_REGISTRY_DIR;
+			const registryDir = override ?? paths.join(home, REGISTRY_DIRECTORY);
+			let unknownRegistry = false;
+			let rootSecret = false;
+			const outside: string[] = [];
+			if (!fullyQualified(registryDir)) unknownRegistry = true;
+			else if (key(registryDir) === key(root)) rootSecret = true;
+			else if (!folders.some((folder) => key(folder) === key(registryDir) || key(registryDir).startsWith(`${key(folder)}\\`))) {
+				(inRoot(registryDir) ? folders : outside).push(win32.resolve(registryDir));
 			}
-			return { safe, administratorOwner: rootAcl.administratorOwner };
+			const observed = new Map<string, unknown>();
+			const named = (item: unknown) => {
+				const rules = (item as { rules?: unknown } | null)?.rules;
+				if (!Array.isArray(rules)) return item;
+				return { ...(item as object), rules: rules.map((rule: { name64?: unknown }) => {
+					if (!rule || typeof rule !== "object") return rule;
+					const { name64, ...rest } = rule;
+					return typeof name64 === "string" ? { ...rest, name: Buffer.from(name64, "base64").toString("utf8") } : rest;
+				}) };
+			};
+			let user = "";
+			const ask = (chunk: string[]) => {
+				// -Command concatenates argv on Windows; the complete fixed script goes encoded, the paths inside it as data.
+				const script = aclScript(Buffer.from(JSON.stringify(chunk), "utf8").toString("base64"));
+				const value = JSON.parse(fs.run("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")])) as { user?: unknown; items?: unknown };
+				if (typeof value?.user !== "string" || !Array.isArray(value.items) || value.items.length !== chunk.length || (user && user !== value.user)) throw new Error("Unexpected ACL output");
+				user = value.user;
+				chunk.forEach((path, index) => observed.set(path, named((value.items as unknown[])[index])));
+			};
+			const askAll = (list: string[]) => {
+				let chunk: string[] = [];
+				for (const path of list) {
+					const next = [...chunk, path];
+					if (chunk.length && (next.length > ACL_PATHS_PER_CALL || Buffer.byteLength(JSON.stringify(next)) * 4 / 3 > ACL_DATA_PER_CALL)) { ask(chunk); chunk = [path]; }
+					else chunk = next;
+				}
+				if (chunk.length) ask(chunk);
+			};
+			// A path PowerShell did not find counts as gone only when it is still gone now; a path that is there after
+			// all (a broken link, an unreadable entry) is unsafe.
+			const gone = (path: string) => { try { fs.mode(path); return false; } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT"; } };
+			const unsafe = { error: true };
+			const judged = new Map<string, unknown>();
+			// The root first, alone: nothing under it is probed unless it is a directory and not a reparse point.
+			askAll([root]);
+			const rootItem = observed.get(root);
+			if (reportedMissing(rootItem)) throw new Error("Mars-RAM folder missing");
+			if (!validItem(rootItem) || !rootItem.dir || rootItem.reparse) return judgeWindowsAcl(user, rootItem, [], [], [], rootSecret);
+			// Every folder on the way to an override first: a link, junction or file there leaves the registry unknown, and
+			// neither the leaf nor anything under that component is probed (doctor's registry check names it).
+			const way = overrideWay();
+			if (way && !way.present) {
+				for (const list of [folders, outside]) { const at = list.findIndex((path) => key(path) === key(way.leaf)); if (at >= 0) list.splice(at, 1); }
+				if (way.unfollowed) unknownRegistry = true;
+			}
+			// The registry being the root: everything under the root is a descendant of a secret folder.
+			const tops = rootSecret ? [] : [...folders, ...outside].filter(exists);
+			// Breadth first, one level per round, each directory listed only after PowerShell said it is a directory and
+			// not a reparse point; at most ACL_MAX_PATHS paths in total, beyond that the check stops as too many.
+			let level = rootSecret ? fs.list(root).map((name) => paths.join(root, name)) : tops;
+			let total = 1 + level.length;
+			let tooMany = total > ACL_MAX_PATHS;
+			while (level.length && !tooMany) {
+				askAll(level);
+				const next: string[] = [];
+				for (const path of level) {
+					const item = observed.get(path);
+					if (reportedMissing(item)) { if (!gone(path)) judged.set(path, unsafe); continue; }
+					judged.set(path, item);
+					if (!validItem(item) || !item.dir || item.reparse) continue;
+					const children = fs.list(path).map((name) => paths.join(path, name));
+					total += children.length;
+					if (total > ACL_MAX_PATHS) { tooMany = true; break; }
+					next.push(...children);
+				}
+				level = next;
+			}
+			const pick = (list: string[]) => list.filter((path) => tops.includes(path) && judged.has(path)).map((path) => judged.get(path));
+			const descendants = [...judged.keys()].filter((path) => !tops.includes(path)).map((path) => judged.get(path));
+			const verdict = judgeWindowsAcl(user, rootItem, pick(folders), [...descendants, ...(unknownRegistry ? [unsafe] : [])], pick(outside), rootSecret);
+			return tooMany ? { safe: false, administratorOwner: verdict.administratorOwner, readers: [], tooMany: true } : verdict;
 		},
 		async tailscale() { return readTailscaleIp(fs.run); },
 		async zerotier() { return zeroTierAddresses(undefined, platform); },

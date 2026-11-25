@@ -43,6 +43,11 @@ describe("authentication", () => {
 		["no token", {}],
 		["a wrong token of the same length", auth("x".repeat(64))],
 		["a shorter token", auth("t")],
+		// Every client (app fetch and XHR, the Android watcher, the link server, the hook process) sends `Bearer <token>`.
+		["the right token without the Bearer scheme", { authorization: TOKEN }],
+		["the right token under another scheme", { authorization: `Basic ${TOKEN}` }],
+		["the right token glued to the scheme", { authorization: `Bearer${TOKEN}` }],
+		["the scheme in other letter case", { authorization: `bearer ${TOKEN}` }],
 	])("rejects a request with %s and changes nothing", async (_name, headers) => {
 		const res = await fetch(`${base}/message`, { method: "POST", headers, body: JSON.stringify({ text: "hi" }) });
 		expect(res.status).toBe(401);

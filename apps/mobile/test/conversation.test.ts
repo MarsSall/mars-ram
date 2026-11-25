@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type BridgeEvent, PROTOCOL_VERSION, type StateResponse } from "@workspace/protocol";
-import { addQueued, applyEvent, type Conversation, fromSnapshot, statusOf } from "../src/core/conversation";
+import { addQueued, applyEvent, type Conversation, fromSnapshot, statusOf, visiblePrompt } from "../src/core/conversation";
 
 const state = (extra: Partial<StateResponse> = {}): StateResponse => ({
 	protocolVersion: PROTOCOL_VERSION,
@@ -155,5 +155,26 @@ describe("applyEvent", () => {
 		const again = applyEvent(c, { seq: c.lastSeq, at: 1, type: "agent_settled", aborted: false, pendingMessages: false });
 		expect(again).toBe(c);
 		expect(c.updatedAt).toBe(c.lastSeq * 100);
+	});
+});
+
+// L11 follow-up: the Claude Code bridge raises pendingPrompt while an approval waits, for old apps.
+describe("visiblePrompt", () => {
+	const caps = { agent: "claude-code", capabilities: { message: true, abort: true, terminal: true, approvals: true } } as Partial<StateResponse>;
+	const ask = { id: "a1", kind: "command", title: "Run tests", detail: "pnpm test", choices: ["accept", "decline"] };
+
+	it("hides the prompt while an approvals-capable session has the approval pending, and brings it back once resolved", () => {
+		let c = apply(fromSnapshot(state(caps), []), ev({ type: "prompt_start", prompt: { kind: "confirm" } }), ev({ type: "approval_request", ...ask }));
+		expect(visiblePrompt(c)).toBeNull();
+		expect(statusOf(c)).toBe("attention");
+		c = apply(c, ev({ type: "approval_resolved", id: "a1", decision: "accept" }));
+		expect(visiblePrompt(c)).toEqual({ kind: "confirm" });
+		expect(visiblePrompt(apply(c, ev({ type: "prompt_end" })))).toBeNull();
+	});
+
+	it("keeps the prompt for Pi and for bridges that cannot answer approvals", () => {
+		expect(visiblePrompt(fromSnapshot(state({ pendingPrompt: { kind: "confirm" } }), []))).toEqual({ kind: "confirm" });
+		const noAnswers = fromSnapshot(state({ agent: "codex", capabilities: { message: true }, pendingPrompt: { kind: "confirm" }, approvals: [ask] } as Partial<StateResponse>), []);
+		expect(visiblePrompt(noAnswers)).toEqual({ kind: "confirm" });
 	});
 });

@@ -3,7 +3,7 @@ package expo.modules.ssh
 /** Registry projection; deliberately not a data class so diagnostics cannot stringify its token. */
 internal class WatchRegistration(
   val id: String, val sessionId: String, val port: Int, val token: String,
-  val cwd: String, val protocolVersion: String,
+  val cwd: String, val protocolVersion: String, val agent: String? = null,
 ) {
   val project: String get() = (cwd.split('/', '\\').lastOrNull { it.isNotEmpty() } ?: "Project")
     .filterNot { it.isISOControl() }.take(120)
@@ -26,7 +26,8 @@ internal fun decodeWatchRegistration(value: Any?): WatchRegistration? {
   val startedAt = (json["startedAt"] as? Number)?.toDouble() ?: return null
   if (id.isEmpty() || session.isEmpty() || !port.isFinite() || port !in 1.0..65535.0 || port % 1 != 0.0 ||
     !pid.isFinite() || pid < 1 || pid % 1 != 0.0 || token.codePointCount(0, token.length) < 32 || !startedAt.isFinite()) return null
-  return WatchRegistration(id, session, port.toInt(), token, cwd, version)
+  // Since 1.9: optional `agent` (unknown values fall back to Pi); `capabilities` is not needed here.
+  return WatchRegistration(id, session, port.toInt(), token, cwd, version, watchAgent(json["agent"]))
 }
 
 internal fun compatibleWatchProtocol(version: String): Boolean =

@@ -43,6 +43,69 @@ describe("Herdr terminal focus", () => {
 	});
 });
 
+// claude-codex-support L19: a session that shares its Herdr tab with other panes (Claude Code next to Gentle Shell)
+// must open on its own pane, not on whichever pane of the tab had focus.
+describe("Herdr terminal focus in a tab with several panes", () => {
+	const neighbor = (pane: string, other: string | null) => JSON.stringify({ result: { neighbor: { pane_id: pane, neighbor_pane_id: other } } });
+	/** Answers by argv: pane get, pane neighbor per (pane, direction), anything else succeeds. */
+	function tab(focused: boolean | undefined, neighbors: Record<string, string | null>, failing: string[] = []) {
+		const calls: string[][] = [];
+		const run: TerminalExecFile = (_file, args, _options, callback) => {
+			calls.push([...args]);
+			const key = args.join(" ");
+			if (failing.some((f) => key.startsWith(f))) return callback(new Error("private failure"), "", "");
+			if (args[1] === "get") return callback(null, JSON.stringify({ result: { pane: { tab_id: "w3D:t1", ...(focused === undefined ? {} : { focused }) } } }), "");
+			if (args[1] === "neighbor") return callback(null, neighbor(args[3]!, neighbors[`${args[3]} ${args[5]}`] ?? null), "");
+			callback(null, "", "");
+		};
+		return { calls, port: createHerdrTerminal({ HERDR_PANE_ID: "w3D:pW" }, run)! };
+	}
+	const focusTab = [["pane", "get", "w3D:pW"], ["workspace", "focus", "w3D"], ["tab", "focus", "w3D:t1"]];
+
+	it("focuses its own pane from the neighbor on the other side when another pane of the tab has focus", async () => {
+		const f = tab(false, { "w3D:pW left": "w3D:p1", "w3D:p1 right": "w3D:pW" });
+		expect(await f.port.focus()).toEqual({ ok: true, value: undefined });
+		expect(f.calls).toEqual([
+			...focusTab,
+			["pane", "neighbor", "--pane", "w3D:pW", "--direction", "left"],
+			["pane", "neighbor", "--pane", "w3D:p1", "--direction", "right"],
+			["pane", "focus", "--pane", "w3D:p1", "--direction", "right"],
+		]);
+	});
+
+	it("tries the next side when a neighbor's way back leads to another pane, and skips sides without a neighbor", async () => {
+		const f = tab(false, { "w3D:pW up": "w3D:p1", "w3D:p1 down": "w3D:p3", "w3D:pW down": "w3D:p4", "w3D:p4 up": "w3D:pW" });
+		expect(await f.port.focus()).toEqual({ ok: true, value: undefined });
+		expect(f.calls.slice(3)).toEqual([
+			["pane", "neighbor", "--pane", "w3D:pW", "--direction", "left"],
+			["pane", "neighbor", "--pane", "w3D:pW", "--direction", "right"],
+			["pane", "neighbor", "--pane", "w3D:pW", "--direction", "up"],
+			["pane", "neighbor", "--pane", "w3D:p1", "--direction", "down"],
+			["pane", "neighbor", "--pane", "w3D:pW", "--direction", "down"],
+			["pane", "neighbor", "--pane", "w3D:p4", "--direction", "up"],
+			["pane", "focus", "--pane", "w3D:p4", "--direction", "up"],
+		]);
+	});
+
+	it("leaves the pane alone when it already has the tab's focus or Herdr does not say", async () => {
+		for (const focused of [true, undefined]) {
+			const f = tab(focused, { "w3D:pW left": "w3D:p1", "w3D:p1 right": "w3D:pW" });
+			expect(await f.port.focus()).toEqual({ ok: true, value: undefined });
+			expect(f.calls).toEqual(focusTab);
+		}
+	});
+
+	it("keeps the tab focused when no neighbor leads back, a neighbor is unsafe, or Herdr fails a pane step", async () => {
+		const unsafe = tab(false, { "w3D:pW left": "w3D:p1;rm", "w3D:pW right": "wOther:p1", "w3D:pW up": "w3D:pW" });
+		expect(await unsafe.port.focus()).toEqual({ ok: true, value: undefined });
+		expect(unsafe.calls.filter((c) => c[0] === "pane" && c[1] === "focus")).toEqual([]);
+		expect(unsafe.calls.filter((c) => c[1] === "neighbor").every((c) => c[3] === "w3D:pW")).toBe(true);
+
+		const failing = tab(false, { "w3D:pW left": "w3D:p1", "w3D:p1 right": "w3D:pW" }, ["pane focus"]);
+		expect(await failing.port.focus()).toEqual({ ok: true, value: undefined });
+	});
+});
+
 describe("Herdr terminal adapter", () => {
 	it.each([undefined, "", "-other", "../pane", "pane;cmd", "pane with spaces", ":p2", "w2G:p2:x", "a\nb", "pane\n", "x".repeat(129)])("does not create a port for invalid pane %j", (pane) => {
 		const env = pane === undefined ? {} : { HERDR_PANE_ID: pane };

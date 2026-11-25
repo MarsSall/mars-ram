@@ -230,10 +230,25 @@ describe("bundled changelog", () => {
   expect(note.es.new).toHaveLength(note.en.new.length);
  });
 
+ it("build 15 names Claude Code and Codex (experimental, with mars-ram 0.2.0), the hideable key bar and the paste and Enter fixes", () => {
+  const note = RELEASE_NOTES.find(n => n.build === 15)!;
+  expect(note).toBeDefined();
+  expect(RELEASE_NOTES[0]).toBe(note);
+  const es = [...note.es.new, ...note.es.fixes].join("\n");
+  const en = [...note.en.new, ...note.en.fixes].join("\n");
+  for (const word of ["Claude Code", "Codex", "experimental", "mars-ram 0.2.0", "mars-ram install", "Personalizar teclas", "Siempre visible", "Autodesplegable", "Con un toque", "pegar", "Enter"]) expect(es).toContain(word);
+  for (const word of ["Claude Code", "Codex", "experimental", "mars-ram 0.2.0", "mars-ram install", "Customize keys", "Always visible", "Auto-hide", "One tap", "paste", "Enter"]) expect(en).toContain(word);
+  for (const text of [es, en]) expect(text).not.toMatch(/\btemas?\b|\bthemes?\b|easter|regal|gift|cinlo|j0k3r|batmad|bojack|marvin|ramons|\bOTA\b/i);
+  expect(note.es.new).toHaveLength(2);
+  expect(note.es.fixes).toHaveLength(2);
+  expect(note.es.new).toHaveLength(note.en.new.length);
+  expect(note.es.fixes).toHaveLength(note.en.fixes.length);
+ });
+
  it("build 14 names Agentes first, workspace cards, Home subagents in Personalización, Más ajustes and the Windows fix of mars-ram 0.1.10, without the surprises", () => {
   const note = RELEASE_NOTES.find(n => n.build === 14)!;
   expect(note).toBeDefined();
-  expect(RELEASE_NOTES[0]).toBe(note);
+  expect(RELEASE_NOTES[1]).toBe(note);
   const es = [...note.es.new, ...note.es.fixes].join("\n");
   const en = [...note.en.new, ...note.en.fixes].join("\n");
   for (const word of ["Agentes", "Espacios", "Personalización", "Más ajustes", "Windows", "mars-ram 0.1.10"]) expect(es).toContain(word);

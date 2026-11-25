@@ -5,6 +5,10 @@ import type { BridgeHttp } from "../src/core/bridge-client";
 import type { HostConnection } from "../src/core/ports";
 import type { Attachment } from "../src/core/attachment-draft";
 import { UPDATE_REQUIRED_MESSAGE } from "../src/core/uploads-folder";
+import { AGENT_ASKING_MESSAGE } from "../src/core/live-session";
+import { attachmentError } from "../src/ui/attachment-messages";
+import { es } from "../src/ui/i18n/es";
+import { en } from "../src/ui/i18n/en";
 import { FakeSsh, FakeUploadsFolder, TEMP_UPLOADS, failure } from "./fakes";
 
 /** First bridge protocol that resolves attachments in the temp uploads folder. */
@@ -135,5 +139,19 @@ describe("chat attachment send", () => {
 	it("allows an attachment-only send", async () => {
 		const f = await setup();
 		expect(await f.send("")).toMatchObject({ ok: true });
+	});
+});
+
+describe("a send the agent's terminal question refused (build 15 L5)", () => {
+	it("says to answer in the terminal and that the draft is kept, in Spanish and English", () => {
+		expect(attachmentError(AGENT_ASKING_MESSAGE, es.attachments)).toBe("El agente está preguntando algo en su terminal. Respondé ahí y volvé a enviar; tu texto sigue acá.");
+		expect(attachmentError(AGENT_ASKING_MESSAGE, en.attachments)).toBe("The agent is asking something in its terminal. Answer there and send again; your text is still here.");
+	});
+
+	it("keeps the connection wording for a lost connection, an ended session and the raw host refusal", () => {
+		for (const message of ["Connection reset", "Session ended.", "Interrupted: the session ended or now asks for the user, so the message was not sent."]) {
+			expect(attachmentError(message, es.attachments)).toBe(es.attachments.sendFailed);
+			expect(attachmentError(message, en.attachments)).toBe(en.attachments.sendFailed);
+		}
 	});
 });

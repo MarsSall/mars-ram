@@ -7,6 +7,30 @@ export type ReleaseNote = { build: number; version: string; es: ReleaseNoteText;
 
 export const RELEASE_NOTES: ReleaseNote[] = [
  {
+  build: 15,
+  version: "1.0.0",
+  es: {
+   new: [
+    "Sesiones de Claude Code y Codex en vivo, como con Pi: ves la conversación, les escribís y las detenés desde el teléfono, y cuando piden permiso lo aprobás o rechazás con un botón. El chat es experimental: escribe en su terminal, así que no manda nada si en la pantalla hay una pregunta abierta. Necesita mars-ram 0.2.0 en la computadora y ejecutar «mars-ram install».",
+    "La barra de teclas de la terminal se puede esconder para ganar espacio. En Personalización › Personalizar teclas elegís «Siempre visible», «Autodesplegable» o «Con un toque», y el tamaño de la pestañita.",
+   ],
+   fixes: [
+    "En la terminal, pegar un texto ya no lo repite cada vez que seguís escribiendo.",
+    "Enter en la terminal ya no cierra el teclado.",
+   ],
+  },
+  en: {
+   new: [
+    "Live Claude Code and Codex sessions, like with Pi: you see the conversation, write to them and stop them from the phone, and when they ask for permission you allow or deny it with a button. The chat is experimental: it types into their terminal, so it sends nothing while a question is open on the screen. It needs mars-ram 0.2.0 on the computer and running «mars-ram install».",
+    "The terminal key bar can hide to give the terminal more room. In Personalization › Customize keys you choose «Always visible», «Auto-hide» or «One tap», and the size of the small tab.",
+   ],
+   fixes: [
+    "In the terminal, a paste is no longer repeated every time you keep typing.",
+    "Enter in the terminal no longer closes the keyboard.",
+   ],
+  },
+ },
+ {
   build: 14,
   version: "1.0.0",
   es: {

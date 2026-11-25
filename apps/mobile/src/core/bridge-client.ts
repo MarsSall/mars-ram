@@ -1,6 +1,8 @@
 // Calls to one session bridge through its tunnel, with every answer checked against the protocol.
 import {
 	AbortResponse,
+	type ApprovalAnswer,
+	ApprovalAnswerResponse,
 	decodeResponse,
 	ErrorResponse,
 	HistoryResponse,
@@ -43,4 +45,6 @@ export const bridgeClient = {
 	history: (http: BridgeHttp, endpoint: BridgeEndpoint) => call(http, endpoint, "GET", "/history", HistoryResponse),
 	send: (http: BridgeHttp, endpoint: BridgeEndpoint, message: SendMessageRequest) => call(http, endpoint, "POST", "/message", SendMessageResponse, message),
 	abort: (http: BridgeHttp, endpoint: BridgeEndpoint) => call(http, endpoint, "POST", "/abort", AbortResponse, {}),
+	/** Since 1.9, only for bridges that declare `capabilities.approvals`. */
+	approval: (http: BridgeHttp, endpoint: BridgeEndpoint, answer: ApprovalAnswer) => call(http, endpoint, "POST", "/approval", ApprovalAnswerResponse, answer),
 };

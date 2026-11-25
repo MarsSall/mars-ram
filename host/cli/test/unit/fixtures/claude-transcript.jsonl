@@ -1,0 +1,17 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-19T10:00:00.000Z","sessionId":"5f0c2a8e-1111-4c3b-9d2e-000000000001"}
+{"type":"user","uuid":"u-meta","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>Caveat: invented meta line</local-command-caveat>"},"sessionId":"5f0c2a8e-1111-4c3b-9d2e-000000000001"}
+{"type":"user","uuid":"u-1","parentUuid":null,"isSidechain":false,"message":{"role":"user","content":"Count the lemons in basket.txt"},"sessionId":"5f0c2a8e-1111-4c3b-9d2e-000000000001","timestamp":"2026-11-19T10:00:01.000Z"}
+{"type":"assistant","uuid":"a-1","parentUuid":"u-1","message":{"id":"msg_inv1","role":"assistant","model":"claude-invented-1","content":[{"type":"thinking","thinking":"secret pondering about lemons","signature":"xyz"}]}}
+{"type":"assistant","uuid":"a-2","parentUuid":"a-1","message":{"id":"msg_inv1","role":"assistant","model":"claude-invented-1","content":[{"type":"text","text":"I will look at the basket."}]}}
+{"type":"assistant","uuid":"a-3","parentUuid":"a-2","message":{"id":"msg_inv1","role":"assistant","model":"claude-invented-1","content":[{"type":"tool_use","id":"toolu_inv1","name":"Read","input":{"file_path":"/tmp/zorro/basket.txt"}}]}}
+{"type":"user","uuid":"u-2","parentUuid":"a-3","message":{"role":"user","content":[{"tool_use_id":"toolu_inv1","type":"tool_result","content":"lemon\nlemon\nlime"}]},"toolUseResult":{"type":"text"}}
+{"type":"assistant","uuid":"a-4","parentUuid":"u-2","message":{"id":"msg_inv2","role":"assistant","model":"claude-invented-1","content":[{"type":"text","text":"There are 2 lemons and 1 lime."}]}}
+{"type":"mode","mode":"default"}
+{"type":"user","uuid":"u-side","isSidechain":true,"message":{"role":"user","content":"subagent prompt"}}
+{"type":"user","uuid":"u-cmd","message":{"role":"user","content":"<command-name>/zorro</command-name>\n<command-message>zorro</command-message>"}}
+{"type":"user","uuid":"u-3","message":{"role":"user","content":[{"type":"text","text":"Now this picture"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}}
+{"type":"assistant","uuid":"a-5","message":{"id":"msg_inv3","role":"assistant","model":"claude-invented-1","content":[{"type":"tool_use","id":"toolu_inv2","name":"Bash","input":{"command":"ls /tmp/zorro"}}]}}
+{"type":"user","uuid":"u-4","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_inv2","is_error":true,"content":[{"type":"text","text":"ls: cannot access"}]}]}}
+{"type":"user","uuid":"u-5","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+not json at all
+{"type":"summary","summary":"Lemon counting","leafUuid":"a-4"}

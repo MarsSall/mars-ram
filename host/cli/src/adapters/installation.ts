@@ -11,6 +11,9 @@ import { readWindowsPrivileges } from "./authorized-keys.ts";
 import { installText } from "./terminal.ts";
 import { validHerdrPath } from "../core/herdr.ts";
 import { buildLinkCopy } from "./link-installation.ts";
+import { createClaudeHooksAdapter, type ClaudeHooksPort } from "./claude-hooks.ts";
+import { createCodexHooksAdapter, type CodexHooksPort } from "./codex-hooks.ts";
+import { findPrograms } from "./repos.ts";
 import { buildCliCopy, protocolSource, checkLauncher, isPackageEntry, launcherPath, installLauncher, removeLauncher, retireLauncher, updateOwnedUserPath, type UserPathIO } from "./cli-installation.ts";
 
 /** packageBin: `mars-ram install` ran from the npm package, whose bin (this path) is the command. */
@@ -76,7 +79,7 @@ export function stableNodePath(options: { execPath?: string; path?: string; stor
 	return execPath;
 }
 
-export function createInstallAdapter(options: { home?: string; herdr?: () => string | undefined; userPath?: UserPathIO; /** Allowlisted shortcut programs to record (install command only). */ programs?: () => Promise<Record<string, string>>; /** The npm package's bin; defaults to MARS_RAM_PACKAGE_BIN, set by the package launcher (undefined: none). */ packageBin?: string | undefined } = {}): InstallPorts & { writeHostConfig(): Promise<boolean>; packageBin: string | undefined; keptLauncher(): string | undefined } {
+export function createInstallAdapter(options: { home?: string; herdr?: () => string | undefined; userPath?: UserPathIO; /** Allowlisted shortcut programs to record (install command only). */ programs?: () => Promise<Record<string, string>>; /** The npm package's bin; defaults to MARS_RAM_PACKAGE_BIN, set by the package launcher (undefined: none). */ packageBin?: string | undefined; /** Whether `claude` is on PATH; defaults to a PATH lookup that never runs it. */ claudeOnPath?: () => Promise<boolean>; /** Whether `codex` is on PATH; defaults to a PATH lookup that never runs it. */ codexOnPath?: () => Promise<boolean> } = {}): InstallPorts & { writeHostConfig(): Promise<boolean>; packageBin: string | undefined; keptLauncher(): string | undefined; /** Pi was found by the last preflight; without it only agent hooks can be installed. */ piAvailable(): boolean; claude: ClaudeHooksPort; codex: CodexHooksPort } {
 	const home = options.home ?? homedir();
  // Only the bin of a package named mars-ram counts; anything else installs as from a clone.
  const named = "packageBin" in options ? options.packageBin : process.env.MARS_RAM_PACKAGE_BIN;
@@ -158,8 +161,13 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
 		async preflight() {
 			assertSafe();
 			if (process.platform === "win32" && readWindowsPrivileges().elevated) throw new Error(installText.noAdmin);
-			pi = findPi();
+			// Pi is needed only to register the Pi bridge: a computer with only Claude Code can still install its hooks.
+			try { pi = findPi(); } catch (error) {
+				if ((error as Error).message !== installText.missingPi) throw error;
+				pi = undefined;
+			}
 		},
+		piAvailable: () => pi !== undefined,
 		async candidateHomes() { return candidates.filter((path) => existsSync(path) && statSync(path).isDirectory()); },
 		async readRecord() {
 			assertSafe();
@@ -288,5 +296,15 @@ export function createInstallAdapter(options: { home?: string; herdr?: () => str
 		clock: () => new Date().toISOString(),
   packageBin,
   keptLauncher: () => keptLauncher,
+  claude: createClaudeHooksAdapter({
+   home,
+   command: () => ({ node: stableNodePath(), main: resolve(root, "cli/src/main.ts") }),
+   claudeOnPath: options.claudeOnPath ?? (async () => (await findPrograms())["claude-code"] !== undefined),
+  }),
+  codex: createCodexHooksAdapter({
+   home,
+   command: () => ({ node: stableNodePath(), main: resolve(root, "cli/src/main.ts") }),
+   codexOnPath: options.codexOnPath ?? (async () => (await findPrograms()).codex !== undefined),
+  }),
 	};
 }

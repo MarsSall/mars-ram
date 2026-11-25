@@ -3,7 +3,8 @@ import { firewallFixes, type FirewallState } from "./firewall.ts";
 import type { UnsafeReason, UploadsFolderState } from "@workspace/protocol/uploads-folder";
 
 export type Finding = { status: "ok" | "warning" | "problem"; finding: string; fix?: string };
-export type RegistryObservation = { exists: boolean; entries: { name: string; pid?: number }[]; directoryMode?: number; modes: (number | undefined)[] };
+/** unfollowed (Windows): the root, registry folder or entries that are links, reparse points or not folders, never read. */
+export type RegistryObservation = { exists: boolean; entries: { name: string; pid?: number }[]; directoryMode?: number; modes: (number | undefined)[]; unfollowed?: string[] };
 export type WindowsDefaultShell = "cmd" | "powershell" | "other";
 export interface DoctorPorts {
 	platform: NodeJS.Platform;
@@ -20,7 +21,10 @@ export interface DoctorPorts {
 	installation(): Promise<{ present: boolean; current: boolean; homes: { path: string; registered: boolean }[] }>;
 	registry(): Promise<RegistryObservation>;
 	alive(pid: number): boolean;
-	acl(): Promise<{ safe: boolean; administratorOwner: boolean }>;
+	/** Windows. safe: the secret folders (agents, bridges, links, notify and the bridge registry in use) and every
+	 * descendant allow only the user, SYSTEM and Administrators, none is a reparse point, and the root has such an owner
+	 * and grants others at most read/execute. readers: those others. tooMany: the walk hit its cap (never safe). */
+	acl(): Promise<{ safe: boolean; administratorOwner: boolean; readers?: string[]; tooMany?: boolean }>;
 	tailscale(): Promise<string>;
 	/** IPv4 addresses of ZeroTier interfaces; empty when ZeroTier is not connected. */
 	zerotier(): Promise<string[]>;
@@ -35,6 +39,11 @@ export interface DoctorPorts {
 	windows(): Promise<{ service: boolean; shell: WindowsDefaultShell }>;
 	/** The private temp attachments folder, checked without creating it; legacy: ~/.mars-ram/uploads still exists. */
 	uploads(): Promise<{ state: UploadsFolderState; legacy: boolean }>;
+	/** Claude Code on this computer and the hooks install owns in its settings.json (read only). Absent: not checked. */
+	claudeHooks?(): Promise<{ detected: boolean; readable: boolean; registered: string[]; current: boolean }>;
+	/** Codex on this computer, the hooks install owns in its hooks.json, and the trust Codex recorded for them in
+	 * config.toml (`known: false` when it cannot tell). Read only. Absent: not checked. */
+	codexHooks?(): Promise<{ detected: boolean; readable: boolean; registered: string[]; current: boolean; trust: { known: true; events: Record<string, "trusted" | "stale" | "untrusted" | "disabled"> } | { known: false } }>;
 }
 const say = (p: DoctorPorts, en: string, es: string) => p.spanish ? es : en;
 const result = (status: Finding["status"], finding: string, fix?: string): Finding => ({ status, finding, ...(fix ? { fix } : {}) });
@@ -43,6 +52,17 @@ const installFix = (p: DoctorPorts) => say(p, "Run mars-ram install from this ch
 export async function checkPi(p: DoctorPorts): Promise<Finding[]> {
 	let version: string;
 	try { version = (await p.piVersion()).trim(); } catch {
+		// Pi is optional when Claude Code or Codex is what this computer runs.
+		let claude = false;
+		let codex = false;
+		try { claude = (await p.claudeHooks?.())?.detected === true; } catch { /* Unknown: Pi stays required. */ }
+		try { codex = (await p.codexHooks?.())?.detected === true; } catch { /* Unknown: Pi stays required. */ }
+		const agents = [claude ? "Claude Code" : "", codex ? "Codex" : ""].filter(Boolean);
+		if (agents.length) {
+			const en = agents.join(" and ");
+			const es = agents.join(" y ");
+			return [result("warning", say(p, `Pi is unavailable on PATH; only ${en} sessions can be followed.`, `Pi no está disponible en PATH; solo se pueden seguir sesiones de ${es}.`), say(p, "Install Pi and run mars-ram install to follow Pi sessions too.", "Instalá Pi y ejecutá mars-ram install para seguir también sesiones Pi."))];
+		}
 		return [result("problem", say(p, "Pi is unavailable on PATH.", "Pi no está disponible en PATH."), say(p, "Install Pi and add it to PATH.", "Instalá Pi y agregalo a PATH."))];
 	}
 	const match = version.match(/\b(\d+)\.(\d+)\.(\d+)(-[\w.-]+)?/);
@@ -88,6 +108,49 @@ export async function checkHerdrMachines(p: DoctorPorts): Promise<Finding[]> {
   say(p, `To hide them: ${commands}`, `Para ocultarlos: ${commands}`))];
 }
 
+/** Claude Code sessions appear in the app only through the hooks install adds to its settings.json. */
+export async function checkClaudeHooks(p: DoctorPorts): Promise<Finding[]> {
+	if (!p.claudeHooks) return [];
+	const state = await p.claudeHooks();
+	if (!state.detected) return [];
+	const fix = say(p, "Run mars-ram install and accept the Claude Code hooks.", "Ejecutá mars-ram install y aceptá los hooks de Claude Code.");
+	if (!state.readable) return [result("warning", say(p, "Claude Code settings.json could not be read; hooks unknown.", "No se pudo leer settings.json de Claude Code; hooks desconocidos."), say(p, "Check that it is valid JSON, then run doctor again.", "Verificá que sea JSON válido y volvé a ejecutar doctor."))];
+	if (!state.registered.length) return [result("warning", say(p, "Claude Code hooks: not installed; Claude Code sessions do not appear in the app.", "Hooks de Claude Code: no instalados; las sesiones de Claude Code no aparecen en la app."), fix)];
+	if (!state.current) return [result("warning", say(p, `Claude Code hooks: outdated or incomplete (${state.registered.join(", ")}).`, `Hooks de Claude Code: desactualizados o incompletos (${state.registered.join(", ")}).`), fix)];
+	return [result("ok", say(p, `Claude Code hooks registered: ${state.registered.join(", ")}.`, `Hooks de Claude Code registrados: ${state.registered.join(", ")}.`))];
+}
+
+/**
+ * Codex sessions appear in the app only through the hooks install adds to its hooks.json, and Codex runs a user hook
+ * only once it is trusted (`/hooks` in Codex). Trust is read from Codex's config.toml when possible, and its recorded
+ * hash is compared with the one Codex computes for the hook now: a trust recorded for an older command is stale.
+ */
+export async function checkCodexHooks(p: DoctorPorts): Promise<Finding[]> {
+	if (!p.codexHooks) return [];
+	const state = await p.codexHooks();
+	if (!state.detected) return [];
+	const fix = say(p, "Run mars-ram install and accept the Codex hooks.", "Ejecutá mars-ram install y aceptá los hooks de Codex.");
+	const trustFix = say(p, "Open Codex, type /hooks, review the mars-ram hooks and trust them.", "Abrí Codex, escribí /hooks, revisá los hooks de mars-ram y aprobalos.");
+	if (!state.readable) return [result("warning", say(p, "Codex hooks.json could not be read; hooks unknown.", "No se pudo leer hooks.json de Codex; hooks desconocidos."), say(p, "Check that it is valid JSON, then run doctor again.", "Verificá que sea JSON válido y volvé a ejecutar doctor."))];
+	if (!state.registered.length) return [result("warning", say(p, "Codex hooks: not installed; Codex sessions do not appear in the app.", "Hooks de Codex: no instalados; las sesiones de Codex no aparecen en la app."), fix)];
+	const findings = [state.current
+		? result("ok", say(p, `Codex hooks registered: ${state.registered.join(", ")}.`, `Hooks de Codex registrados: ${state.registered.join(", ")}.`))
+		: result("warning", say(p, `Codex hooks: outdated or incomplete (${state.registered.join(", ")}).`, `Hooks de Codex: desactualizados o incompletos (${state.registered.join(", ")}).`), fix)];
+	if (!state.trust.known) {
+		findings.push(result("warning", say(p, "Codex hook trust could not be read from its config.toml; Codex runs the hooks only once they are trusted.", "No se pudo leer la aprobación de los hooks en config.toml de Codex; Codex los ejecuta solo una vez aprobados."), trustFix));
+		return findings;
+	}
+	const events = Object.entries(state.trust.events);
+	const disabled = events.filter(([, trust]) => trust === "disabled").map(([event]) => event);
+	const untrusted = events.filter(([, trust]) => trust === "untrusted").map(([event]) => event);
+	const stale = events.filter(([, trust]) => trust === "stale").map(([event]) => event).sort();
+	if (disabled.length) findings.push(result("warning", say(p, `Codex hooks turned off in Codex: ${disabled.join(", ")}.`, `Hooks de Codex desactivados en Codex: ${disabled.join(", ")}.`), say(p, "Open Codex, type /hooks and turn the mars-ram hooks back on.", "Abrí Codex, escribí /hooks y volvé a activar los hooks de mars-ram.")));
+	if (untrusted.length) findings.push(result("warning", say(p, `Codex hooks not trusted yet, so Codex does not run them: ${untrusted.join(", ")}.`, `Hooks de Codex todavía sin aprobar, Codex no los ejecuta: ${untrusted.join(", ")}.`), trustFix));
+	if (stale.length) findings.push(result("warning", say(p, `Codex hooks need re-trust with /hooks: they changed since Codex trusted them, so Codex does not run them: ${stale.join(", ")}.`, `Hooks de Codex que hay que volver a aprobar con /hooks: cambiaron desde que Codex los aprobó, así que no los ejecuta: ${stale.join(", ")}.`), say(p, "Open Codex, type /hooks, review the mars-ram hooks and trust them again.", "Abrí Codex, escribí /hooks, revisá los hooks de mars-ram y volvé a aprobarlos.")));
+	if (!disabled.length && !untrusted.length && !stale.length) findings.push(result("ok", say(p, "Codex hooks trusted in Codex (after an update changes them, Codex asks again in /hooks).", "Hooks de Codex aprobados en Codex (si una actualización los cambia, Codex vuelve a pedirlo en /hooks).")));
+	return findings;
+}
+
 export async function checkInstallation(p: DoctorPorts): Promise<Finding[]> {
 	const install = await p.installation();
 	const results = [result(install.present ? "ok" : "warning", say(p, `Bridge install.json ${install.present ? "present" : "missing"}.`, `install.json del bridge ${install.present ? "presente" : "ausente"}.`), install.present ? undefined : installFix(p))];
@@ -101,6 +164,8 @@ export async function checkRegistry(p: DoctorPorts): Promise<Finding[]> {
 	const registry = await p.registry();
 	const live = registry.entries.filter((entry) => entry.pid !== undefined && p.alive(entry.pid));
 	const results = [result(live.length ? "ok" : "warning", say(p, `Bridge loaded: ${live.length} live registry entries.`, `Bridge cargado: ${live.length} entradas activas en el registro.`), live.length ? undefined : say(p, "Start Pi with the installed bridge, or use /reload.", "Iniciá Pi con el bridge instalado o usá /reload."))];
+	for (const path of registry.unfollowed ?? []) results.push(result("problem", say(p, `Bridge registry path is a link, reparse point or not a folder, so doctor did not read it: ${path}.`, `La ruta del registro del bridge es un enlace, un punto de reanálisis o no es una carpeta; doctor no la leyó: ${path}.`),
+		say(p, "If you did not make it on purpose, remove the link and start Pi again so the bridge recreates it with private permissions.", "Si no lo hiciste a propósito, quitá el enlace e iniciá Pi de nuevo para que el bridge lo recree con permisos privados.")));
 	for (const entry of registry.entries.filter((entry) => !live.includes(entry))) results.push(result("warning", say(p, `Stale or invalid bridge entry: ${entry.name}.`, `Entrada del bridge obsoleta o inválida: ${entry.name}.`), say(p, "Start a Pi session; stale entries are pruned on the next bridge start.", "Iniciá una sesión Pi; el próximo inicio del bridge limpia las entradas obsoletas.")));
 	return results;
 }
@@ -108,7 +173,17 @@ export async function checkRegistry(p: DoctorPorts): Promise<Finding[]> {
 export async function checkPermissions(p: DoctorPorts): Promise<Finding[]> {
 	if (p.platform === "win32") {
 		const acl = await p.acl();
-		const results = [result(acl.safe ? "ok" : "problem", say(p, `Mars-RAM ACL and owner: ${acl.safe ? "restricted" : "unsafe"}.`, `ACL y propietario de Mars-RAM: ${acl.safe ? "restringidos" : "inseguros"}.`), acl.safe ? undefined : say(p, "Use Windows Security advanced permissions to allow only your account, SYSTEM and Administrators, including ownership and child entries.", "Usá los permisos avanzados de Seguridad de Windows para permitir solo tu cuenta, SYSTEM y Administradores, también en el propietario y las entradas hijas."))];
+		const readers = acl.safe ? acl.readers ?? [] : [];
+		const codex = (name: string) => /(?:^|\\)CodexSandboxUsers$/i.test(name);
+		const results = readers.length ? [result("warning",
+			say(p, `Other accounts can read Mars-RAM's code and settings (${readers.map((name) => codex(name) ? `${name}, added by Codex's sandbox` : name).join("; ")}). Tokens and links stay private.`,
+				`Otros usuarios pueden leer el código y la configuración de Mars-RAM (${readers.map((name) => codex(name) ? `${name}, que agrega el sandbox de Codex` : name).join("; ")}). Los tokens y links siguen privados.`),
+			readers.every(codex)
+				? say(p, "Nothing to fix: Codex adds it again each time it starts. The agents, bridges, links and notify folders are checked separately and stay private.", "No hay que corregir nada: Codex lo vuelve a agregar cada vez que inicia. Las carpetas agents, bridges, links y notify se revisan aparte y siguen privadas.")
+				: say(p, "If you did not allow this on purpose, remove it in the Windows Security advanced permissions of %USERPROFILE%\\.mars-ram.", "Si no lo permitiste a propósito, quitalo en los permisos avanzados de Seguridad de Windows de %USERPROFILE%\\.mars-ram."))]
+			: acl.tooMany ? [result("problem", say(p, "Mars-RAM ACL and owner: too many entries to check.", "ACL y propietario de Mars-RAM: demasiadas entradas para revisar."),
+				say(p, "Check by hand, in the Windows Security advanced permissions, that only your account, SYSTEM and Administrators can open the agents, bridges, links and notify folders and everything inside them.", "Revisá a mano, en los permisos avanzados de Seguridad de Windows, que solo tu cuenta, SYSTEM y Administradores puedan abrir las carpetas agents, bridges, links y notify y todo lo que contienen."))]
+			: [result(acl.safe ? "ok" : "problem", say(p, `Mars-RAM ACL and owner: ${acl.safe ? "restricted" : "unsafe"}.`, `ACL y propietario de Mars-RAM: ${acl.safe ? "restringidos" : "inseguros"}.`), acl.safe ? undefined : say(p, "Use Windows Security advanced permissions to allow only your account, SYSTEM and Administrators, including ownership and child entries.", "Usá los permisos avanzados de Seguridad de Windows para permitir solo tu cuenta, SYSTEM y Administradores, también en el propietario y las entradas hijas."))];
 		if (acl.administratorOwner) results.push(result("warning", say(p, "Mars-RAM is owned by Administrators (L9).", "Mars-RAM pertenece a Administradores (L9)."), say(p, "If the folder is empty, remove it yourself and start Pi in a non-elevated terminal so it is recreated as your user; otherwise ask an administrator to transfer ownership without deleting paired data.", "Si la carpeta está vacía, eliminala vos e iniciá Pi sin elevar para recrearla como tu usuario; si no, pedí a un administrador que transfiera la propiedad sin borrar datos emparejados.")));
 		return results;
 	}
@@ -240,7 +315,7 @@ export async function checkUploads(p: DoctorPorts): Promise<Finding[]> {
 }
 export async function diagnose(p: DoctorPorts): Promise<{ code: number; results: Finding[] }> {
 	const results: Finding[] = [];
-	for (const check of [checkPi, checkHerdr, checkHerdrMachines, checkCli, checkInstallation, checkRegistry, checkPermissions, checkUploads, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkKeyLocks, checkWindows]) {
+	for (const check of [checkPi, checkHerdr, checkHerdrMachines, checkCli, checkInstallation, checkClaudeHooks, checkCodexHooks, checkRegistry, checkPermissions, checkUploads, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkKeyLocks, checkWindows]) {
 		try { results.push(...await check(p)); } catch {
 			results.push(result("problem", say(p, `Cannot read diagnostic data (${check.name}).`, `No se pudo leer el diagnóstico (${check.name}).`), say(p, "Check read access to the relevant configuration and diagnostic commands, then run doctor again.", "Verificá acceso de lectura a la configuración y los comandos de diagnóstico y volvé a ejecutar doctor.")));
 		}

@@ -1,7 +1,19 @@
 // What the session screen shows, built from the bridge's snapshot and then its live events
 // (PRD R3, R4, R6). Pure: every change returns a new value.
-import { splitAttachedFiles, type BridgeEvent, type HistoryResponse, type PendingPrompt, type StateResponse } from "@workspace/protocol";
-import { type SessionStatus, statusOf as statusOfState } from "./session-list";
+import {
+	boundApproval,
+	boundApprovals,
+	sessionCapabilities,
+	splitAttachedFiles,
+	type AgentKind,
+	type ApprovalRequest,
+	type BridgeEvent,
+	type Capabilities,
+	type HistoryResponse,
+	type PendingPrompt,
+	type StateResponse,
+} from "@workspace/protocol";
+import { idleReminder, type SessionStatus, statusOf as statusOfState } from "./session-list";
 
 export type ChatItem =
 	| { kind: "user"; key: string; text: string; images: number }
@@ -24,10 +36,34 @@ export type Conversation = {
 	lastSeq: number;
 	/** When the session last changed, or null if unknown. */
 	updatedAt: number | null;
+	/** Since protocol 1.9: which agent runs the session; absent on the state means Pi. */
+	agent: AgentKind | "unknown";
+	/** Since protocol 1.9: what the app may ask; a bridge without them is a Pi bridge with every Pi feature. */
+	capabilities: Capabilities;
+	/** Since protocol 1.9: what the agent waits for the user to allow, oldest first. */
+	approvals: ApprovalRequest[];
 };
 
-export function statusOf(c: Pick<Conversation, "running" | "prompt">): SessionStatus {
-	return statusOfState({ idle: !c.running, pendingPrompt: c.prompt });
+export function statusOf(c: Pick<Conversation, "running" | "prompt"> & { approvals?: readonly ApprovalRequest[]; agent?: Conversation["agent"] }): SessionStatus {
+	if (c.approvals && c.approvals.length > 0) return "attention";
+	return statusOfState({ idle: !c.running, pendingPrompt: c.prompt }, c.agent);
+}
+
+/**
+ * The generic «waiting for you» prompt to show, if any. A bridge that answers approvals also sets
+ * `pendingPrompt` while one is pending (so pre-1.9 apps still say «needs you»); then the approval card
+ * is the single UI for it and this returns null. Pi and bridges without `approvals` are unchanged.
+ */
+export function visiblePrompt(c: Pick<Conversation, "prompt" | "capabilities" | "approvals"> & Partial<Pick<Conversation, "agent" | "running">>): PendingPrompt | null {
+	if (c.capabilities.approvals && c.approvals.length > 0) return null;
+	// Claude Code's idle reminder is no question (claude-codex L21).
+	if (idleReminder(c.agent, { idle: !c.running, pendingPrompt: c.prompt })) return null;
+	return c.prompt;
+}
+
+/** Drops an approval once it was answered, from the phone or anywhere else. */
+export function resolveApproval(c: Conversation, id: string): Conversation {
+	return c.approvals.some((a) => a.id === id) ? { ...c, approvals: c.approvals.filter((a) => a.id !== id) } : c;
 }
 
 export function fromSnapshot(state: StateResponse, history: HistoryResponse["messages"]): Conversation {
@@ -47,6 +83,8 @@ export function fromSnapshot(state: StateResponse, history: HistoryResponse["mes
 		model: state.model,
 		lastSeq: state.lastSeq,
 		updatedAt: state.lastActivityAt,
+		...sessionCapabilities(state),
+		approvals: boundApprovals(state.approvals),
 	};
 }
 
@@ -100,6 +138,15 @@ export function applyEvent(c: Conversation, event: BridgeEvent): Conversation {
 			return { ...next, items: startTool(next.items, key, event.toolName) };
 		case "tool_end":
 			return { ...next, items: addTool(next.items, key, event.isError) };
+		case "approval_request": {
+			const approval = boundApproval(event);
+			if (!approval) return next;
+			// The same id again replaces the pending one in place (a bridge may resend it).
+			const index = next.approvals.findIndex((a) => a.id === approval.id);
+			return { ...next, approvals: boundApprovals(index === -1 ? [...next.approvals, approval] : next.approvals.map((a, i) => (i === index ? approval : a))) };
+		}
+		case "approval_resolved":
+			return resolveApproval(next, event.id);
 		default:
 			return next;
 	}

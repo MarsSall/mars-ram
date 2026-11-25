@@ -64,6 +64,13 @@ export function needsBridgeReload(version: string, app: string): boolean {
  const host = pattern.exec(version), phone = pattern.exec(app);
  return !!host && !!phone && host[1] === phone[1] && Number(host[2]) < Number(phone[2]);
 }
+/**
+ * The oldest Pi bridge protocol whose features this app uses (1.8: subagents). A newer app protocol alone
+ * (1.9 added other agents and approvals, which Pi bridges never offer) is no reason to ask for /reload.
+ */
+export const MINIMUM_PI_BRIDGE_PROTOCOL = '1.8';
+/** A running Pi bridge older than `MINIMUM_PI_BRIDGE_PROTOCOL` gets the new features after /reload. */
+export function piBridgeReloadNeeded(version: string): boolean { return needsBridgeReload(version, MINIMUM_PI_BRIDGE_PROTOCOL); }
 export type HostUpdate = { release: HostRelease; status: HostUpdateStatus; target?: string };
 export function hostUpdate(release: HostRelease, latest?: string): HostUpdate {
  const status = hostUpdateStatus(release, MINIMUM_HOST_VERSION, latest);

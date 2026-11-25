@@ -16,8 +16,11 @@ internal data class WatchHost(
   val username: String, val keyAlias: String, val expectedFingerprint: String,
 )
 internal sealed interface WatchEvent {
-  data class Snapshot(val key: SessionKey, val project: String, val seq: Long, val active: Boolean, val waiting: Boolean, val protocolVersion: String) : WatchEvent
-  data class Event(val key: SessionKey, val seq: Long, val type: String, val outcome: String?, val aborted: Boolean, val protocolVersion: String) : WatchEvent
+  /** `waiting` is an open prompt; `approvals` are the state's pending approval ids (bounded, at most 8). */
+  data class Snapshot(val key: SessionKey, val project: String, val seq: Long, val active: Boolean, val waiting: Boolean, val protocolVersion: String,
+    val approvals: List<String> = emptyList(), val agent: String? = null) : WatchEvent
+  data class Event(val key: SessionKey, val seq: Long, val type: String, val outcome: String?, val aborted: Boolean, val protocolVersion: String,
+    val approvalId: String? = null) : WatchEvent
   data class Removed(val key: SessionKey) : WatchEvent
   data class HostState(val hostId: String, val state: String) : WatchEvent
 }

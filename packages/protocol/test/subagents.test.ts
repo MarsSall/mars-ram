@@ -18,7 +18,7 @@ const item = (over: Record<string, unknown> = {}) => ({ id: "t1", agent: "sdd-ap
 
 describe("subagents on the session state (1.8)", () => {
 	it("is a minor, additive bump that 1.7 and 1.8 peers accept from each other", () => {
-		expect(PROTOCOL_VERSION).toBe("1.8");
+		// The current version is asserted in agents.test.ts (1.9); 1.8 bridges stay compatible.
 		expect(checkCompatibility("1.7")).toEqual({ ok: true });
 		expect(checkCompatibility("1.8")).toEqual({ ok: true });
 	});

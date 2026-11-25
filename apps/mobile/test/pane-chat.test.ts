@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatSessionForPane, terminalChatSession, focusedHerdrPane, currentPaneChatBinding, fullChatMetadata } from "../src/core/pane-chat";
+import { chatSessionForPane, terminalChatSession, focusedHerdrPane, currentPaneChatBinding, fullChatMetadata, nextPaneChatBinding } from "../src/core/pane-chat";
 import type { SessionSummary } from "../src/core/session-list";
 const a: SessionSummary = { key: "host/a", hostId: "host", bridgeInstanceId: "a", terminalPane: "w2G:p2", project: "a", cwd: "/a", status: "done", lastActivityAt: 1, lastMessage: null };
 const b = { ...a, key: "host/b", terminalPane: "w2G:p3" };
@@ -52,5 +52,44 @@ describe("pane chat", () => {
   const ambiguous = focusedHerdrPane({ workspaces: [{ ...w, tabs: [{ ...tab, panes: [...tab.panes, { id: "w2G:p3", focused: false }] }] }], truncated: false });
   expect(ambiguous).toBeNull();
   expect(terminalChatSession("host", a.key, ambiguous, [a])).toBeUndefined();
+ });
+});
+
+// claude-codex L20: the chat target only changes by an explicit user action.
+describe("pane chat target stays put without an explicit action", () => {
+ const claude: SessionSummary = { ...a, key: "host/claude", terminalPane: "w2G:p2", project: "mars-ram", agent: "claude-code" };
+ const lnedev: SessionSummary = { ...a, key: "host/lnedev", terminalPane: "w2G:p9", project: "lnedev", status: "working" };
+ it("a poll after another session's tab gets Herdr focus (or finishes) keeps the target", () => {
+  const bound = nextPaneChatBinding(null, "host", claude.key, "w2G:p2", [claude, lnedev], "initial");
+  expect(bound.key).toBe(claude.key);
+  const after = nextPaneChatBinding(bound, "host", claude.key, "w2G:p9", [claude, { ...lnedev, status: "done" }], "poll");
+  expect(after.key).toBe(claude.key);
+  expect(after.session?.key).toBe(claude.key);
+ });
+ it("the opened session's terminal is the target even when Herdr still focuses another pane", () => {
+  expect(nextPaneChatBinding(null, "host", claude.key, "w2G:p9", [claude, lnedev], "initial").key).toBe(claude.key);
+ });
+ it("an explicit choice follows the chosen pane", () => {
+  const bound = nextPaneChatBinding(null, "host", claude.key, "w2G:p2", [claude, lnedev], "initial");
+  const chosen = nextPaneChatBinding(bound, "host", claude.key, "w2G:p9", [claude, lnedev], "explicit");
+  expect(chosen.key).toBe(lnedev.key);
+  expect(chosen.session?.project).toBe("lnedev");
+ });
+ it("an explicitly chosen pane without a session gets its session later, never another pane's", () => {
+  const bound = nextPaneChatBinding(null, "host", claude.key, "w2G:p2", [claude, lnedev], "initial");
+  const empty = nextPaneChatBinding(bound, "host", claude.key, "w2G:p5", [claude, lnedev], "explicit");
+  expect(empty.key).toBeUndefined();
+  expect(nextPaneChatBinding(empty, "host", claude.key, "w2G:p9", [claude, lnedev], "poll").key).toBeUndefined();
+  const started = { ...a, key: "host/new", terminalPane: "w2G:p5" };
+  expect(nextPaneChatBinding(empty, "host", claude.key, "w2G:p9", [claude, lnedev, started], "poll").key).toBe(started.key);
+ });
+ it("a standalone terminal binds once to the focused pane, then keeps it", () => {
+  const bound = nextPaneChatBinding(null, "host", undefined, "w2G:p2", [claude, lnedev], "initial");
+  expect(bound.key).toBe(claude.key);
+  expect(nextPaneChatBinding(bound, "host", undefined, "w2G:p9", [claude, lnedev], "poll").key).toBe(claude.key);
+ });
+ it("a binding from another route is never reused", () => {
+  const bound = nextPaneChatBinding(null, "host", claude.key, "w2G:p2", [claude, lnedev], "initial");
+  expect(nextPaneChatBinding(bound, "host", lnedev.key, "w2G:p2", [claude, lnedev], "poll").key).toBe(lnedev.key);
  });
 });

@@ -5,9 +5,10 @@ import { AppState } from "react-native";
 import type { ActionResult, LiveSession, LiveView } from "../core/live-session";
 import type { Attachment } from "../core/attachment-draft";
 import type { UploadProgress } from "../core/attachment-uploads";
+import type { ApprovalDecision } from "@workspace/protocol";
 import { notifications, sessions } from "../services";
 
-export function useLiveSession(key: string | undefined): { view: LiveView | null; send: (text: string, attachments?: readonly Attachment[], progress?: UploadProgress) => Promise<ActionResult>; stop: () => Promise<ActionResult> } {
+export function useLiveSession(key: string | undefined): { view: LiveView | null; send: (text: string, attachments?: readonly Attachment[], progress?: UploadProgress) => Promise<ActionResult>; stop: () => Promise<ActionResult>; answer: (id: string, decision: ApprovalDecision) => Promise<ActionResult> } {
 	const [snapshot, setSnapshot] = useState<{ key: string; view: LiveView } | null>(null);
 	const live = useRef<LiveSession | null>(null);
 
@@ -40,5 +41,6 @@ export function useLiveSession(key: string | undefined): { view: LiveView | null
 		view: snapshot && snapshot.key === key ? snapshot.view : null,
 		send: (text, attachments, progress) => live.current?.send(text, attachments, progress) ?? Promise.resolve(notReady),
 		stop: () => live.current?.requestStop() ?? Promise.resolve(notReady),
+		answer: (id, decision) => live.current?.answerApproval(id, decision) ?? Promise.resolve(notReady),
 	};
 }

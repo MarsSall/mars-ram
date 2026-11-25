@@ -23,6 +23,7 @@ import { shortcutsCommand } from './shortcuts-command.ts';
 import { notifyCommand } from './notify-command.ts';
 import { uploadsDirCommand } from './uploads-command.ts';
 import { updateCommand } from './update-command.ts';
+import { bridgeCommand, hookCommand } from './hook-command.ts';
 
 import { readRelease } from './adapters/release-version.ts';
 
@@ -112,7 +113,7 @@ function fail(message: string): number {
 // Exit explicitly: a confirmation question left unanswered after a cancel or expiry would keep reading stdin.
 const parsed = parseArguments(process.argv.slice(2));
 if (!parsed.ok) {
-	console.error(text.usage + '\nmars-ram version [--json]\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json]\nmars-ram uploads-dir --json\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
+	console.error(text.usage + '\nmars-ram version [--json]\nmars-ram repos [--json] [--add-root <dir>|--remove-root <dir>]\nmars-ram launch --repo <absolute path> --program <gentle-shell|pi|opencode|claude-code|codex> [--json]\nmars-ram hook claude <SessionStart|UserPromptSubmit|Stop|Notification|SessionEnd|PermissionRequest> (run by Claude Code)\nmars-ram hook codex <SessionStart|UserPromptSubmit|PermissionRequest|Stop|Interrupt|SessionEnd> (run by Codex)\nmars-ram uploads-dir --json\nmars-ram servers list\nmars-ram herdr list\nmars-ram herdr focus <workspaceId> [<tabId>]\nmars-ram project tree [--path <path>|--path-b64 <base64url>] [--workspace <id>]\nmars-ram project status|branches [--workspace <id>]\nmars-ram project log [--limit <1-100>] [--workspace <id>]\nmars-ram project file|stage-link --path <path>|--path-b64 <base64url> [--workspace <id>]\nmars-ram project diff --path <path>|--path-b64 <base64url> [--commit <hash>] [--workspace <id>]\nmars-ram project show --commit <hash> [--workspace <id>]\nmars-ram key add --key "<type> <base64>" --like "<type> <base64>"\nmars-ram key remove --key "<type> <base64>" --keep "<type> <base64>"');
 	process.exit(2);
 }
 if (parsed.command === 'version') {
@@ -120,4 +121,4 @@ if (parsed.command === 'version') {
  console.log(parsed.json ? JSON.stringify({ version: 1, release }) : release);
  process.exit(0);
 }
-process.exit(await (parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed) : parsed.command === "doctor" ? doctorCommand() : parsed.command === "uploads-dir" ? uploadsDirCommand() : parsed.command === "update" ? updateCommand() : installCommand(parsed.command)));
+process.exit(await (parsed.command === 'hook' ? hookCommand(parsed.args) : parsed.command === 'bridge' ? bridgeCommand(parsed.args) : parsed.command === 'notify' ? notifyCommand(parsed.args) : parsed.command === 'repos' || parsed.command === 'launch' ? shortcutsCommand(parsed.command, parsed.args) : parsed.command === 'servers' ? serversCommand(parsed.args) : parsed.command === 'project' ? projectCommand(parsed.args) : parsed.command === 'herdr' ? herdrCommand(parsed.args) : parsed.command === 'key' ? keyCommand(parsed) : parsed.command === "pair" ? pair(parsed) : parsed.command === "doctor" ? doctorCommand() : parsed.command === "uploads-dir" ? uploadsDirCommand() : parsed.command === "update" ? updateCommand() : installCommand(parsed.command)));

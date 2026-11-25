@@ -27,7 +27,7 @@ function elements(node: unknown): Node[] {
 }
 const source = (path: string) => readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
 
-afterEach(() => { for (const id of ["terminal", "chatFloating", "projectSheet", "sessionSelector"] as const) appTour.releaseTip(id); });
+afterEach(() => { for (const id of ["terminal", "chatFloating", "projectSheet", "sessionSelector", "keyBarTab", "approval"] as const) appTour.releaseTip(id); });
 
 it("shows the tip that was claimed with «Entendido» over the screens, and «Entendido» records it", async () => {
  expect(TipLayer({ tips: ROOT_TIPS })).toBeNull();

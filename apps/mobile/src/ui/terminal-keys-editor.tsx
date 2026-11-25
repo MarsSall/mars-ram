@@ -5,7 +5,10 @@ import { Alert, Animated, BackHandler, Modal, PanResponder, Pressable, ScrollVie
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { FIXED_BAR_KEYS, addToBar, saveCustom, terminalKeyInfo, type KeyId, type TerminalKeyInfo } from "../core/terminal-keys";
-import { terminalKeys } from "../services";
+import { keyBarMode, terminalKeys } from "../services";
+import type { KeyBarMode, KeyBarSettings } from "../core/key-bar-visibility";
+import { KeyBarHandleSizeSlider } from "./key-bar-handle-size";
+import { KeyBarModePicker } from "./key-bar-mode-picker";
 import { PrimaryButton, Screen, Segmented } from "./components";
 import { CustomButtonForm } from "./custom-button-form";
 import { usePreferences } from "./preferences";
@@ -28,7 +31,11 @@ export function TerminalKeysEditor({ close }: { close: () => void }) {
  const { theme, t } = usePreferences(); const k = t.terminalKeys; const s = t.terminal; const c = theme.colors;
  const insets = useSafeAreaInsets();
  const [state, dispatch] = useReducer(draftReducer, undefined, () => startDraft(terminalKeys.get()));
- const draft = state.draft; const changed = draftChanged(state);
+ // How the bar shows and its handles' size (key-bar-autohide S4, S9) are part of the same draft: «Guardar
+ // cambios» saves them with the keys.
+ const [savedBar, setSavedBar] = useState<KeyBarSettings>(keyBarMode.get);
+ const [bar, setBar] = useState<KeyBarSettings>(keyBarMode.get);
+ const draft = state.draft; const changed = draftChanged(state) || bar.mode !== savedBar.mode || bar.handleSize !== savedBar.handleSize;
  const [tab, setTab] = useState<Tab>("bar");
  const [selected, setSelected] = useState<Selection>(null);
  const [sheet, setSheet] = useState<KeyId | null>(null);
@@ -48,12 +55,14 @@ export function TerminalKeysEditor({ close }: { close: () => void }) {
  const save = () => {
   if (saving === "saving") return;
   setSaving("saving");
-  terminalKeys.set(draft).then(() => { dispatch({ type: "saved", layout: terminalKeys.get() }); setSaving("saved"); }, () => setSaving("failed"));
+  Promise.all([terminalKeys.set(draft), keyBarMode.set(bar)]).then(() => { dispatch({ type: "saved", layout: terminalKeys.get() }); setSavedBar(keyBarMode.get()); setSaving("saved"); }, () => setSaving("failed"));
  };
  const askRestore = () => Alert.alert(k.restoreTitle, k.restoreBody, [
   { text: k.cancel, style: "cancel" },
   { text: k.restoreConfirm, onPress: () => { setSelected(null); setPlacing(null); edit({ type: "restore" }); } },
  ]);
+ const chooseBarMode = (mode: KeyBarMode) => { setSaving("idle"); setBar(current => ({ ...current, mode })); };
+ const chooseHandleSize = (handleSize: number) => { setSaving("idle"); setBar(current => ({ ...current, handleSize })); };
  const changeTab = (next: Tab) => { setTab(next); setSelected(null); setPlacing(null); };
 
  // Tap alternative: catalog key → sheet → bar (then «Mover») or a D-pad place.
@@ -274,6 +283,8 @@ export function TerminalKeysEditor({ close }: { close: () => void }) {
      <Ionicons name="trash-outline" size={22} color={removing ? c.danger : c.textMuted} />
      <Text style={{ color: c.text, fontSize: 14 }}>{k.dropRemove(keyChip(dragged, s))}</Text>
     </View> : null}
+    {tab === "bar" ? <KeyBarModePicker value={bar.mode} onChange={chooseBarMode} /> : null}
+    {tab === "bar" && bar.mode !== "always" ? <KeyBarHandleSizeSlider value={bar.handleSize} onChange={chooseHandleSize} /> : null}
     <Text style={{ color: c.textMuted, fontSize: 14 }}>{tab === "bar" ? `${k.dragHint} ${k.fixedInfo}` : k.dragHint}</Text>
     {catalogGroups(draft).map(({ group, keys }) => <View key={group} style={{ gap: theme.spacing(2), marginTop: theme.spacing(2) }}>
      <Text accessibilityRole="header" style={{ color: c.textMuted, fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 }}>{k.groups[group]}{group === "herdr" ? <Text style={{ textTransform: "none", fontWeight: "400" }}>{` · ${k.herdrNote}`}</Text> : null}</Text>

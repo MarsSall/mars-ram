@@ -13,7 +13,7 @@ export type TerminalOpener = {
  id: OpenerId;
  check(facts: OpenerFacts): OpenerAvailability;
  /** Params for TERMINAL_ROUTE. */
- params(computer: Pick<SavedHost, "id" | "name">): Record<string, string>;
+ params(computer: Pick<SavedHost, "id" | "name">): Record<string, string> & { id: string };
 };
 
 export const TERMINAL_ROUTE = "/session/terminal/[id]";

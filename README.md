@@ -70,7 +70,7 @@
 
 Mars-RAM (Remote Agent Manager) connects your Android phone to your own computers over SSH on your Tailscale network, or on ZeroTier as an alternative. Follow live agent sessions, answer from chat or the full terminal, and pick up again at your desk.
 
-Live sessions with chat: Pi today; more agents are planned. The full Herdr terminal works with any agent or program.
+Live sessions with chat: Pi, Claude Code and Codex (these two experimental). For Claude Code and Codex you also answer their permission requests with buttons. The full Herdr terminal works with any agent or program.
 
 No Mars-RAM account, no operator-run cloud service. Your computers run the sessions; your phone is another way to reach them.
 
@@ -84,7 +84,7 @@ No Mars-RAM account, no operator-run cloud service. Your computers run the sessi
 
 **On your computer**, you need:
 
-- [Node.js](https://nodejs.org) **24 or newer** and [Pi](https://pi.dev) for live sessions with chat.
+- [Node.js](https://nodejs.org) **24 or newer**, and for live sessions with chat at least one of [Pi](https://pi.dev), [Claude Code](https://code.claude.com) or [Codex](https://developers.openai.com/codex).
 - [Tailscale](https://tailscale.com) on both the computer and the phone (or ZeroTier, see below). On macOS the Tailscale app is enough: Mars-RAM finds its command inside `Tailscale.app`.
 - An SSH server: Linux `sshd`, macOS **Remote Login**, or Windows **OpenSSH Server**.
 
@@ -110,9 +110,11 @@ curl -fsSL https://marssall.github.io/mars-ram/install.sh | sh
 
 Then run `mars-ram pair`. See the [full installation guide](./docs/install.md) for prerequisites, inspecting the installer before running it, and troubleshooting.
 
-**Update:** run `mars-ram update` (mars-ram 0.1.7 and later): it updates the package with the package manager you installed it with and runs `mars-ram install` of the new version. Up to 0.1.6, in a normal terminal (not an administrator one), run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`, one command per line. App build 14 needs mars-ram 0.1.6 and gives you the update commands; the smaller QR that mars-ram 0.1.7 and later print needs app build 11 or later. mars-ram 0.1.10 keeps protocol 1.8: coming from 0.1.9, running Pi sessions need no `/reload`; from an older version, type `/reload` in each running Pi session (or restart it) so it reports its subagents. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
+**Update:** run `mars-ram update` (mars-ram 0.1.7 and later): it updates the package with the package manager you installed it with and runs `mars-ram install` of the new version. Up to 0.1.6, in a normal terminal (not an administrator one), run `pnpm add -g mars-ram` (or `npm i -g mars-ram`) again, then `mars-ram install`, one command per line. App build 15 needs mars-ram 0.1.6 and gives you the update commands (its Claude Code and Codex sessions need mars-ram 0.2.0); the smaller QR that mars-ram 0.1.7 and later print needs app build 11 or later. mars-ram 0.2.0 speaks protocol 1.9: coming from 0.1.9 or 0.1.10, running Pi sessions need no `/reload`; from an older version, type `/reload` in each running Pi session (or restart it) so it reports its subagents. If `mars-ram doctor` still reports outdated copies, run `mars-ram install` again. See the [changelog](./CHANGELOG.md).
 
-**Diagnose:** run `mars-ram doctor` for read-only setup checks.
+**Claude Code and Codex:** `mars-ram install` asks before adding its hooks to `~/.claude/settings.json` or `~/.codex/hooks.json`. It keeps your other settings and hooks, saves a backup first, and `mars-ram uninstall` removes only its own entries. Codex runs them only after you trust them once: open Codex and type `/hooks`. Sessions appear on the phone when you run `claude` or `codex` in a terminal; run them inside a Herdr pane to also send messages and stop them from the phone. Their chat is experimental: it types into their terminal and sends nothing while a question is open on the screen; when the agent asks in its terminal, answer there. Claude Code started by other tools, such as harnesses that use it as their model engine, is not listed.
+
+**Diagnose:** run `mars-ram doctor` for read-only setup checks. On Windows, a warning that other accounts can read Mars-RAM's code and settings (for example CodexSandboxUsers, added by Codex's sandbox) is expected with Codex: your tokens and links stay private, and doctor reports a problem if they are not.
 
 **Phone can't find the computer over Tailscale?** Android's Private DNS bypasses Tailscale's MagicDNS. Turn it off (Settings › Connections › More connection settings › Private DNS › Off) and scan a new code; the app warns you when it detects this.
 
@@ -126,7 +128,7 @@ Once your phone is paired:
 
 1. Open your computer in the app and choose a live agent session to follow or answer it.
 2. Use the full Herdr terminal when you need the keyboard, or chat to send an instruction, photo or file.
-3. Add a shortcut to open Gentle Shell, Pi or OpenCode in a repository without typing the launch command each time.
+3. Add a shortcut to open Gentle Shell, Pi, OpenCode, Claude Code or Codex in a repository without typing the launch command each time.
 
 <p align="center"><img src="./docs/assets/brand/divider.svg" width="480" alt="" /></p>
 
@@ -159,9 +161,10 @@ Once your phone is paired:
 | --- | --- |
 | **Guided connection** | Add a computer step by step over Tailscale or ZeroTier; if the scan fails, the app says what to check. |
 | **ZeroTier as an alternative** | Pair with the same `mars-ram pair` for sessions, the terminal, files, private links and Siempre atento. |
-| **Live agent sessions** | Read, answer and stop a session from the phone. |
-| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. Reorder the bar and the floating D-pad by dragging, pick keys from a list or make your own buttons (Settings › Customize keys). The text size is remembered; change it with a pinch or in Settings. |
-| **Guided shortcuts** | Open Gentle Shell, Pi or OpenCode in a repository. |
+| **Live agent sessions** | Read, answer and stop Pi, Claude Code and Codex sessions from the phone. |
+| **Approvals with buttons** | When Claude Code or Codex asks for permission, allow or deny it from the phone. With no answer, the agent asks in its own terminal as usual. |
+| **Full terminal** | Use any agent or program in Herdr, with a key bar designed for one hand and no keyboard suggestions. Reorder the bar and the floating D-pad by dragging, pick keys from a list or make your own buttons (Settings › Personalization › Customize keys). The bar can be Always visible, Auto-hide or One tap, with a small tab next to 💬 to show or hide it and an adjustable tab size. The text size is remembered; change it with a pinch or in Settings. |
+| **Guided shortcuts** | Open Gentle Shell, Pi, OpenCode, Claude Code or Codex in a repository. |
 | **Open a terminal** | From Home, next to «Add shortcut»: choose the computer and what to open, Herdr or a plain terminal (your login shell, in your home folder, on Linux, macOS or Windows). |
 | **Project files** | Browse files with their git state, diffs and history. Secret files such as `.env` and private keys stay hidden until you tap Show. |
 | **On-device dictation** | Turn speech into text on your phone; audio is not sent over the network. The voice model downloads in the background, even if you close the app. |
@@ -177,7 +180,7 @@ Once your phone is paired:
 | Path | Responsibility |
 | --- | --- |
 | [`apps/mobile`](./apps/mobile/) | Android client: React Native / Expo UI and a Kotlin native SSH module |
-| [`host/cli`](./host/cli/) | Host installation, pairing, diagnostics, project files and Git helpers |
+| [`host/cli`](./host/cli/) | Host installation, pairing, diagnostics, project files and Git helpers; the Claude Code and Codex hooks and their per-session bridges |
 | [`host/pi-bridge`](./host/pi-bridge/) | Pi extension exposing each live session through loopback HTTP and events |
 | [`host/link-server`](./host/link-server/) | Serves expiring private file copies on the computer's tailnet address and, for computers paired over ZeroTier, on their ZeroTier address; also sends Siempre atento notices |
 | [`packages/protocol`](./packages/protocol/) | Shared versioned request, response and event schemas and contract tests |

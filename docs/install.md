@@ -7,7 +7,7 @@ Mars-RAM on your phone talks to `mars-ram` on your computer. Install it once wit
 | You need | Why |
 | --- | --- |
 | [Node.js](https://nodejs.org) 24 or newer | runs mars-ram |
-| [Pi](https://pi.dev) | the sessions you see on the phone |
+| [Pi](https://pi.dev), [Claude Code](https://code.claude.com) or [Codex](https://developers.openai.com/codex) (at least one) | the sessions you see on the phone |
 | [Tailscale](https://tailscale.com) on the computer and the phone | the private network between them (on macOS the Tailscale app is enough: mars-ram finds its command inside `Tailscale.app`) |
 | An SSH server | Linux: OpenSSH (`sshd`). macOS: System Settings › General › Sharing › Remote Login. Windows: the OpenSSH Server optional feature |
 
@@ -39,7 +39,7 @@ Then set it up for your user:
 mars-ram install
 ```
 
-It installs for your user only, with no administrator rights. It asks which Pi environments to include and for a confirmation. On Windows, use a normal terminal (not "Run as administrator").
+It installs for your user only, with no administrator rights. It asks which Pi environments to include and for a confirmation, then, if Claude Code or Codex is installed, whether to add its hooks (your other settings and hooks are kept, with a backup). Codex runs its hooks only after you trust them once with `/hooks` inside Codex. On Windows, use a normal terminal (not "Run as administrator").
 
 **Linux or macOS without pnpm or npm:** this script does the same in one line:
 

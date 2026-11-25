@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION, type StateResponse } from "@workspace/protocol";
 import type { BridgeEndpoint, BridgeHttp, HttpResult } from "../src/core/bridge-client";
-import { type EndpointResult, type EventStream, LiveSession, type LiveView, type StreamHandlers } from "../src/core/live-session";
+import { AGENT_ASKING_MESSAGE, type EndpointResult, type EventStream, LiveSession, type LiveView, type StreamHandlers } from "../src/core/live-session";
 
 const envelope = { protocolVersion: PROTOCOL_VERSION, bridgeInstanceId: "b", sessionId: "s" };
 const state = (extra: Partial<StateResponse> = {}): StateResponse => ({
@@ -21,10 +21,13 @@ class FakeHttp implements BridgeHttp {
 	states: StateResponse[] = [];
 	history = [msg("1", "user", "hello")];
 	sendStatus: "submitted" | "queued" | "fail" = "submitted";
+	/** A bridge refusal of /message: the host's error code and message. */
+	sendRefusal: { code: string; message: string } | null = null;
 	abortStatus: "requested" | "idle" = "requested";
 	calls: string[] = [];
 	pending: ((r: HttpResult) => void) | null = null;
 	holdSend = false;
+	approvalAnswer: HttpResult = { ok: true, status: 200, data: { ...envelope, status: "answered" } };
 
 	async request(method: "GET" | "POST", url: string, _token: string, body?: unknown): Promise<HttpResult> {
 		const path = new URL(url).pathname;
@@ -32,8 +35,9 @@ class FakeHttp implements BridgeHttp {
 		if (path === "/state") return { ok: true, status: 200, data: this.states.length > 1 ? this.states.shift() : this.states[0] };
 		if (path === "/history") return { ok: true, status: 200, data: { ...envelope, messages: this.history } };
 		if (path === "/abort") return { ok: true, status: 202, data: { ...envelope, status: this.abortStatus } };
+		if (path === "/approval") return this.approvalAnswer;
 		if (path === "/message") {
-			const answer: HttpResult =
+			const answer: HttpResult = this.sendRefusal ? { ok: true, status: 503, data: { ...envelope, error: this.sendRefusal } } :
 				this.sendStatus === "fail" ? { ok: false, message: "Connection reset" } : { ok: true, status: 202, data: { ...envelope, status: this.sendStatus } };
 			if (this.holdSend) return new Promise((resolve) => (this.pending = () => resolve(answer)));
 			return answer;
@@ -240,6 +244,34 @@ describe("LiveSession", () => {
 		expect(await session.send("   ")).toMatchObject({ ok: false });
 	});
 
+	it("says the agent is asking in its terminal when the bridge refuses the message for that (build 15 L5)", async () => {
+		await startLive();
+		const interrupted = "Interrupted: the session ended or now asks for the user, so the message was not sent.";
+		http.sendRefusal = { code: "no_session", message: interrupted };
+		expect(await session.send("hola")).toEqual({ ok: false, message: AGENT_ASKING_MESSAGE });
+		expect(view.conversation!.outgoing).toEqual([]);
+		// A truly ended session keeps the host's own words (and so today's wording).
+		http.sendRefusal = { code: "no_session", message: "Session ended." };
+		expect(await session.send("hola")).toEqual({ ok: false, message: "Session ended." });
+		// The same code with another reason, or another code with that text, is not this case.
+		http.sendRefusal = { code: "internal", message: interrupted };
+		expect(await session.send("hola")).toEqual({ ok: false, message: interrupted });
+		http.sendRefusal = null;
+		http.sendStatus = "fail";
+		expect(await session.send("hola")).toEqual({ ok: false, message: "Connection reset" });
+	});
+
+	it("keeps the ended-session wording when the session has ended, even for the interrupted refusal", async () => {
+		await startLive();
+		stream.handlers!.onClose("lost");
+		endpoints.push("gone");
+		await timers.fire(1000);
+		expect(view.phase).toBe("ended");
+		const interrupted = "Interrupted: the session ended or now asks for the user, so the message was not sent.";
+		http.sendRefusal = { code: "no_session", message: interrupted };
+		expect(await session.send("hola")).toEqual({ ok: false, message: interrupted });
+	});
+
 	it("shows a stop as requested until Pi confirms it, and says so when Pi does not react", async () => {
 		await startLive();
 		stream.event({ seq: 11, type: "agent_start" });
@@ -258,5 +290,52 @@ describe("LiveSession", () => {
 		session.dispose();
 		expect(timers.queue).toEqual([]);
 		expect(stream.closedByClient).toBe(1);
+	});
+});
+
+describe("approvals (claude-codex T3b)", () => {
+	const claude = { agent: "claude-code", capabilities: { message: true, steer: false, abort: true, attachments: false, terminal: true, approvals: true } };
+	const ask = { id: "a1", kind: "command", title: "Run tests", detail: "pnpm test", choices: ["accept", "decline"] };
+
+	it("posts the answer to /approval and drops the card on success, before approval_resolved", async () => {
+		http.states = [state({ ...claude, approvals: [ask] } as Partial<StateResponse>)];
+		await startLive();
+		expect(view.conversation!.approvals.map((a) => a.id)).toEqual(["a1"]);
+		expect(await session.answerApproval("a1", "accept")).toEqual({ ok: true });
+		expect(http.calls).toContain('POST /approval {"id":"a1","decision":"accept"}');
+		expect(view.conversation!.approvals).toEqual([]);
+		// The confirmation that follows changes nothing.
+		stream.event({ seq: 11, type: "approval_resolved", id: "a1", decision: "accept" });
+		expect(view.conversation!.approvals).toEqual([]);
+	});
+
+	it("keeps the card and reports a failure; drops it when the bridge says it is no longer pending", async () => {
+		http.states = [state({ ...claude, approvals: [ask] } as Partial<StateResponse>)];
+		await startLive();
+		http.approvalAnswer = { ok: false, message: "Connection reset" };
+		expect(await session.answerApproval("a1", "decline")).toEqual({ ok: false, message: "Connection reset" });
+		expect(view.conversation!.approvals).toHaveLength(1);
+		http.approvalAnswer = { ok: true, status: 404, data: { ...envelope, error: { code: "not_found", message: "No such approval." } } };
+		expect((await session.answerApproval("a1", "decline")).ok).toBe(false);
+		expect(view.conversation!.approvals).toEqual([]);
+	});
+
+	it("never posts a choice that was not offered, or to a bridge without approvals", async () => {
+		http.states = [state({ ...claude, approvals: [ask] } as Partial<StateResponse>)];
+		await startLive();
+		expect((await session.answerApproval("a1", "acceptForSession")).ok).toBe(false);
+		expect((await session.answerApproval("zz", "accept")).ok).toBe(false);
+		expect(http.calls.some((c) => c.startsWith("POST /approval"))).toBe(false);
+	});
+
+	it("follows approval events live and leaves a legacy Pi session without approvals (S5)", async () => {
+		await startLive();
+		expect(view.conversation).toMatchObject({ agent: "pi", approvals: [] });
+		expect((await session.answerApproval("a1", "accept")).ok).toBe(false);
+		expect(http.calls.some((c) => c.startsWith("POST /approval"))).toBe(false);
+		stream.event({ seq: 11, type: "approval_request", ...ask });
+		expect(view.conversation!.approvals.map((a) => a.id)).toEqual(["a1"]);
+		stream.event({ seq: 12, type: "approval_resolved", id: "a1", decision: "decline" });
+		expect(view.conversation!.approvals).toEqual([]);
 	});
 });

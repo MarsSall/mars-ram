@@ -179,9 +179,9 @@ describe("doctor read-only adapters", () => {
 			expect(script).toContain("Get-Acl -LiteralPath");
 			expect(script).not.toContain(home);
 			expect(script).not.toMatch(/Set-Acl|New-Item|Remove-Item/);
-			return JSON.stringify({ owner: "S-1-5-32-544", user: "S-1-5-21-123", grants: ["S-1-5-18", "S-1-5-21-123"] });
+			return JSON.stringify({ user: "S-1-5-21-123", items: [{ owner: "S-1-5-32-544", protected: true, dir: true, reparse: false, rules: [{ sid: "S-1-5-18", rights: 2032127 }, { sid: "S-1-5-21-123", rights: 2032127 }] }] });
 		};
-		expect(await createDoctorAdapter({ home, platform: "win32", io: b.io }).acl()).toEqual({ safe: true, administratorOwner: true });
+		expect(await createDoctorAdapter({ home, platform: "win32", io: b.io, env: {} }).acl()).toEqual({ safe: true, administratorOwner: true, readers: [] });
 		expect(b.calls).toHaveLength(1);
 	});
 	it("runs only tailscale ip -4 and rejects invalid or missing addresses", () => {

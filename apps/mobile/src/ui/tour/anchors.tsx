@@ -16,26 +16,29 @@ export function TourAnchorsProvider({ registry, children }: { registry: TourAnch
 
 export function useTourAnchors(): TourAnchorRegistry | null { return useContext(AnchorsContext); }
 
-/** Props to spread on the control's outer View: `<View {...useTourAnchor("computers.add")}>`. */
-export function useTourAnchor(id: TourAnchorId): Pick<ViewProps, "onLayout" | "onTouchEnd" | "collapsable"> & { ref: (view: ViewRef | null) => void } {
+/**
+ * Props to spread on the control's outer View: `<View {...useTourAnchor("computers.add")}>`. enabled false
+ * keeps the same view but never registers (a screen under another one, or a list's other rows).
+ */
+export function useTourAnchor(id: TourAnchorId, enabled = true): Pick<ViewProps, "onLayout" | "onTouchEnd" | "collapsable"> & { ref: (view: ViewRef | null) => void } {
  const registry = useTourAnchors();
  const view = useRef<ViewRef | null>(null);
  useEffect(() => {
-  if (!registry) return;
+  if (!registry || !enabled) return;
   return registry.register(id, done => {
    const node = view.current;
    if (!node) done({ x: 0, y: 0, width: 0, height: 0 });
    else node.measureInWindow((x, y, width, height) => done({ x, y, width, height }));
   });
- }, [registry, id]);
+ }, [registry, id, enabled]);
  // A control that stays mounted but hides its view (a closed sheet) forgets its rect.
- const ref = useCallback((node: ViewRef | null) => { view.current = node; registry?.measure(id); }, [registry, id]);
+ const ref = useCallback((node: ViewRef | null) => { view.current = node; if (enabled) registry?.measure(id); }, [registry, id, enabled]);
  return {
   ref,
   collapsable: false,
-  onLayout: () => registry?.measure(id),
+  onLayout: () => { if (enabled) registry?.measure(id); },
   // Bubbles up from the real control without taking the touch from it.
-  onTouchEnd: () => registry?.tapped(id),
+  onTouchEnd: () => { if (enabled) registry?.tapped(id); },
  };
 }
 
@@ -43,8 +46,8 @@ export function useTourAnchor(id: TourAnchorId): Pick<ViewProps, "onLayout" | "o
  * Wraps a control that cannot take the props itself. inset: the control's own margins (a Card's, a
  * PrimaryButton's), so the ring hugs it without moving it.
  */
-export function TourAnchor({ id, children, style, inset, onLayout }: { id: TourAnchorId; children: ReactNode; style?: ViewProps["style"]; inset?: { horizontal?: number; vertical?: number }; onLayout?: ViewProps["onLayout"] }) {
- const anchor = useTourAnchor(id);
+export function TourAnchor({ id, children, style, inset, onLayout, enabled = true }: { id: TourAnchorId; children: ReactNode; style?: ViewProps["style"]; inset?: { horizontal?: number; vertical?: number }; onLayout?: ViewProps["onLayout"]; enabled?: boolean }) {
+ const anchor = useTourAnchor(id, enabled);
  const h = inset?.horizontal ?? 0, v = inset?.vertical ?? 0;
  return <View {...anchor} onLayout={event => { anchor.onLayout?.(event); onLayout?.(event); }} style={[{ marginHorizontal: h, marginVertical: v }, style]}>
   {h || v ? <View style={{ marginHorizontal: -h, marginVertical: -v }}>{children}</View> : children}

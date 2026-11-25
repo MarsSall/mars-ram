@@ -91,3 +91,17 @@ it('does not reuse a different program', async () => {
  const { deps } = setup(true);
  expect(await runLaunch(['--repo', '/work/repo', '--program', 'opencode'], deps)).toMatchObject({ reused: false });
 });
+it('starts Claude Code as the fixed literal claude and reuses a pane Herdr reports as claude', async () => {
+ const { deps, calls } = setup();
+ expect(await runLaunch(['--repo', '/work/repo', '--program', 'claude-code'], deps)).toMatchObject({ ok: true, reused: false });
+ expect(calls).toContainEqual(['workspace', 'create', '--cwd', '/work/repo', '--label', 'repo · claude-code', '--no-focus']);
+ expect(calls).toContainEqual(['pane', 'run', 'w2:p1', 'claude']);
+ const reuse = setup(true);
+ const run = reuse.deps.run;
+ reuse.deps.run = async (file, args, options) => {
+  const output = await run(file, args, options);
+  return args[0] === 'pane' && args[1] === 'list' ? output.replace('"agent":"pi"', '"agent":"claude"') : output;
+ };
+ expect(await runLaunch(['--repo', '/work/repo', '--program', 'claude-code'], reuse.deps)).toMatchObject({ ok: true, reused: true, workspace: 'w1' });
+ expect(await runLaunch(['--repo', '/work/repo', '--program', 'claude'], reuse.deps)).toMatchObject({ code: 'PROGRAM_NOT_ALLOWED' });
+});

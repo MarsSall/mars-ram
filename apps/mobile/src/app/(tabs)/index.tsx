@@ -19,6 +19,7 @@ import { AppUpdateNotice } from "../../ui/app-update-notice";
 import { sheetSession, subagentGroups, SubagentsCount, SubagentsCounter, SubagentsGroupedSheet, SubagentsSheet, SubagentsSummary } from "../../ui/subagents";
 import { TourAnchor } from "../../ui/tour/anchors";
 import { useTourScroll } from "../../ui/tour/scroll";
+import { AgentBadge } from "../../ui/agent-badge";
 
 export default function HomeScreen() {
 	const router = useRouter();
@@ -28,7 +29,11 @@ export default function HomeScreen() {
 	// Read again with every session refresh: the user may switch VPNs from the quick settings without leaving the app.
 	const phone = usePhoneNetworkState(data);
 	const [ordered, setOrdered] = useState<SessionGroups>({ computers: [], needsYou: [], groupOrder: {} });
-	const nextOrder = useRef<SessionRefreshReason>("focus");
+	// claude-codex L20: while Home is in view, refreshes never re-sort (a tap must open the card under the finger):
+	// existing cards keep their place, new ones are appended, closed ones removed. The newest-first order is
+	// applied on pull-to-refresh, or when Home is left, so the next visit already shows it in place.
+	const nextOrder = useRef<SessionRefreshReason>("automatic");
+	const latest = useRef(data); latest.current = data;
 	// The session whose subagents sheet is open; the sheet reads it from each refresh (S4).
 	const [subagentsKey, setSubagentsKey] = useState<string | null>(null);
 	const listed = [...ordered.needsYou, ...ordered.computers.flatMap((computer) => computer.sessions)];
@@ -47,9 +52,9 @@ export default function HomeScreen() {
 		if (allGone) setAllOpen(false);
 	}, [allGone]);
 
-	useFocusEffect(useCallback(() => {
-		// Apply explicit ordering to the fresh focus result, not a stale cached snapshot.
-		nextOrder.current = "focus";
+	useFocusEffect(useCallback(() => () => {
+		const shown = latest.current;
+		if (shown) setOrdered((previous) => groupSessions(previous, shown.computers, "focus"));
 	}, []));
 
 	useEffect(() => {
@@ -86,7 +91,7 @@ export default function HomeScreen() {
 			key={session.key}
 			style={{ backgroundColor: cardBackground, paddingVertical: theme.spacing(priority ? 4 : 3) }}
 			onPress={() =>
-				router.push({ pathname: "/session/[id]", params: { id: session.key, project: session.project, cwd: session.cwd, computer: nameOf(session.hostId) } })
+				router.push({ pathname: "/session/[id]", params: { id: session.key, project: session.project, cwd: session.cwd, computer: nameOf(session.hostId), ...(session.agent ? { agent: session.agent } : {}) } })
 			}
 		>
 			<View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: theme.spacing(2) }}>
@@ -98,6 +103,8 @@ export default function HomeScreen() {
 			{priority ? (
 				<Text style={{ color: c.text, fontSize: 16, fontWeight: "700", marginTop: theme.spacing(3), ...titleFont }}>{session.project}</Text>
 			) : <View style={{ marginTop: theme.spacing(1) }}><StatusPill status={session.status} /></View>}
+			{session.agent ? <View style={{ marginTop: theme.spacing(2) }}><AgentBadge agent={session.agent} /></View> : null}
+			{session.approvals?.length ? <Text accessibilityLiveRegion="polite" style={{ color: c.attention, fontSize: 14, fontWeight: "600", marginTop: theme.spacing(2) }}>{t.approvals.pending(session.approvals.length)}</Text> : null}
 			{session.lastMessage ? (
 				<Text numberOfLines={2} style={{ color: priority ? c.text : c.textMuted, fontSize: priority ? 16 : 14, marginTop: theme.spacing(2) }}>
 					{session.lastMessage}

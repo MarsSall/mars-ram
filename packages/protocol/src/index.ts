@@ -4,7 +4,7 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Value } from "typebox/value";
 
-export const PROTOCOL_VERSION = "1.8";
+export const PROTOCOL_VERSION = "1.9";
 
 /** The one value that names the product; change it when the final name is chosen. */
 export const APP_ID = "mars-ram";
@@ -200,6 +200,180 @@ export function boundSubagents(raw: unknown): Subagents {
 	return { available: true, items: kept.slice(0, SUBAGENTS_MAX_ITEMS) };
 }
 
+// ---- Agents and capabilities (since 1.9) ----
+
+/** Since 1.9: which coding agent a bridge serves. Absent means Pi (every bridge before 1.9 is a Pi bridge). */
+export const AgentKind = Type.Union([Type.Literal("pi"), Type.Literal("claude-code"), Type.Literal("codex")]);
+export type AgentKind = Static<typeof AgentKind>;
+
+/**
+ * Since 1.9: what the app may ask of a session. `message` is POST /message, `steer` a message while the
+ * agent runs (answered `queued`), `abort` POST /abort, `attachments` uploads referenced by a message or
+ * terminal text, `terminal` the /terminal routes (still usable only while the state says `terminal: true`),
+ * and `approvals` the approval contract (`approvals` on the state, its events, and POST /approval).
+ */
+export const Capabilities = Type.Object({
+	message: Type.Boolean(),
+	steer: Type.Boolean(),
+	abort: Type.Boolean(),
+	attachments: Type.Boolean(),
+	terminal: Type.Boolean(),
+	approvals: Type.Boolean(),
+});
+export type Capabilities = Static<typeof Capabilities>;
+
+const CAPABILITY_KEYS = ["message", "steer", "abort", "attachments", "terminal", "approvals"] as const satisfies readonly (keyof Capabilities)[];
+
+/**
+ * What a Pi bridge without `capabilities` (every bridge before 1.9) does: messages, steering while busy,
+ * abort, attachments (since 1.2), and the terminal routes (since 1.1, gated by the state's `terminal`).
+ * It has no approval contract.
+ */
+export const LEGACY_PI_CAPABILITIES: Readonly<Capabilities> = Object.freeze({
+	message: true,
+	steer: true,
+	abort: true,
+	attachments: true,
+	terminal: true,
+	approvals: false,
+});
+
+/** What the app assumes of a non-Pi or unknown agent that does not declare a capability: nothing. */
+export const NO_CAPABILITIES: Readonly<Capabilities> = Object.freeze({
+	message: false,
+	steer: false,
+	abort: false,
+	attachments: false,
+	terminal: false,
+	approvals: false,
+});
+
+export type SessionCapabilities = { agent: AgentKind | "unknown"; capabilities: Capabilities };
+
+const isAgentKind = (value: unknown): value is AgentKind => value === "pi" || value === "claude-code" || value === "codex";
+
+/**
+ * The one rule that reads `agent` and `capabilities` from a registry entry or a session state. Never throws.
+ * An absent `agent` is Pi; any other value that is not a known kind is `"unknown"`. Each capability is taken
+ * from `capabilities` when it is a boolean there; otherwise it falls back to `LEGACY_PI_CAPABILITIES` for Pi
+ * and to `NO_CAPABILITIES` for any other agent. Unknown capability keys are ignored.
+ */
+export function sessionCapabilities(raw: { agent?: unknown; capabilities?: unknown } | null | undefined): SessionCapabilities {
+	const source = raw && typeof raw === "object" ? raw : {};
+	const agent: AgentKind | "unknown" = source.agent === undefined ? "pi" : isAgentKind(source.agent) ? source.agent : "unknown";
+	const defaults = agent === "pi" ? LEGACY_PI_CAPABILITIES : NO_CAPABILITIES;
+	const declared = source.capabilities && typeof source.capabilities === "object" && !Array.isArray(source.capabilities)
+		? (source.capabilities as Record<string, unknown>)
+		: {};
+	const capabilities = { ...defaults };
+	for (const key of CAPABILITY_KEYS) {
+		if (!Object.prototype.hasOwnProperty.call(declared, key)) continue;
+		const value = declared[key];
+		if (typeof value === "boolean") capabilities[key] = value;
+	}
+	return { agent, capabilities };
+}
+
+// ---- Approvals (since 1.9) ----
+
+/** Since 1.9: the most pending approvals one state lists, and the longest id, title and detail (in code points). */
+export const APPROVALS_MAX_ITEMS = 8;
+export const APPROVAL_ID_MAX_LENGTH = 128;
+export const APPROVAL_TITLE_MAX_LENGTH = 120;
+export const APPROVAL_DETAIL_MAX_LENGTH = 2000;
+export const APPROVAL_CHOICES_MAX_ITEMS = 4;
+
+export const ApprovalKind = Type.Union([Type.Literal("command"), Type.Literal("file-change"), Type.Literal("permission")]);
+export type ApprovalKind = Static<typeof ApprovalKind>;
+
+export const ApprovalDecision = Type.Union([
+	Type.Literal("accept"),
+	Type.Literal("acceptForSession"),
+	Type.Literal("decline"),
+	Type.Literal("cancel"),
+]);
+export type ApprovalDecision = Static<typeof ApprovalDecision>;
+
+const APPROVAL_DECISIONS = ["accept", "acceptForSession", "decline", "cancel"] as const satisfies readonly ApprovalDecision[];
+const APPROVAL_KINDS = ["command", "file-change", "permission"] as const satisfies readonly ApprovalKind[];
+
+/** No control characters except tab and newline (and those only in `detail`). */
+const ApprovalId = Type.String({ minLength: 1, maxLength: APPROVAL_ID_MAX_LENGTH, pattern: "^[^\\x00-\\x1F\\x7F]+$" });
+
+/**
+ * Since 1.9: something the agent waits for the user to allow. `title` is one line; `detail` is the command,
+ * the changed files, or the permission asked for, as plain text; `choices` are the answers the agent accepts.
+ * `detailTruncated` (optional, additive within 1.9) is true when `detail` is not the whole text: a client must say
+ * so rather than present the cut text as complete. Absent means the detail is whole (or an older bridge).
+ */
+export const ApprovalRequest = Type.Object({
+	id: ApprovalId,
+	kind: ApprovalKind,
+	title: Type.String({ maxLength: APPROVAL_TITLE_MAX_LENGTH }),
+	detail: Type.String({ maxLength: APPROVAL_DETAIL_MAX_LENGTH }),
+	detailTruncated: Type.Optional(Type.Literal(true)),
+	choices: Type.Array(ApprovalDecision, { minItems: 1, maxItems: APPROVAL_CHOICES_MAX_ITEMS, uniqueItems: true }),
+});
+export type ApprovalRequest = Static<typeof ApprovalRequest>;
+
+/** Since 1.9: the body of POST /approval, answered only by bridges that declare `capabilities.approvals`. */
+export const ApprovalAnswer = Type.Object({ id: ApprovalId, decision: ApprovalDecision });
+export type ApprovalAnswer = Static<typeof ApprovalAnswer>;
+
+/** Text without control characters other than newline and tab; CRLF and CR become LF. */
+const plainText = (text: string) => text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
+
+/**
+ * Turns anything into a valid `ApprovalRequest`, or null. Never throws. Needs an id (1–128 characters,
+ * no control characters), a known kind, and at least one known choice; unknown and repeated choices are
+ * dropped and at most 4 kept, in order. `title` becomes one trimmed line cut to 120 code points; `detail`
+ * loses control characters other than newline and tab, is trimmed, and is cut to 2000 code points; a
+ * missing or non-text title or detail is empty. `detailTruncated: true` is set when the detail was cut here, and
+ * kept when the input already says so (cut earlier); any other value of it is dropped.
+ */
+export function boundApproval(raw: unknown): ApprovalRequest | null {
+	if (!raw || typeof raw !== "object") return null;
+	const { id, kind, title, detail, choices, detailTruncated } = raw as Record<string, unknown>;
+	if (typeof id !== "string" || id.length === 0 || id.length > APPROVAL_ID_MAX_LENGTH || /[\x00-\x1F\x7F]/.test(id)) return null;
+	if (!APPROVAL_KINDS.includes(kind as ApprovalKind)) return null;
+	if (!Array.isArray(choices)) return null;
+	const kept: ApprovalDecision[] = [];
+	for (const choice of choices) {
+		if (APPROVAL_DECISIONS.includes(choice as ApprovalDecision) && !kept.includes(choice as ApprovalDecision)) kept.push(choice as ApprovalDecision);
+	}
+	if (kept.length === 0) return null;
+	const whole = typeof detail === "string" ? plainText(detail).trim() : "";
+	const bounded = codePoints(whole, APPROVAL_DETAIL_MAX_LENGTH);
+	const truncated = detailTruncated === true || bounded.length < whole.length;
+	return {
+		id,
+		kind: kind as ApprovalKind,
+		title: typeof title === "string" ? codePoints(oneLine(plainText(title)), APPROVAL_TITLE_MAX_LENGTH) : "",
+		detail: bounded.trimEnd(),
+		...(truncated ? { detailTruncated: true as const } : {}),
+		choices: kept.slice(0, APPROVAL_CHOICES_MAX_ITEMS),
+	};
+}
+
+/**
+ * The one rule that turns anything into the pending approvals of a state, shared by the bridge (before it
+ * publishes) and the app (after it decodes the state). Never throws. Anything but a list is no approvals;
+ * entries `boundApproval` refuses and repeated ids (first wins) are dropped; order is kept, at most 8.
+ */
+export function boundApprovals(raw: unknown): ApprovalRequest[] {
+	if (!Array.isArray(raw)) return [];
+	const seen = new Set<string>();
+	const kept: ApprovalRequest[] = [];
+	for (const item of raw) {
+		const approval = boundApproval(item);
+		if (!approval || seen.has(approval.id)) continue;
+		seen.add(approval.id);
+		kept.push(approval);
+		if (kept.length === APPROVALS_MAX_ITEMS) break;
+	}
+	return kept;
+}
+
 export const ImageInput = Type.Object({ data: Type.String({ minLength: 1 }), mimeType: Type.String({ minLength: 1 }) });
 
 /**
@@ -264,6 +438,18 @@ export const StateResponse = Type.Object({
 	 * which turns anything invalid into `{ available: false, items: [] }`. Absent on older bridges.
 	 */
 	subagents: Type.Optional(Type.Unknown()),
+	/**
+	 * Since 1.9: `AgentKind` and `Capabilities`, deliberately not validated here, so an unknown agent or a
+	 * malformed value never makes the state undecodable: read both only through `sessionCapabilities`.
+	 * Absent means a Pi bridge with `LEGACY_PI_CAPABILITIES`.
+	 */
+	agent: Type.Optional(Type.Unknown()),
+	capabilities: Type.Optional(Type.Unknown()),
+	/**
+	 * Since 1.9: the pending approvals, shaped as `ApprovalRequest[]`, oldest first. Not validated here: read
+	 * them only through `boundApprovals`. Absent on bridges without `capabilities.approvals`.
+	 */
+	approvals: Type.Optional(Type.Unknown()),
 });
 
 export const HistoryResponse = Type.Object({
@@ -368,6 +554,16 @@ export const TerminalFocusResponse = Type.Object({
 });
 export type TerminalFocusResponse = Static<typeof TerminalFocusResponse>;
 
+/**
+ * Since 1.9: POST /approval took the answer to the agent; `approval_resolved` confirms it. An id that is no
+ * longer pending is `not_found`; a decision the request did not offer, or an invalid body, is `bad_request`.
+ */
+export const ApprovalAnswerResponse = Type.Object({
+	...Envelope,
+	status: Type.Literal("answered"),
+});
+export type ApprovalAnswerResponse = Static<typeof ApprovalAnswerResponse>;
+
 // ---- Events ----
 
 const EventBase = { seq: Type.Integer({ minimum: 1 }), at: Type.Number() };
@@ -396,6 +592,10 @@ export const EVENT_SCHEMAS = {
 		attachments: Type.Optional(Type.Integer({ minimum: 0 })),
 	}),
 	abort_requested: event("abort_requested", { wasIdle: Type.Boolean() }),
+	/** Since 1.9: a new pending approval, bounded with `boundApproval` before it is sent. */
+	approval_request: event("approval_request", ApprovalRequest.properties),
+	/** Since 1.9: the approval is no longer pending, answered from the app, the terminal, or by the agent. */
+	approval_resolved: event("approval_resolved", { id: ApprovalId, decision: ApprovalDecision }),
 } as const;
 
 type EventSchemas = typeof EVENT_SCHEMAS;
@@ -422,6 +622,9 @@ export const RegistryEntry = Type.Object({
 	pid: Type.Integer({ minimum: 1 }),
 	cwd: Type.String(),
 	startedAt: Type.Number(),
+	/** Since 1.9: as on the state, read only through `sessionCapabilities`; absent means Pi. */
+	agent: Type.Optional(Type.Unknown()),
+	capabilities: Type.Optional(Type.Unknown()),
 });
 
 export type StateResponse = Static<typeof StateResponse>;
@@ -452,6 +655,7 @@ export function decodeResponse<S extends TSchema>(schema: S, data: unknown): Dec
 }
 
 export const decodeRegistryEntry = (data: unknown) => decodeResponse(RegistryEntry, data);
+export const decodeApprovalAnswer = (data: unknown) => decodeResponse(ApprovalAnswer, data);
 
 export type DecodedEvent =
 	| { kind: "known"; event: BridgeEvent }

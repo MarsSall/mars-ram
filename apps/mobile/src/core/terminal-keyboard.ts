@@ -72,3 +72,42 @@ export function proxyKeyBytes(key: string): Uint8Array | null {
 export function proxyTextBytes(text: string): Uint8Array {
  return new TextEncoder().encode(text.replace(/\r?\n/g, "\r"));
 }
+
+export type ProxyInputPorts = {
+ send(bytes: Uint8Array): void;
+};
+
+/**
+ * The hidden input's events, as terminal bytes, sending each edit once.
+ *
+ * The input is never cleared while it is focused: on Android, TextInput.clear() from
+ * inside onChangeText carries the event count of the previous render and
+ * ReactEditText drops it as stale, so the native text kept growing and every key
+ * resent the whole buffer (a paste, then each later key, repeated the paste).
+ * Each change is instead diffed against the last native text: removed characters
+ * are DEL, added ones are text (a "\n", which is how the multiline input receives
+ * Enter, becomes CR). The screen recreates the input empty on blur and calls reset().
+ */
+export function proxyInput(ports: ProxyInputPorts) {
+ let last = "";
+ return {
+  change(text: string) {
+   const max = Math.min(last.length, text.length);
+   let same = 0;
+   while (same < max && last.charCodeAt(same) === text.charCodeAt(same)) same++;
+   // Never split a surrogate pair (emoji) between the kept and the edited part.
+   if (same > 0 && isHighSurrogate(last.charCodeAt(same - 1))) same--;
+   const removed = Array.from(last.slice(same)).length;
+   const added = text.slice(same);
+   last = text;
+   if (removed) ports.send(new Uint8Array(removed).fill(0x7f));
+   if (added) ports.send(proxyTextBytes(added));
+  },
+  /** onKeyPress (fires before the change). Backspace only reaches the terminal here when the input has nothing to delete. */
+  key(key: string) { if (key === "Backspace" && !last) ports.send(proxyKeyBytes("Backspace")!); },
+  /** The native input was recreated empty. */
+  reset() { last = ""; },
+ };
+}
+
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;

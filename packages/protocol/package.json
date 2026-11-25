@@ -6,7 +6,8 @@
 		".": "./src/index.ts",
         "./session-notice": "./src/session-notice.ts",
         "./private-network": "./src/private-network.ts",
-        "./uploads-folder": "./src/uploads-folder.ts"
+        "./uploads-folder": "./src/uploads-folder.ts",
+        "./bridge-host": "./src/bridge-host/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc -p ."

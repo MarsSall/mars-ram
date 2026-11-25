@@ -1,9 +1,11 @@
 import type { Strings } from "./i18n/en";
+import { AGENT_ASKING_MESSAGE } from "../core/live-session";
 import { FOLDER_REFUSED_PREFIX, FOLDER_UNAVAILABLE_PREFIX, UPDATE_REQUIRED_MESSAGE } from "../core/uploads-folder";
 
 type Labels = Strings["attachments"];
 /** Core errors remain English; never present an untranslated transport error as UI copy. */
 export function attachmentError(message: string, t: Labels): string {
+ if (message === AGENT_ASKING_MESSAGE) return t.agentAsking;
  const large = message.match(/^(.*) is over 25 MB\. Choose a smaller file\.$/s);
  if (large) return t.tooLarge(large[1]!);
  const unreadable = message.match(/^(.*) could not be read\. Please select it again\.$/s);

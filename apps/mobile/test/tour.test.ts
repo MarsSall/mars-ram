@@ -142,10 +142,12 @@ it("keeps what was recorded in memory when the write fails, and never erases a f
  expect(await tour.shouldStartAfterPairing(0)).toBe(false);
 });
 
-it("defines the four first-visit tips with their targets", () => {
- expect(TIP_IDS).toEqual(["terminal", "chatFloating", "projectSheet", "sessionSelector"]);
+it("defines the six first-visit tips with their targets", () => {
+ expect(TIP_IDS).toEqual(["terminal", "chatFloating", "projectSheet", "sessionSelector", "keyBarTab", "approval"]);
  expect(TIPS.terminal.anchors).toEqual(["terminal.chatHandle", "terminal.prefix"]);
  expect(TIPS.chatFloating.anchors).toEqual(["chat.composer"]);
  expect(TIPS.projectSheet.anchors).toEqual(["projectSheet.tabs"]);
  expect(TIPS.sessionSelector.anchors).toEqual(["selector.list"]);
+ expect(TIPS.keyBarTab.anchors).toEqual(["terminal.keyBarTab"]);
+ expect(TIPS.approval.anchors).toEqual(["approvals.first"]);
 });

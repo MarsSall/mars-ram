@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addShortcut, removeShortcut, shortcutLabel, parseRepos, parseLaunch, parseStoredShortcuts } from "../src/core/shortcuts";
+import { addShortcut, removeShortcut, shortcutLabel, parseRepos, parseLaunch, parseStoredShortcuts, isProgram, programNames, PROGRAMS, buildShortcutCommand, shortcutErrorKind } from "../src/core/shortcuts";
 
 const a = { id: "1", computerId: "c", repoPath: "/Work/a", repoName: "a", program: "pi" as const };
 const b = { ...a, id: "2", program: "opencode" as const };
@@ -38,5 +38,29 @@ describe("session shortcuts", () => {
   for (const value of [{ ...valid, tab: "w2:t2" }, { ...valid, reused: "yes" }, { ...valid, other: true }, { ...valid, ok: false }]) expect(() => parseLaunch(json(value))).toThrow();
   expect(parseLaunch(json({ version: 1, ok: false, code: "PROGRAM_NOT_FOUND", message: "missing" })).ok).toBe(false);
   expect(() => parseLaunch("not json")).toThrow();
+ });
+});
+
+describe("Claude Code and Codex shortcuts (claude-codex T3b)", () => {
+ const claude = { ...a, id: "c", program: "claude-code" as const };
+ const codex = { ...a, id: "x", program: "codex" as const };
+ it("knows both programs, by name, in the picker's order", () => {
+  expect(PROGRAMS).toEqual(["gentle-shell", "pi", "opencode", "claude-code", "codex"]);
+  expect(isProgram("claude-code") && isProgram("codex")).toBe(true);
+  expect(isProgram("claude") || isProgram("rex") || isProgram(undefined)).toBe(false);
+  expect(programNames["claude-code"]).toBe("Claude Code");
+  expect(shortcutLabel(codex)).toBe("a · Codex");
+  expect(addShortcut([a], claude)).toEqual([a, claude]);
+ });
+ it("stores and reloads them, and skips only a program this app does not know", () => {
+  expect(parseStoredShortcuts(json({ version: 1, shortcuts: [a, claude, codex] }))).toEqual([a, claude, codex]);
+  expect(parseStoredShortcuts(json({ version: 1, shortcuts: [a, { ...a, id: "r", program: "rex" }, codex] }))).toEqual([a, codex]);
+  // Damage still empties the list.
+  expect(parseStoredShortcuts(json({ version: 1, shortcuts: [a, { ...codex, program: 7 }] }))).toEqual([]);
+  expect(parseStoredShortcuts(json({ version: 1, shortcuts: [a, { ...codex, program: "x\n" }] }))).toEqual([]);
+ });
+ it("launches them by program id, and reads a host that refuses the program as outdated", () => {
+  expect(buildShortcutCommand({ node: "/usr/bin/node", cli: "/opt/mars/main.ts" }, "launch", { repoPath: "/Work/a", program: "claude-code" })).toMatch(/ launch --repo '\/Work\/a' --program claude-code --json$/);
+  expect(shortcutErrorKind("PROGRAM_NOT_ALLOWED")).toBe("hostOutdated");
  });
 });

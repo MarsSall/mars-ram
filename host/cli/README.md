@@ -75,14 +75,14 @@ mars-ram version
 mars-ram version --json
 ```
 
-Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.1.10`); JSON is `{"version":1,"release":"0.1.10"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
+Both are read-only, non-interactive and exit **0**, writing exactly one line. Plain output is the release (for example `0.2.0`); JSON is `{"version":1,"release":"0.2.0"}`. `version` is the envelope format, **not** the release or bridge protocol version. Unknown/extra flags exit **2** with usage.
 
 The release builder embeds `cli/VERSION`; installation preserves it as `~/.mars-ram/cli/VERSION` (`%USERPROFILE%\\.mars-ram\\cli\\VERSION` on Windows). Thus the phone's direct `"<node>" "<cli>/src/main.ts" version --json` sees the installed release, without the npm launcher or environment variables. A checkout without release metadata reports `dev`, never a guessed package version. `install.json`'s existing `version` remains the bridge source hash.
 
 The app requires host **0.1.6**: `version` first shipped in 0.1.4, attachments (`uploads-dir`) and ZeroTier pairing (`pair-zt`) need 0.1.5, and private links and Siempre atento over ZeroTier, and the project browser's refusal of hard links, need 0.1.6. Older hosts without this command remain usable: the app interprets their usage/nonzero exit as a legacy host and shows update instructions rather than failing session discovery. It also checks npm at most daily for a softer optional notice. In the computer's terminal (Linux or Windows), run what the app shows: `mars-ram update` for a host of 0.1.7 or later (`FIRST_HOST_WITH_UPDATE_COMMAND` in `apps/mobile/src/core/host-update.ts`), otherwise the pinned commands, one per line in a normal (not administrator) terminal, for example:
 
 ```text
-pnpm add -g mars-ram@0.1.10
+pnpm add -g mars-ram@0.2.0
 mars-ram install
 ```
 
@@ -240,12 +240,12 @@ Herdr is resolved from the validated `herdr` field in `~/.mars-ram/host.json`, f
 mars-ram repos [--json]
 mars-ram repos --add-root <absolute directory>
 mars-ram repos --remove-root <absolute directory>
-mars-ram launch --repo <absolute repository path> --program <gentle-shell|pi|opencode> [--json]
+mars-ram launch --repo <absolute repository path> --program <gentle-shell|pi|opencode|claude-code|codex> [--json]
 ```
 
 `repos` scans `repoRoots` in `~/.mars-ram/host.json`, defaulting to `~/Work` when the field is absent and that directory exists (`%USERPROFILE%\\Work` on Windows). Root edits are local-interactive only, not SSH operations. A malformed `host.json` is an error (no fallback); `"repoRoots": []` disables discovery. A root that is a symlink is resolved to its target. Discovery stops at repositories, skips directory symlinks below a root, hidden folders and `node_modules`, goes at most three levels below each root and returns at most 500 repos in deterministic order.
 
-`launch` accepts only a current canonical scan result and one of the three installed programs (on PATH or at the path `mars-ram install` recorded, since SSH sessions usually lack the interactive PATH; run `mars-ram install` again after installing a program). It reuses a matching Herdr pane's repo/program or creates a workspace labelled `<repo name> · <program>`, submits the fixed program command and focuses its tab. No arbitrary command or program arguments are accepted. Success returns `{version:1, ok:true, reused, workspace, tab}`; repos returns `{version:1, ok:true, roots, repos:[{path,name,root}], truncated}`. Errors use `{version:1, ok:false, code, message}`, exit 1. JSON is the default even without `--json`.
+`launch` accepts only a current canonical scan result and one of the five installed programs (`claude-code` runs the fixed literal `claude` and reuses a pane Herdr reports as `claude`; `codex` runs the fixed literal `codex` and reuses a pane Herdr reports as `codex`) (on PATH or at the path `mars-ram install` recorded, since SSH sessions usually lack the interactive PATH; run `mars-ram install` again after installing a program). It reuses a matching Herdr pane's repo/program or creates a workspace labelled `<repo name> · <program>`, submits the fixed program command and focuses its tab. No arbitrary command or program arguments are accepted. Success returns `{version:1, ok:true, reused, workspace, tab}`; repos returns `{version:1, ok:true, roots, repos:[{path,name,root}], truncated}`. Errors use `{version:1, ok:false, code, message}`, exit 1. JSON is the default even without `--json`.
 
 See [the command contract and security limits](../../docs/host-cli.md). In particular, Herdr submits the fixed command to the host's shell: trusted shell configuration and repository code are not sandboxed, and submission is not program readiness.
 
@@ -259,7 +259,7 @@ node host/cli/src/main.ts install
 
 For subsequent installs/updates, run `mars-ram install` (run from an updated clone with `node host/cli/src/main.ts install` to install newer checkout code).
 
-Pi must be on `PATH`. On Windows, use a **non-elevated** terminal; installation and removal refuse elevated processes. The launcher resolves supported npm/pnpm `pi.cmd` shims to their Node entry point and runs it directly, without a shell. Unsupported shim layouts produce an error before any changes.
+Pi must be on `PATH` to install the Pi bridge; a computer with only Claude Code or Codex installs just the host copies and the agent hooks (steps 9 and 10). On Windows, use a **non-elevated** terminal; installation and removal refuse elevated processes. The launcher resolves supported npm/pnpm `pi.cmd` shims to their Node entry point and runs it directly, without a shell. Unsupported shim layouts produce an error before any changes.
 
 1. Lists existing `~/.pi/agent` and `~/.gentle-shell/agent` directories separately. It does not create missing Pi environments.
 2. Enter numbers to **exclude**, separated by spaces or commas, or press Enter to select all. Review the remaining paths and explicitly confirm (`s`, `si`, `sí`, `y`, or `yes`). Enter or Ctrl+C cancels without changes.
@@ -294,11 +294,77 @@ Launcher updates are written to an exclusive private temporary file in the launc
 
 8. Removes the attachments folder used by apps before protocol 1.7, `~/.mars-ram/uploads`, so the two locations never coexist. A link is removed as a link, never followed. In a folder, only regular files directly inside (including unfinished `.part` uploads) are deleted, without recursing into subfolders or following links; then the empty folder. It prints `Removed old attachments folder ~/.mars-ram/uploads (attachments now live in <path>).` (Spanish when the system is), or, when folders or links remain inside, that it kept the folder for you to delete. A cleanup failure is reported and does not fail install.
 
+9. **Claude Code hooks**, only when `claude` is on PATH or Claude Code's folder exists (`~/.claude`, or `CLAUDE_CONFIG_DIR` when set to an absolute path): asks `Claude Code found. Add the mars-ram hooks to <settings.json>? [y/N]`; Enter or anything but yes skips it. Accepted, it adds one owned group per event to `hooks` in `settings.json`, keeping every other setting, event, group and handler as read (JSON meaning and key order; whitespace is rewritten with two-space indentation). The handlers run the installed CLI copy with the absolute Node that `host.json` records:
+
+   | Event | Timeout (s) | Purpose |
+   |-------|-------------|---------|
+   | `SessionStart` | 10 | Starts the session's bridge (detached, no window) unless one is running |
+   | `UserPromptSubmit`, `Stop` | 5 | Working / idle |
+   | `Notification` | 5 | `permission_prompt` and `idle_prompt` show the session as needing you |
+   | `SessionEnd` | 5 | The bridge unpublishes and exits |
+   | `PermissionRequest` (`matcher: "*"`) | 600 | Waits for the phone's answer (default 300 s, `approvalTimeoutSeconds` in `host.json`, 10–540) |
+
+   Linux/macOS (shell form, every path single-quoted):
+
+   ```json
+   { "type": "command", "command": "'<node>' --disable-warning=ExperimentalWarning '<home>/.mars-ram/cli/src/main.ts' hook claude Stop", "timeout": 5 }
+   ```
+
+   Windows (exec form: `command` is the real `node.exe`, `args` its arguments, run without a shell, so neither Git Bash nor PowerShell quoting applies):
+
+   ```json
+   { "type": "command", "command": "C:\\Program Files\\nodejs\\node.exe", "args": ["--disable-warning=ExperimentalWarning", "C:\\Users\\<you>\\.mars-ram\\cli\\src\\main.ts", "hook", "claude", "Stop"], "timeout": 5 }
+   ```
+
+   Before changing `settings.json`, the handlers about to be written are recorded in `~/.mars-ram/claude-hooks.json` (`pending`, then `installed`), so an interrupted run is finished by the next install or uninstall. The previous bytes are saved as `settings.json.mars-ram.bak`; the new file is written to a temporary file in the same folder with the original mode (a new file is `0600`) and renamed over it, and only if nobody wrote the file meanwhile (one retry). A linked `settings.json` is edited at its target. Invalid JSON, a non-object, or `hooks` Claude Code could not read is refused without changes. Re-running install changes nothing when the hooks are current; a new Node path replaces the owned group in place. A handler is owned only when it equals, as a whole, one listed in the ownership record or one install generates now; a user's wrapper or a copy with its own timeout or fields is never touched. Hooks run by a Claude Code that is not the interactive terminal CLI (`CLAUDE_CODE_ENTRYPOINT` other than `cli`: the Agent SDK, `claude -p`, harnesses such as Gentle Shell that use Claude as their model engine) do nothing, so those processes never appear as sessions on the phone.
+
+10. **Codex hooks**, only when `codex` is on PATH or Codex's home exists (`~/.codex`, or `CODEX_HOME` when set to an absolute path; on Windows `%USERPROFILE%\.codex`): asks `Codex found. Add the mars-ram hooks to <hooks.json>? [y/N]` after the Claude Code question. Accepted, it adds one owned group per event to `hooks` in `$CODEX_HOME/hooks.json`, keeping the optional top-level `description` and every other event, group and handler as read (same atomic write, `hooks.json.mars-ram.bak` backup, link handling and refusals as step 9; ownership record `~/.mars-ram/codex-hooks.json`). New groups are appended, so foreign hooks keep their positions (Codex keys each hook's trust by its position).
+
+   | Event | Timeout (s) | Purpose |
+   |-------|-------------|---------|
+   | `SessionStart` | 20 | Starts the session's bridge unless one is running (on Windows it first looks up the Codex process, up to 3 s) |
+   | `UserPromptSubmit`, `Stop` | 5 | Working / idle; the prompt and the last reply fill the history when the rollout cannot be read |
+   | `Interrupt` | 3 | The run was stopped (Codex allows 1–3 s) |
+   | `SessionEnd` | 3 | The bridge unpublishes and exits (Codex allows 1–3 s) |
+   | `PermissionRequest` (`matcher: "*"`) | 600 | Waits for the phone's answer (same `approvalTimeoutSeconds` as Claude Code) |
+
+   Codex runs a hook command through a shell: `$SHELL -lc <command>` on Linux and macOS (a login shell, possibly fish), and on Windows `%COMSPEC% /C "<command>"` (cmd.exe), using `commandWindows` when present. Codex does not document the Windows shell; this follows its source (`codex-rs/hooks/src/engine/command_runner.rs`). Linux/macOS (both paths single-quoted; paths containing `'` or `\` are refused, since fish reads them differently inside single quotes):
+
+   ```json
+   { "type": "command", "command": "'<node>' --disable-warning=ExperimentalWarning '<home>/.mars-ram/cli/src/main.ts' hook codex Stop", "timeout": 5 }
+   ```
+
+   Windows (both paths double-quoted for cmd.exe, which receives the line inside one more pair of quotes and strips exactly that pair; paths containing `"`, `%` or `!` are refused because cmd expands them even inside quotes; `command` carries the same line for a Codex without `commandWindows`; a hook shell configured as PowerShell would not run this form):
+
+   ```json
+   { "type": "command", "command": "\"C:\\Program Files\\nodejs\\node.exe\" --disable-warning=ExperimentalWarning \"C:\\Users\\<you>\\.mars-ram\\cli\\src\\main.ts\" hook codex Stop", "commandWindows": "<the same line>", "timeout": 5 }
+   ```
+
+   **Codex runs user hooks only after you trust them**: open Codex, type `/hooks`, review the mars-ram hooks and trust them. Install prints this every time. Codex ties the trust to a hash of each hook, so an update that changes the command (for example a new Node path) needs `/hooks` again; `mars-ram doctor` reports hooks that are not trusted yet.
+
 Run the same command again to update the copy or select additional homes. Previously recorded homes are retained, even when excluded from the new registration selection: they already reference the shared copy and therefore receive its update too. Open Pi sessions load the bridge on their next start or `/reload`. The installed copy does not depend on the development checkout.
 
 Before any installer changes, both install and uninstall refuse symlinks or Windows junctions at `~/.mars-ram`, `pi-bridge`, `link-server`, `cli`, `bin`, `install.json`, `host.json`, `host.tmp`, and installer staging/backup/temporary paths (including old random-name leftovers). The resolved product root must be `<real home>/.mars-ram`. If refused, check those paths and resolve the links yourself; the command does not follow them to delete their targets.
 
-Messages and prompts follow the system language (Spanish or English). No administrator rights, SSH changes, pairing changes, or other agent integrations are involved.
+Messages and prompts follow the system language (Spanish or English). No administrator rights, SSH changes or pairing changes are involved; the only other agent integrations are the Claude Code and Codex hooks of steps 9 and 10, which install asks about first.
+
+### Claude Code sessions (hooks)
+
+`mars-ram hook claude <event>` is what Claude Code runs; people never need it. It reads the hook JSON from stdin, always exits 0 (exit code 2 would block Claude Code) and prints nothing, except the PermissionRequest decision. SessionStart starts `mars-ram bridge claude <config>` detached (`stdio` ignored, no console window; on Windows through WMI, see Codex sessions below), one per Claude Code `session_id` (an exclusive lock in `~/.mars-ram/agents/`), and waits up to 8 s for it (less as soon as it is up). Every other event is forwarded to that bridge on `127.0.0.1` with the bridge's **hook token** from `~/.mars-ram/agents/claude-<session>.json` (0600), separate from the app's registry token; with no bridge the hook ends at once and Claude Code carries on. The prompt text and the last reply are not forwarded.
+
+The bridge publishes a normal registry entry (`agent: "claude-code"`, `capabilities: { message, steer, abort, terminal: <pane present>, attachments: false, approvals: true }`) and serves the same routes as the Pi bridge: state (idle/working from UserPromptSubmit/Stop, the needs-you dialog from Notification and pending approvals), history and events read from the session's `transcript_path` JSONL (user and assistant text, tool calls and results, never thinking or meta lines; the last 8 MB at start, then polled), `POST /message` as one line plus Enter through `herdr pane run <HERDR_PANE_ID>` (line breaks become spaces, control characters are dropped; no images or attachments), `POST /abort` as Escape, the `/terminal` routes for that pane only, and `POST /approval`. A PermissionRequest becomes `approval_request { kind: "command" for Bash, otherwise "permission", title, detail, choices: ["accept", "decline"] }`; the first answer wins and is printed as Claude Code's `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` (decline: `"deny"` with a short message). With no answer before the timeout, or when the hook process goes away, the hook prints nothing and Claude Code shows its own terminal prompt; `approval_resolved` reports `cancel`. The bridge exits on SessionEnd or when the Claude Code process (the hook's parent, past a POSIX shell) is gone.
+
+### Codex sessions (hooks)
+
+`mars-ram hook codex <event>` is what Codex runs; it behaves like the Claude Code hook (always exit 0, prints only the PermissionRequest decision, ends at once without a bridge) and shares its code (`agent-hook-client.ts`, `agent-bridge.ts`). SessionStart starts `mars-ram bridge codex <config>` detached, one per Codex `session_id`, with the hook token in `~/.mars-ram/agents/codex-<session>.json` (0600). SessionEnd and Interrupt give the bridge 1.2 s, inside Codex's 1–3 s limit. Unlike Claude Code, the prompt and the last reply are forwarded (cut to 64 KB) over the loopback hook channel: they are the history when Codex reports no rollout.
+
+The bridge publishes `agent: "codex"` with the same capabilities as Claude Code (message, steer, abort and terminal only with `HERDR_PANE_ID`; attachments false; approvals true). The conversation comes from Codex's rollout JSONL at `transcript_path` (`~/.codex/sessions/…`), read tolerantly because Codex says the format is not stable: `response_item` messages (user prompts without Codex's injected `<environment_context>`/AGENTS.md blocks; assistant text with the model from `turn_context`), tool calls (`function_call`, `custom_tool_call`, `local_shell_call`) and their outputs, and `turn_aborted` as an interrupt; every other line is ignored. When `transcript_path` is null or not a `.jsonl` path, the UserPromptSubmit prompt and the Stop `last_assistant_message` become the history at once; when the rollout yields no message at all, they are added 2 s after the turn. A PermissionRequest becomes `approval_request { kind: "command" for Bash/shell and apply_patch with `tool_input.command` as detail, otherwise "permission"; choices accept/decline }`, answered as `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` (or `"deny"` with a message), never with `updatedInput`, `updatedPermissions` or `interrupt`; no answer in time prints nothing and Codex asks as usual. The bridge exits on SessionEnd or when the Codex process is gone: on Linux the hook's parent past the login shell; on Windows the parent of the `cmd.exe` Codex ran the hook with (read with one PowerShell CIM query; if that fails, only SessionEnd ends the bridge); on macOS only SessionEnd.
+
+**Starting bridges on Windows.** Codex runs its hooks on Windows inside a Job Object that kills the processes in it when the hook ends, so a detached child of the hook dies with it. On Windows both hooks (Claude Code and Codex) therefore create the bridge through WMI (`Win32_Process.Create` with a hidden window, through `powershell.exe -NoProfile -NonInteractive` and `Invoke-CimMethod`, up to 6 s): the WMI provider starts it outside the hook's job. The command line is the same `"<node>" --disable-warning=ExperimentalWarning "<cli>\src\main.ts" bridge <agent> <config>`, with both paths double-quoted and the same path rules as the Codex hook (absolute; no `"`, `%`, `!`, control characters or trailing backslash); it reaches PowerShell in an environment variable, never inside the script. A WMI-created process gets the user's default environment, not the hook's, so the config also carries the variables the bridge reads: `HERDR_PANE_ID`, `HERDR_BIN_PATH`, `HERDR_SOCKET_PATH`, `HERDR_CONFIG_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` and `PI_BRIDGE_REGISTRY_DIR` (only those, bounded single-line values). When WMI fails or a path does not fit, the hook falls back to the detached spawn. Linux and macOS keep the detached spawn.
+
+**Ending bridges.** A bridge removes its registry entry, hook control record and lock when it stops (SessionEnd, the agent process gone, a signal, or an orderly exit), retrying briefly while Windows reports a file busy. A process killed from outside (a job closing, Task Manager, `taskkill /F`) runs no handler on Windows, so every SessionStart and SessionEnd hook also removes the registry entries and control records of bridges whose process no longer runs.
+
+**Diagnostic log.** Every hook run with a valid session, every bridge start and every bridge exit appends one line to `~/.mars-ram/logs/agent-hooks.log` (`%USERPROFILE%\.mars-ram\logs\agent-hooks.log`): time, agent, event, outcome (for example `bridge-ready`, `bridge-not-ready`, `forwarded`, `no-bridge`, `decision-allow`, `started`, `session-end`, `agent-gone`), the process id, the bridge's process id, how a new bridge was started (`wmi` or `spawn`) and a one-line error with paths and token-like text replaced. It never holds prompts, replies, transcript paths, tokens or tool input. Past 256 KB it is renamed to `agent-hooks.log.1`. Writing it never fails a hook.
 
 ## uninstall
 
@@ -306,7 +372,7 @@ Messages and prompts follow the system language (Spanish or English). No adminis
 mars-ram uninstall
 ```
 
-Removes the CLI copy/staging/backup and the recorded launcher only if its ownership marker remains. On Windows, removes only the last exact occurrence of the entry confirmed as added by install from the raw user Path (install always appends), preserving any earlier duplicates, empty components, other entries and the value type; an already-present entry is never adopted or removed. Open a new terminal after removal. The bin directory itself is retained, as it may contain other user files. Run from the npm package, uninstall removes what install wrote and leaves the package itself: it prints that `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`) removes it.
+First removes the owned Claude Code hooks from `settings.json` and the owned Codex hooks from `hooks.json` (same atomic write and backup; foreign hooks and Codex's `description` are kept), with `~/.mars-ram/claude-hooks.json` and `~/.mars-ram/codex-hooks.json`. Then removes the CLI copy/staging/backup and the recorded launcher only if its ownership marker remains. On Windows, removes only the last exact occurrence of the entry confirmed as added by install from the raw user Path (install always appends), preserving any earlier duplicates, empty components, other entries and the value type; an already-present entry is never adopted or removed. Open a new terminal after removal. The bin directory itself is retained, as it may contain other user files. Run from the npm package, uninstall removes what install wrote and leaves the package itself: it prints that `pnpm remove -g mars-ram` (or `npm uninstall -g mars-ram`) removes it.
 
 Shows only the completed and pending homes recorded in `~/.mars-ram/install.json` and asks for confirmation. Checks each home's settings first, runs `pi remove <copy>` only when that registration is still present, and drops successfully handled homes from the record. It never removes unrecorded registrations. After all recorded homes are handled, it deletes `~/.mars-ram/pi-bridge/`, `~/.mars-ram/link-server/`, `~/.mars-ram/install.json`, and the fixed installer staging/backup/temporary leftovers. It removes `herdr`, `node`, `cli`, `linkServer` and `linkPort` from `host.json`, preserving unrelated fields; an empty host record is deleted. With no state file, uninstall still recovers and cleans those installer-owned paths without running Pi. Other Pi homes, the bridges registry, paired phones, and everything under `~/.ssh/` are untouched. Attachments are removed the same safe way as in install step 8: the legacy `~/.mars-ram/uploads`, and the private temp folder (`uploads`, then its `mars-ram-<uid>` parent if empty) only when it still passes the path policy; a folder that fails it is kept and reported. **`~/.mars-ram/links` is retained as user data:** T2 does not specify deleting that store on uninstall.
 
@@ -326,7 +392,9 @@ Read-only diagnostics: no prompts, writes, pruning, installation, service change
 |-------|-------------------------------|
 | CLI command/copy | Looks up `mars-ram` on PATH without running it; of what it finds, it reads only the installer's own launcher, for its ownership marker. Installed from a clone or the curl script, checks that it resolves to the marked installed launcher; any other `mars-ram` warns. When `install.json` records `packageBin` (installed from the package), doctor does not guess what the command is: it prints its path as information (`ok: mars-ram on PATH: <path>`), warns `mars-ram is not on PATH.` (open a new terminal or check the pnpm/npm install, `pnpm setup`) when there is none, and warns `mars-ram on PATH is the old launcher from mars-ram install;` (run `mars-ram install` again to retire it) only when it resolves to the installer's own launcher with the ownership marker; `~/.local/bin` is not checked. Doctor also compares the CLI/protocol/typebox/uqr copy against the invoking source (an updated clone is needed to detect newer code). Also requires `host.json`'s `cli` to name the exact existing installed entry; missing/invalid config makes the copy check warn to reinstall. On Linux also reports whether `~/.local/bin` is on PATH, with fish and bash/zsh advice. No registry writes. Shell aliases/functions are not observable through filesystem PATH lookup. |
 | Herdr | Reads `~/.mars-ram/host.json` without executing Herdr. An absolute safe path to an existing executable regular file named exactly `herdr` or `herdr.exe` is ok. Missing, invalid, non-executable or moved files warn to install Herdr and run `mars-ram install` again. |
-| Pi | Pi on `PATH` and `pi --version`. Missing is a problem; older than **1.2.0**, or an unrecognized version, is a warning because the bridge needs `getSettings`. |
+| Pi | Pi on `PATH` and `pi --version`. Missing is a problem (a warning when Claude Code or Codex is on this computer: only their sessions can be followed then); older than **1.2.0**, or an unrecognized version, is a warning because the bridge needs `getSettings`. |
+| Claude Code hooks | Only when `claude` is on PATH or its configuration folder exists: reads `settings.json` and reports the events with an owned handler. All six, matching the current Node and CLI entry, is ok; none, some, or an older command warns to run `mars-ram install`; an unreadable file warns. Nothing is run or changed. |
+| Codex hooks | Only when `codex` is on PATH or Codex's home exists: reads `hooks.json` and reports the events with an owned handler (all six, current: ok; otherwise a warning to run `mars-ram install`). Then reads Codex's `config.toml` (`[hooks.state."<hooks.json path>:<event>:<group>:<handler>"]`) for each owned hook: trusted is ok; no recorded trust warns that Codex does not run it until trusted with `/hooks`; `enabled = false` warns that it is turned off. Codex's trust hash is not recomputed, so a hook trusted for an older command still shows as trusted (Codex would ask again in `/hooks`); when config.toml cannot be read, a note says trust is unknown. Nothing is run or changed. |
 | Bridge installed | `~/.mars-ram/install.json`, then `settings.json` in **every existing** plain Pi and Gentle Shell home, including relative and object `packages` entries resolving to the copy. Missing registration or state warns to run `mars-ram install`. |
 | Copy freshness | SHA-256 comparisons of the installed bridge, protocol and typebox against current checkout/dependency bytes. A missing or changed copy warns to re-run install; doctor does not build a replacement. |
 | Bridge loaded | Registry JSON in `~/.mars-ram/bridges` and PID liveness. Shows a live count; warns about zero live sessions and stale/invalid entries. Stale entries are pruned by the **next bridge start**, not doctor. Tokens are never printed. |
@@ -409,5 +477,7 @@ What the SHA-256 protects: the value written into the launcher detects a damaged
 | `src/adapters/` | Tailscale, identity, authorized keys, HTTP endpoint, terminal, filesystem copy and shell-free Pi execution |
 | `src/core/update.ts`, `src/adapters/update.ts`, `src/update-command.ts` | `mars-ram update`: manager and failure policy; package location, shell-free manager runs and the Windows window; wiring |
 | `src/arguments.ts`, `src/main.ts`, `src/install-command.ts`, `src/doctor-command.ts` | Strict argument parsing, interactive selection, diagnostic output and wiring |
+| `src/core/agent-session.ts`, `src/core/agent-hooks.ts`, `src/core/claude-hooks.ts`, `src/core/claude-transcript.ts`, `src/core/codex-hooks.ts`, `src/core/codex-rollout.ts` | Hook-driven agent bridge core (event log, state, history, approvals), shared hook entries and PermissionRequest answer, Claude Code and Codex hook meaning, owned entries and trust, transcript and rollout lines |
+| `src/adapters/agent-bridge.ts`, `src/adapters/agent-hook-client.ts`, `src/adapters/agent-hook-file.ts`, `src/adapters/claude-*.ts`, `src/adapters/codex-*.ts`, `src/adapters/transcript-tail.ts`, `src/hook-command.ts` | Shared bridge process, hook process and hook-file editor, their Claude Code and Codex specs, transcript polling, and their wiring |
 | `scripts/build-release.ts`, `scripts/install.sh`, `scripts/install.ps1` | Release archive builder and the one-line installer templates it renders (not part of the installed copy) |
 | `npm/mars-ram.mjs`, `npm/README.md` | npm package launcher and README templates rendered by the builder |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkPi, checkUploads, checkInstallation, checkRegistry, checkPermissions, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkWindows, diagnose, type DoctorPorts } from "../../src/core/doctor.ts";
-import { parseForwarding, pairingKeysAllowForwarding, parseWindowsAcl, parseDefaultShell, parseSshService } from "../../src/adapters/doctor.ts";
+import { checkClaudeHooks, checkPi, checkUploads, checkInstallation, checkRegistry, checkPermissions, checkLinkServer, checkTailscale, checkZeroTier, checkFirewall, checkForwarding, checkWindows, diagnose, type DoctorPorts } from "../../src/core/doctor.ts";
+import { parseForwarding, pairingKeysAllowForwarding, judgeWindowsAcl, parseDefaultShell, parseSshService } from "../../src/adapters/doctor.ts";
 import { parseArguments } from "../../src/arguments.ts";
 import { doctorCommand } from "../../src/doctor-command.ts";
 
@@ -140,6 +140,13 @@ describe("read-only doctor policy with fake ports", () => {
 	it("checks Windows ACL and warns about the L9 administrator owner", async () => {
 		expect(statuses(await checkPermissions(fake({ platform: "win32", acl: async () => ({ safe: false, administratorOwner: true }) })))).toEqual(["problem", "warning"]);
 		expect(statuses(await checkPermissions(fake({ platform: "win32" })))).toEqual(["ok"]);
+	});
+	it("warns, without failing doctor, when other accounts can only read the Mars-RAM root; unsafe stays a problem", async () => {
+		const readable = fake({ platform: "win32", acl: async () => ({ safe: true, administratorOwner: false, readers: ["MARS\\CodexSandboxUsers"] }) });
+		expect(await checkPermissions(readable)).toEqual([expect.objectContaining({ status: "warning", finding: expect.stringContaining("MARS\\CodexSandboxUsers, added by Codex's sandbox") })]);
+		expect((await diagnose(readable)).code).toBe(0);
+		// Readers never soften an unsafe result.
+		expect(statuses(await checkPermissions(fake({ platform: "win32", acl: async () => ({ safe: false, administratorOwner: false, readers: ["MARS\\CodexSandboxUsers"] }) })))).toEqual(["problem"]);
 	});
 	it("reports unavailable Tailscale", async () => {
 		expect(statuses(await checkTailscale(fake({ tailscale: async () => { throw Error("offline"); } })))).toEqual(["problem"]);
@@ -283,10 +290,28 @@ describe("platform parsing", () => {
 		expect(pairingKeysAllowForwarding('# restrict ssh-ed25519 AAA mars-ram:phone')).toBe(true);
 	});
 	it("uses SIDs instead of localized ACL names and rejects unknown owners and grants", () => {
-		const acl = { owner: "S-1-5-32-544", user: "S-1-5-21-123", grants: ["S-1-5-18", "S-1-5-32-544", "S-1-5-21-123"] };
-		expect(parseWindowsAcl(acl)).toEqual({ safe: true, administratorOwner: true });
-		expect(parseWindowsAcl({ ...acl, grants: [...acl.grants, "S-1-1-0"] }).safe).toBe(false);
-		expect(parseWindowsAcl({ ...acl, owner: "S-1-1-0" }).safe).toBe(false);
+		const user = "S-1-5-21-123";
+		const acl = { owner: "S-1-5-32-544", protected: true, dir: true, reparse: false, rules: ["S-1-5-18", "S-1-5-32-544", user].map((sid) => ({ sid, rights: 2032127 })) };
+		expect(judgeWindowsAcl(user, acl, [acl], [acl])).toEqual({ safe: true, administratorOwner: true, readers: [] });
+		const everyone = { ...acl, rules: [...acl.rules, { sid: "S-1-1-0", rights: 2032127 }] };
+		expect(judgeWindowsAcl(user, everyone, [acl], []).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [everyone], []).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [], [everyone]).safe).toBe(false);
+		expect(judgeWindowsAcl(user, { ...acl, owner: "S-1-1-0" }, [], []).safe).toBe(false);
+		// Malformed observations are unsafe, never trusted.
+		expect(judgeWindowsAcl("", acl, [], []).safe).toBe(false);
+		expect(judgeWindowsAcl(user, { error: true }, [], []).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [{ error: true }], []).safe).toBe(false);
+		expect(judgeWindowsAcl(user, { ...acl, rules: [{ sid: user, rights: -1 }] }, [], []).safe).toBe(false);
+		// A reparse point, an item without its type, or a missing/error marker mixed into an ACL is unsafe.
+		expect(judgeWindowsAcl(user, acl, [], [{ ...acl, reparse: true }]).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [], [{ owner: acl.owner, protected: true, rules: acl.rules }]).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [], [{ ...acl, missing: true }]).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [], [{ ...acl, error: true }]).safe).toBe(false);
+		// A registry folder outside the root must be private and protected.
+		expect(judgeWindowsAcl(user, acl, [], [], [acl]).safe).toBe(true);
+		expect(judgeWindowsAcl(user, acl, [], [], [{ ...acl, protected: false }]).safe).toBe(false);
+		expect(judgeWindowsAcl(user, acl, [], [], [everyone]).safe).toBe(false);
 	});
 	it("recognizes a running sshd and classifies actual shell executables", () => {
 		expect(parseSshService("STATE : 4 RUNNING")).toBe(true);
@@ -297,5 +322,26 @@ describe("platform parsing", () => {
 		expect(parseDefaultShell('')).toBe("cmd");
 		expect(parseDefaultShell('DefaultShell REG_SZ C:\\tools\\nu.exe')).toBe("other");
 		expect(parseDefaultShell('unrecognized output')).toBe("other");
+	});
+});
+
+describe("doctor Claude Code hooks", () => {
+	const all = ["SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd", "PermissionRequest"];
+	it("says nothing without Claude Code or without the port", async () => {
+		expect(await checkClaudeHooks(fake())).toEqual([]);
+		expect(await checkClaudeHooks(fake({ claudeHooks: async () => ({ detected: false, readable: true, registered: [], current: false }) }))).toEqual([]);
+	});
+	it("reports registered, missing, outdated and unreadable hooks with the fix", async () => {
+		const check = (state: { readable: boolean; registered: string[]; current: boolean }) => checkClaudeHooks(fake({ claudeHooks: async () => ({ detected: true, ...state }) }));
+		expect(await check({ readable: true, registered: all, current: true })).toEqual([{ status: "ok", finding: `Claude Code hooks registered: ${all.join(", ")}.` }]);
+		expect(await check({ readable: true, registered: [], current: false })).toMatchObject([{ status: "warning", finding: expect.stringMatching(/not installed/), fix: expect.stringMatching(/mars-ram install/) }]);
+		expect(await check({ readable: true, registered: ["Stop"], current: false })).toMatchObject([{ status: "warning", finding: expect.stringMatching(/outdated or incomplete \(Stop\)/) }]);
+		expect(await check({ readable: false, registered: [], current: false })).toMatchObject([{ status: "warning", finding: expect.stringMatching(/could not be read/) }]);
+	});
+	it("Pi missing is only a warning when Claude Code is what this computer runs", async () => {
+		const noPi = { piVersion: async () => { throw new Error("missing"); } };
+		expect(statuses(await checkPi(fake(noPi)))).toEqual(["problem"]);
+		expect(await checkPi(fake({ ...noPi, claudeHooks: async () => ({ detected: true, readable: true, registered: all, current: true }) }))).toMatchObject([{ status: "warning", finding: expect.stringMatching(/only Claude Code/) }]);
+		expect((await diagnose(fake({ ...noPi, claudeHooks: async () => ({ detected: true, readable: true, registered: all, current: true }) }))).code).toBe(0);
 	});
 });

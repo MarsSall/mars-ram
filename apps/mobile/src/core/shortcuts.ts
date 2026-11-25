@@ -5,14 +5,16 @@ import type { HostConnection } from "./ports";
 import type { KeyCommandConfig } from "./key-security";
 import { buildHerdrCommand } from "./herdr-switcher";
 import { readHostRecord } from "./host-record";
-export type Program = "gentle-shell" | "pi" | "opencode";
+export type Program = "gentle-shell" | "pi" | "opencode" | "claude-code" | "codex";
+/** In the order the picker offers them. */
+export const PROGRAMS: readonly Program[] = ["gentle-shell", "pi", "opencode", "claude-code", "codex"];
 export type Shortcut = { id: string; computerId: string; repoPath: string; repoName: string; program: Program };
 export type Repo = { path: string; name: string; root: string };
 export type ShortcutError = { version: 1; ok: false; code: string; message: string };
 export type ReposResponse = { version: 1; ok: true; roots: string[]; repos: Repo[]; truncated: boolean } | ShortcutError;
 export type LaunchResponse = { version: 1; ok: true; reused: boolean; workspace: string; tab: string } | ShortcutError;
-export const isProgram = (v: unknown): v is Program => v === "gentle-shell" || v === "pi" || v === "opencode";
-export const programNames: Record<Program, string> = { "gentle-shell": "Gentle Shell", pi: "Pi", opencode: "OpenCode" };
+export const isProgram = (v: unknown): v is Program => (PROGRAMS as readonly unknown[]).includes(v);
+export const programNames: Record<Program, string> = { "gentle-shell": "Gentle Shell", pi: "Pi", opencode: "OpenCode", "claude-code": "Claude Code", codex: "Codex" };
 export const shortcutLabel = (v: Shortcut) => `${v.repoName} · ${programNames[v.program]}`;
 export const SHORTCUT_LIMIT = 500;
 export function addShortcut(rows: readonly Shortcut[], item: Shortcut): Shortcut[] {
@@ -30,14 +32,16 @@ export function parseStoredShortcuts(raw: string): Shortcut[] {
  try {
   const value: unknown = JSON.parse(raw);
   if (!object(value) || !keys(value, ["version", "shortcuts"]) || value.version !== 1 || !Array.isArray(value.shortcuts)) return [];
-  const ids = new Set<string>(); const identities = new Set<string>();
+  const ids = new Set<string>(); const identities = new Set<string>(); const kept: Shortcut[] = [];
   for (const row of value.shortcuts) {
-   if (!object(row) || !keys(row, ["id", "computerId", "repoPath", "repoName", "program"]) || !text(row.id, 256) || !text(row.computerId, 256) || !absolute(row.repoPath) || !text(row.repoName, 1024) || !isProgram(row.program)) return [];
+   if (!object(row) || !keys(row, ["id", "computerId", "repoPath", "repoName", "program"]) || !text(row.id, 256) || !text(row.computerId, 256) || !absolute(row.repoPath) || !text(row.repoName, 1024) || !text(row.program, 64)) return [];
    const identity = JSON.stringify([row.computerId, row.repoPath, row.program]);
    if (ids.has(row.id) || identities.has(identity)) return [];
    ids.add(row.id); identities.add(identity);
+   // A program this app does not know (saved by a newer app) skips that one shortcut, never the whole list.
+   if (isProgram(row.program)) kept.push(row as Shortcut);
   }
-  return value.shortcuts as Shortcut[];
+  return kept;
  } catch { return []; }
 }
 const codes = ["BAD_ARGUMENT", "PROGRAM_NOT_ALLOWED", "PROGRAM_NOT_FOUND", "REPO_NOT_ALLOWED", "HERDR_UNAVAILABLE", "CONFIG_FAILED", "LOCAL_ONLY"];
@@ -59,7 +63,8 @@ export function parseRepos(stdout: string): ReposResponse {
 export const shortcutInitialStep = (computers: number): "computer" | "repo" => computers === 1 ? "repo" : "computer";
 export function shortcutErrorKind(code: string): "programMissing" | "repoUnavailable" | "herdrUnavailable" | "hostOutdated" | "storageFailed" | "locked" | "failed" {
  if (code === "STORAGE_FAILED") return "storageFailed";
- if (code === "HOST_OUTDATED") return "hostOutdated";
+ // A host older than the program (claude-code and codex arrived after 0.1.x) refuses it as not allowed.
+ if (code === "HOST_OUTDATED" || code === "PROGRAM_NOT_ALLOWED") return "hostOutdated";
  if (code === "PROGRAM_NOT_FOUND") return "programMissing";
  if (code === "REPO_NOT_ALLOWED") return "repoUnavailable";
  if (code === "HERDR_UNAVAILABLE") return "herdrUnavailable";

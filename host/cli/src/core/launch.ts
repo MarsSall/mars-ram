@@ -1,10 +1,10 @@
 import type { ProcessRunner } from './herdr-switcher.ts';
 import { allowedRepo, type RepoFiles } from './repos.ts';
-export const PROGRAMS = { 'gentle-shell': 'gentle-shell', pi: 'pi', opencode: 'opencode' } as const;
+export const PROGRAMS = { 'gentle-shell': 'gentle-shell', pi: 'pi', opencode: 'opencode', 'claude-code': 'claude', codex: 'codex' } as const;
 export type Program = keyof typeof PROGRAMS;
 export type ShortcutCode = 'BAD_ARGUMENT' | 'PROGRAM_NOT_ALLOWED' | 'PROGRAM_NOT_FOUND' | 'REPO_NOT_ALLOWED' | 'HERDR_UNAVAILABLE' | 'CONFIG_FAILED' | 'LOCAL_ONLY';
 const messages: Record<ShortcutCode, string> = {
- BAD_ARGUMENT: 'Expected repos [--json] [--add-root <dir>|--remove-root <dir>] or launch --repo <absolute path> --program <gentle-shell|pi|opencode> [--json].',
+ BAD_ARGUMENT: 'Expected repos [--json] [--add-root <dir>|--remove-root <dir>] or launch --repo <absolute path> --program <gentle-shell|pi|opencode|claude-code|codex> [--json].',
  PROGRAM_NOT_ALLOWED: 'The program is not allowed.', PROGRAM_NOT_FOUND: 'The program was not found. After installing it, run mars-ram install in a terminal on the computer.',
  REPO_NOT_ALLOWED: 'The repository is not in the configured repository scan.', HERDR_UNAVAILABLE: 'Herdr did not complete the operation.',
  CONFIG_FAILED: 'Repository configuration could not be read or saved.', LOCAL_ONLY: 'Edit repository roots from an interactive terminal on the computer, not over SSH.',
@@ -62,7 +62,7 @@ export async function runLaunch(args: string[], deps: LaunchDeps) {
     const segments = a.split(/[\\/]/);
     return segments.includes('.gentle-shell') || ['gentle-shell', 'gentle-pi'].includes(segments.at(-1) ?? '');
    });
-   const detected = gentle ? 'gentle-shell' : p.agent === 'pi' ? 'pi' : p.agent === 'opencode' ? 'opencode' : undefined;
+   const detected = gentle ? 'gentle-shell' : p.agent === 'pi' ? 'pi' : p.agent === 'opencode' ? 'opencode' : p.agent === 'claude' || p.agent === 'claude-code' ? 'claude-code' : p.agent === 'codex' ? 'codex' : undefined;
    if (detected === kind && info.foreground_processes.length > 0) return await focus(w, p.tab_id, true);
   }
   // Revalidate immediately before creating; a host-side rename race is not a sandbox guarantee.
